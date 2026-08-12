@@ -133,29 +133,37 @@ ssh -o BatchMode=yes prosello 'echo ok'
 
 ### 3. El docroot, vacío
 
-Hostinger deja un `default.php` de bienvenida que hay que quitar:
+Hostinger deja un `default.php` de bienvenida que hay que quitar.
+
+> **Nunca escribas `~` sin comillas en la parte remota de un `scp` o un `ssh`.**
+> Git Bash lo expande **en tu máquina** antes de mandarlo, y el comando acaba
+> apuntando a `C:\Users\<tú>\domains\...`, que no existe. Por eso todos los
+> comandos de aquí cargan `deploy/config.sh` y usan sus rutas absolutas.
 
 ```bash
-ssh prosello 'rm -f ~/domains/prosello.com.mx/public_html/default.php'
+. deploy/config.sh
+ssh "$SSH_ALIAS" "rm -f '$REMOTE_DOCROOT/default.php'"
 ```
 
 ### 4. Los cuatro archivos que se suben una sola vez
 
 ```bash
-scp deploy/hostinger/index.php   prosello:~/domains/prosello.com.mx/public_html/index.php
-scp deploy/hostinger/robots.txt  prosello:~/domains/prosello.com.mx/public_html/robots.txt
-scp deploy/hostinger/htaccess-public_html \
-                                 prosello:~/domains/prosello.com.mx/public_html/.htaccess
+. deploy/config.sh
+scp deploy/hostinger/index.php            "$SSH_ALIAS:$REMOTE_DOCROOT/index.php"
+scp deploy/hostinger/robots.txt           "$SSH_ALIAS:$REMOTE_DOCROOT/robots.txt"
+scp deploy/hostinger/htaccess-public_html "$SSH_ALIAS:$REMOTE_DOCROOT/.htaccess"
 ```
 
 Ojo con el tercero: cambia de nombre al llegar (`.htaccess`, con punto).
 
-Y el `.env`, que es el único con secretos. Se crea **en el servidor**, nunca se
-sube desde local:
+Y el `.env`, que es el único con secretos. Se sube la plantilla y se rellena
+**en el servidor**, para que los valores reales no pasen nunca por un archivo
+local:
 
 ```bash
-scp deploy/hostinger/env.production.example prosello:~/domains/prosello.com.mx/facturacion/.env
-ssh prosello   # y ahí: nano ~/domains/prosello.com.mx/facturacion/.env
+. deploy/config.sh
+scp deploy/hostinger/env.production.example "$SSH_ALIAS:$REMOTE_APP/.env"
+ssh "$SSH_ALIAS" -t "nano '$REMOTE_APP/.env'"
 ```
 
 Rellena los `<...>` con los valores reales de hPanel.
