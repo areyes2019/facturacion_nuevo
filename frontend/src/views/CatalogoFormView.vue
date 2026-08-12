@@ -1,13 +1,29 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useCatalogosStore, type CatalogoPayload } from '../stores/catalogos'
+import { useCatalogosStore, type CatalogoPayload, type ImpactoArticulo } from '../stores/catalogos'
 import { extractErrorMessage, extractFieldErrors } from '../lib/errors'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
 import { Alert, AlertDescription } from '../components/ui/alert'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../components/ui/table'
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '../components/ui/dialog'
 import ProveedorSelect from '../components/ProveedorSelect.vue'
 import AppLayout from '../layouts/AppLayout.vue'
 
@@ -44,6 +60,28 @@ const guardando = ref(false)
 const errorGeneral = ref<string | null>(null)
 const erroresPorCampo = ref<Record<string, string>>({})
 
+/**
+ * Aumento porcentual del costo (ver 021-mantenimiento-articulos-catalogos.md). No forma parte del
+ * guardado del catálogo: es una acción aparte, con su propia confirmación.
+ */
+const MAXIMO_AUMENTO = 100
+
+const aumento = ref('')
+const articulosCount = ref(0)
+const impacto = ref<ImpactoArticulo[] | null>(null)
+const cargandoImpacto = ref(false)
+const mostrarConfirmarAumento = ref(false)
+const aplicandoAumento = ref(false)
+const errorAumento = ref<string | null>(null)
+const aumentoAplicado = ref<number | null>(null)
+
+const aumentoValido = computed(() => {
+  const valor = parseFloat(aumento.value)
+  return Number.isFinite(valor) && valor > 0 && valor <= MAXIMO_AUMENTO
+})
+
+const catalogoTieneArticulos = computed(() => articulosCount.value > 0)
+
 onMounted(async () => {
   if (!catalogoId.value) return
 
@@ -55,12 +93,61 @@ onMounted(async () => {
     form.descuento = catalogo.descuento.toString()
     form.utilidad_porcentaje = catalogo.utilidad_porcentaje.toString()
     proveedorNombreComercial.value = catalogo.proveedor_nombre_comercial
+    articulosCount.value = catalogo.articulos_count
   } catch (err) {
     errorGeneral.value = extractErrorMessage(err)
   } finally {
     cargando.value = false
   }
 })
+
+/**
+ * Vista previa con lo que haya en el formulario. Si se mueven el aumento y el descuento a la vez,
+ * muestra el resultado de aplicar ambos, que es lo que ocurriría al guardar.
+ */
+async function verImpacto() {
+  if (!catalogoId.value) return
+
+  cargandoImpacto.value = true
+  errorAumento.value = null
+  aumentoAplicado.value = null
+  try {
+    impacto.value = await catalogos.impactoPrecios(catalogoId.value, {
+      descuento: form.descuento === '' ? null : parseFloat(form.descuento),
+      utilidad_porcentaje:
+        form.utilidad_porcentaje === '' ? null : parseFloat(form.utilidad_porcentaje),
+      aumento_porcentaje: aumentoValido.value ? parseFloat(aumento.value) : null,
+    })
+  } catch (err) {
+    errorAumento.value = extractErrorMessage(err)
+  } finally {
+    cargandoImpacto.value = false
+  }
+}
+
+async function confirmarAumento() {
+  if (!catalogoId.value || !aumentoValido.value) return
+
+  aplicandoAumento.value = true
+  errorAumento.value = null
+  try {
+    aumentoAplicado.value = await catalogos.aumentarCostos(
+      catalogoId.value,
+      parseFloat(aumento.value),
+    )
+    mostrarConfirmarAumento.value = false
+    aumento.value = ''
+    impacto.value = null
+  } catch (err) {
+    errorAumento.value = extractErrorMessage(err)
+  } finally {
+    aplicandoAumento.value = false
+  }
+}
+
+function pesos(valor: number): string {
+  return valor.toFixed(2)
+}
 
 async function onSubmit() {
   guardando.value = true
@@ -175,6 +262,143 @@ async function onSubmit() {
           </Button>
         </div>
       </form>
+
+      <!-- El aumento no forma parte del guardado del catálogo: es una acción aparte, y por eso vive
+           fuera del <form> (ver 021-mantenimiento-articulos-catalogos.md). -->
+      <Card v-if="esEdicion && !cargando">
+        <CardHeader>
+          <CardTitle class="text-base">Aumentar costo</CardTitle>
+        </CardHeader>
+        <CardContent class="min-w-0 space-y-4">
+          <p class="text-muted-foreground text-sm">
+            Sube el precio de proveedor de todos los artículos del catálogo y recalcula sus precios
+            de venta. El descuento, la utilidad y el costo de goma no cambian, así que el margen se
+            conserva.
+          </p>
+
+          <div class="space-y-1.5">
+            <Label for="aumento">Aumento (%)</Label>
+            <Input
+              id="aumento"
+              v-model="aumento"
+              type="number"
+              min="0.01"
+              :max="MAXIMO_AUMENTO"
+              step="0.01"
+              placeholder="5"
+              class="max-w-40"
+            />
+          </div>
+
+          <div class="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              :disabled="cargandoImpacto || !catalogoTieneArticulos"
+              @click="verImpacto"
+            >
+              {{ cargandoImpacto ? 'Calculando...' : 'Ver impacto' }}
+            </Button>
+            <Button
+              type="button"
+              :disabled="!aumentoValido || !catalogoTieneArticulos"
+              @click="mostrarConfirmarAumento = true"
+            >
+              Aplicar aumento
+            </Button>
+          </div>
+
+          <p v-if="!catalogoTieneArticulos" class="text-muted-foreground text-sm">
+            Este catálogo no tiene artículos.
+          </p>
+
+          <Alert v-if="errorAumento" variant="destructive">
+            <AlertDescription>{{ errorAumento }}</AlertDescription>
+          </Alert>
+
+          <Alert v-if="aumentoAplicado !== null">
+            <AlertDescription> {{ aumentoAplicado }} artículo(s) actualizado(s). </AlertDescription>
+          </Alert>
+
+          <!-- La tabla se desplaza dentro de su propio contenedor: un catálogo de cientos de
+               artículos no debe desbordar la página (ver 003-design-system-tailwind.md). -->
+          <div v-if="impacto" class="min-w-0 space-y-2">
+            <p class="text-muted-foreground text-sm">
+              Vista previa de {{ impacto.length }} artículo(s). Todavía no se ha guardado nada.
+            </p>
+            <div class="max-h-96 w-full min-w-0 overflow-auto rounded-md border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Artículo</TableHead>
+                    <TableHead class="text-right">Proveedor</TableHead>
+                    <TableHead class="text-right">Costo</TableHead>
+                    <TableHead class="text-right">Precio de venta</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  <TableRow v-for="articulo in impacto" :key="articulo.id">
+                    <TableCell truncate :title="articulo.nombre">
+                      {{ articulo.nombre }}
+                      <span class="text-muted-foreground">— {{ articulo.modelo }}</span>
+                    </TableCell>
+                    <TableCell class="text-right tabular-nums">
+                      ${{ pesos(articulo.precio_proveedor) }}
+                    </TableCell>
+                    <TableCell class="text-right tabular-nums">
+                      ${{ pesos(articulo.costo_total) }}
+                    </TableCell>
+                    <TableCell class="text-right tabular-nums">
+                      ${{ pesos(articulo.precio_unitario_sin_iva) }}
+                    </TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Dialog
+        :open="mostrarConfirmarAumento"
+        @update:open="(v) => !v && (mostrarConfirmarAumento = false)"
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Aplicar aumento</DialogTitle>
+            <DialogDescription>
+              Se aumentará {{ aumento }}% el costo de {{ articulosCount }} artículo(s) de "{{
+                form.nombre
+              }}". El cambio no se puede deshacer: no queda registro del costo anterior.
+            </DialogDescription>
+          </DialogHeader>
+
+          <!-- El inventario valúa al costo de hoy (017), así que el dinero invertido sube de golpe
+               en la misma proporción. No es un error, pero sin avisarlo lo parece. -->
+          <p class="text-muted-foreground text-sm">
+            El inventario valúa las existencias al costo de hoy, así que el dinero invertido y el
+            beneficio potencial subirán en la misma proporción, aunque esas piezas se hayan comprado
+            más baratas.
+          </p>
+
+          <Alert v-if="errorAumento" variant="destructive">
+            <AlertDescription>{{ errorAumento }}</AlertDescription>
+          </Alert>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              :disabled="aplicandoAumento"
+              @click="mostrarConfirmarAumento = false"
+            >
+              Cancelar
+            </Button>
+            <Button :disabled="aplicandoAumento" @click="confirmarAumento">
+              {{ aplicandoAumento ? 'Aplicando...' : 'Aplicar' }}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   </AppLayout>
 </template>

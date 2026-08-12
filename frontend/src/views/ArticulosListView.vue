@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import {
   PlusIcon,
@@ -49,6 +49,36 @@ const articulos = useArticulosStore()
 const articuloAEliminar = ref<Articulo | null>(null)
 const eliminando = ref(false)
 const errorEliminar = ref<string | null>(null)
+
+/**
+ * Selección múltiple (ver 021-mantenimiento-articulos-catalogos.md). Abarca **solo la página
+ * visible**: sostenerla a través de páginas y filtros obligaría a decidir qué pasa cuando un
+ * artículo seleccionado deja de coincidir con la búsqueda, y a mostrar en algún lado qué hay marcado
+ * que no se ve. El caso de uso —"estos de aquí sobran"— no lo pide.
+ */
+const seleccionados = ref<number[]>([])
+const mostrarEliminarLote = ref(false)
+const eliminandoLote = ref(false)
+const errorEliminarLote = ref<string | null>(null)
+
+// Cualquier cosa que cambie las filas en pantalla vacía la selección.
+watch(
+  () => articulos.items,
+  () => (seleccionados.value = []),
+)
+
+const todosSeleccionados = computed(
+  () => articulos.items.length > 0 && seleccionados.value.length === articulos.items.length,
+)
+
+const algunoSeleccionado = computed(
+  () => seleccionados.value.length > 0 && !todosSeleccionados.value,
+)
+
+function alternarTodos(event: Event) {
+  const marcado = (event.target as HTMLInputElement).checked
+  seleccionados.value = marcado ? articulos.items.map((articulo) => articulo.id) : []
+}
 
 const exportando = ref(false)
 const errorExportar = ref<string | null>(null)
@@ -121,6 +151,20 @@ async function confirmarEliminar() {
     errorEliminar.value = extractErrorMessage(err)
   } finally {
     eliminando.value = false
+  }
+}
+
+async function confirmarEliminarLote() {
+  eliminandoLote.value = true
+  errorEliminarLote.value = null
+  try {
+    await articulos.removeLote([...seleccionados.value])
+    mostrarEliminarLote.value = false
+    await articulos.fetchList(articulos.meta?.current_page ?? 1)
+  } catch (err) {
+    errorEliminarLote.value = extractErrorMessage(err)
+  } finally {
+    eliminandoLote.value = false
   }
 }
 
@@ -243,6 +287,24 @@ async function confirmarImportar() {
         @update:model-value="onBuscar"
       />
 
+      <!-- Sin nada marcado no aparece, para no dejar en pantalla un botón permanentemente
+           deshabilitado (ver 021-mantenimiento-articulos-catalogos.md). -->
+      <div
+        v-if="seleccionados.length > 0"
+        class="bg-muted flex flex-wrap items-center justify-between gap-2 rounded-md px-3 py-2"
+      >
+        <span class="text-foreground text-sm font-medium">
+          {{ seleccionados.length }} seleccionado{{ seleccionados.length === 1 ? '' : 's' }}
+        </span>
+        <div class="flex gap-2">
+          <Button variant="outline" size="sm" @click="seleccionados = []">Quitar selección</Button>
+          <Button variant="destructive" size="sm" @click="mostrarEliminarLote = true">
+            <TrashIcon class="size-4" />
+            Eliminar
+          </Button>
+        </div>
+      </div>
+
       <Alert v-if="articulos.error" variant="destructive">
         <AlertDescription>{{ articulos.error }}</AlertDescription>
       </Alert>
@@ -255,6 +317,17 @@ async function confirmarImportar() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead class="w-10">
+                  <input
+                    type="checkbox"
+                    class="border-input size-4 rounded"
+                    aria-label="Seleccionar todos los artículos de esta página"
+                    :checked="todosSeleccionados"
+                    :indeterminate="algunoSeleccionado"
+                    :disabled="articulos.items.length === 0"
+                    @change="alternarTodos"
+                  />
+                </TableHead>
                 <TableHead>Nombre</TableHead>
                 <TableHead>Modelo</TableHead>
                 <TableHead>Catálogo</TableHead>
@@ -287,11 +360,20 @@ async function confirmarImportar() {
             </TableHeader>
             <TableBody>
               <TableRow v-if="!articulos.loading && articulos.items.length === 0">
-                <TableCell colspan="7" class="text-muted-foreground py-10 text-center">
+                <TableCell colspan="8" class="text-muted-foreground py-10 text-center">
                   No hay artículos registrados todavía.
                 </TableCell>
               </TableRow>
               <TableRow v-for="articulo in articulos.items" :key="articulo.id">
+                <TableCell>
+                  <input
+                    v-model="seleccionados"
+                    type="checkbox"
+                    class="border-input size-4 rounded"
+                    :value="articulo.id"
+                    :aria-label="`Seleccionar ${articulo.nombre}`"
+                  />
+                </TableCell>
                 <TableCell>
                   <!-- El nombre es el enlace a la ficha. No hay miniatura en la tabla: las fotos
                        le quitarían al listado la densidad que lo hace útil para trabajar. -->
@@ -370,6 +452,34 @@ async function confirmarImportar() {
             </Button>
             <Button variant="destructive" :disabled="eliminando" @click="confirmarEliminar">
               Eliminar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog :open="mostrarEliminarLote" @update:open="(v) => !v && (mostrarEliminarLote = false)">
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Eliminar artículos</DialogTitle>
+            <DialogDescription>
+              ¿Seguro que quieres eliminar {{ seleccionados.length }} artículo{{
+                seleccionados.length === 1 ? '' : 's'
+              }}? Podrás recuperarlos solo por soporte técnico.
+            </DialogDescription>
+          </DialogHeader>
+          <Alert v-if="errorEliminarLote" variant="destructive">
+            <AlertDescription>{{ errorEliminarLote }}</AlertDescription>
+          </Alert>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              :disabled="eliminandoLote"
+              @click="mostrarEliminarLote = false"
+            >
+              Cancelar
+            </Button>
+            <Button variant="destructive" :disabled="eliminandoLote" @click="confirmarEliminarLote">
+              {{ eliminandoLote ? 'Eliminando...' : 'Eliminar' }}
             </Button>
           </DialogFooter>
         </DialogContent>

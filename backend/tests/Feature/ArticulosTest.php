@@ -6,6 +6,7 @@ use App\Models\Catalogo;
 use App\Models\Proveedor;
 use App\Models\User;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 
 function datosArticuloValidos(array $overrides = []): array
 {
@@ -871,4 +872,96 @@ test('la exportacion csv trae las 8 columnas y es reimportable sin perder el tam
     $this->assertDatabaseHas('articulos', [
         'catalogo_id' => $destino->id, 'nombre' => 'Sin goma', 'tamano_goma' => null, 'costo_goma' => 0,
     ]);
+});
+
+// Borrado en lote (ver 021-mantenimiento-articulos-catalogos.md).
+
+test('un lote de articulos se elimina en una sola peticion', function () {
+    $user = User::factory()->create();
+    $articulos = Articulo::factory()->count(3)->for($user)->create();
+    $sobreviviente = Articulo::factory()->for($user)->create();
+
+    $response = $this->actingAs($user)->postJson('/api/v1/articulos/eliminar-lote', [
+        'ids' => $articulos->pluck('id')->all(),
+    ]);
+
+    $response->assertOk();
+    $response->assertExactJson(['eliminados' => 3]);
+
+    foreach ($articulos as $articulo) {
+        $this->assertSoftDeleted('articulos', ['id' => $articulo->id]);
+    }
+    $this->assertDatabaseHas('articulos', ['id' => $sobreviviente->id, 'deleted_at' => null]);
+});
+
+// Borrar "lo que sí se pudo" sería el borrado parcial silencioso que la transacción evita.
+test('un lote con un id inexistente no elimina ninguno de los demas', function () {
+    $user = User::factory()->create();
+    $articulos = Articulo::factory()->count(2)->for($user)->create();
+
+    $response = $this->actingAs($user)->postJson('/api/v1/articulos/eliminar-lote', [
+        'ids' => [...$articulos->pluck('id')->all(), 999999],
+    ]);
+
+    $response->assertUnprocessable();
+    $response->assertJsonValidationErrors('ids.2');
+
+    foreach ($articulos as $articulo) {
+        $this->assertDatabaseHas('articulos', ['id' => $articulo->id, 'deleted_at' => null]);
+    }
+});
+
+test('un lote con el articulo de otro usuario no elimina ninguno', function () {
+    $user = User::factory()->create();
+    $propio = Articulo::factory()->for($user)->create();
+    $ajeno = Articulo::factory()->for(User::factory()->create())->create();
+
+    $this->actingAs($user)->postJson('/api/v1/articulos/eliminar-lote', [
+        'ids' => [$propio->id, $ajeno->id],
+    ])->assertUnprocessable();
+
+    $this->assertDatabaseHas('articulos', ['id' => $propio->id, 'deleted_at' => null]);
+    $this->assertDatabaseHas('articulos', ['id' => $ajeno->id, 'deleted_at' => null]);
+});
+
+test('un lote con un articulo ya eliminado se rechaza completo', function () {
+    $user = User::factory()->create();
+    $vivo = Articulo::factory()->for($user)->create();
+    $borrado = Articulo::factory()->for($user)->create();
+    $borrado->delete();
+
+    $this->actingAs($user)->postJson('/api/v1/articulos/eliminar-lote', [
+        'ids' => [$vivo->id, $borrado->id],
+    ])->assertUnprocessable();
+
+    $this->assertDatabaseHas('articulos', ['id' => $vivo->id, 'deleted_at' => null]);
+});
+
+test('el borrado en lote exige al menos un id', function (mixed $ids) {
+    $user = User::factory()->create();
+
+    $this->actingAs($user)->postJson('/api/v1/articulos/eliminar-lote', ['ids' => $ids])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('ids');
+})->with([[[]], [null]]);
+
+test('un invitado no puede eliminar articulos en lote', function () {
+    $articulo = Articulo::factory()->create();
+
+    $this->postJson('/api/v1/articulos/eliminar-lote', ['ids' => [$articulo->id]])->assertUnauthorized();
+
+    $this->assertDatabaseHas('articulos', ['id' => $articulo->id, 'deleted_at' => null]);
+});
+
+test('los articulos eliminados en lote conservan su archivo de imagen', function () {
+    Storage::fake('local');
+    $user = User::factory()->create();
+    $articulo = Articulo::factory()->for($user)->create();
+    Storage::disk('local')->put('articulos/foto.webp', 'contenido');
+    $articulo->forceFill(['imagen_ruta' => 'articulos/foto.webp'])->save();
+
+    $this->actingAs($user)->postJson('/api/v1/articulos/eliminar-lote', ['ids' => [$articulo->id]])->assertOk();
+
+    $this->assertSoftDeleted('articulos', ['id' => $articulo->id]);
+    Storage::disk('local')->assertExists('articulos/foto.webp');
 });

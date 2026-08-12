@@ -9,8 +9,30 @@ export interface Catalogo {
   nombre: string
   descuento: number
   utilidad_porcentaje: number
+  /** Cuántos artículos se lleva por delante el borrado del catálogo (ver 021). */
+  articulos_count: number
   created_at: string
   updated_at: string
+}
+
+/**
+ * Una fila de la vista previa de precios: lo que tendría el artículo con los valores propuestos,
+ * sin haber guardado nada (ver 021-mantenimiento-articulos-catalogos.md).
+ */
+export interface ImpactoArticulo {
+  id: number
+  nombre: string
+  modelo: string
+  precio_proveedor: number
+  costo_con_descuento: number
+  costo_total: number
+  precio_unitario_sin_iva: number
+}
+
+export interface ImpactoPayload {
+  descuento?: number | null
+  utilidad_porcentaje?: number | null
+  aumento_porcentaje?: number | null
 }
 
 export interface CatalogoPayload {
@@ -72,6 +94,23 @@ export const useCatalogosStore = defineStore('catalogos', {
     async remove(id: number) {
       await http.delete(`/catalogos-proveedor/${id}`)
       this.items = this.items.filter((catalogo) => catalogo.id !== id)
+    },
+
+    /**
+     * Vista previa de precios, sin persistir nada. Los tres valores son opcionales y el backend cae
+     * a lo que el catálogo tiene guardado (ver 021-mantenimiento-articulos-catalogos.md).
+     */
+    async impactoPrecios(id: number, payload: ImpactoPayload): Promise<ImpactoArticulo[]> {
+      const { data } = await http.post(`/catalogos-proveedor/${id}/impacto-precios`, payload)
+      return data.articulos
+    },
+
+    /** Aplica el aumento porcentual del costo a todos los artículos del catálogo. */
+    async aumentarCostos(id: number, aumentoPorcentaje: number): Promise<number> {
+      const { data } = await http.post(`/catalogos-proveedor/${id}/aumentar-costos`, {
+        aumento_porcentaje: aumentoPorcentaje,
+      })
+      return data.actualizados
     },
   },
 })

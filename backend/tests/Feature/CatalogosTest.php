@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\TamanoGoma;
 use App\Models\Articulo;
 use App\Models\Catalogo;
 use App\Models\Proveedor;
@@ -264,6 +265,179 @@ test('el endpoint de impacto de precios devuelve la vista previa sin persistir',
     $this->assertDatabaseHas('articulos', ['id' => $articulo->id, 'costo_con_descuento' => 1000, 'precio_unitario_sin_iva' => 1000]);
 });
 
+// Ver 021-mantenimiento-articulos-catalogos.md: la vista previa cubre también el aumento, y los
+// tres parámetros caen a lo que el catálogo ya tiene guardado.
+test('el impacto de precios acepta un aumento y cae al descuento y la utilidad guardados', function () {
+    $user = User::factory()->create();
+    $catalogo = Catalogo::factory()->for($user)->create(['descuento' => 10, 'utilidad_porcentaje' => 25]);
+    $articulo = Articulo::factory()->for($user)->for($catalogo)->create([
+        'precio_proveedor' => 200,
+        'costo_con_descuento' => 180,
+        'precio_unitario_sin_iva' => 225,
+    ]);
+
+    $response = $this->actingAs($user)->postJson("/api/v1/catalogos-proveedor/{$catalogo->id}/impacto-precios", [
+        'aumento_porcentaje' => 5,
+    ]);
+
+    $response->assertOk();
+    // 200 + 5% = 210 → −10% = 189 → +25% = 236.25
+    $response->assertJsonPath('articulos.0.precio_proveedor', 210);
+    $response->assertJsonPath('articulos.0.costo_con_descuento', 189);
+    $response->assertJsonPath('articulos.0.precio_unitario_sin_iva', 236.25);
+    $this->assertDatabaseHas('articulos', ['id' => $articulo->id, 'precio_proveedor' => 200]);
+});
+
+test('un aumento del cinco por ciento sube el precio de proveedor y recalcula la cadena', function () {
+    $user = User::factory()->create();
+    $catalogo = Catalogo::factory()->for($user)->create(['descuento' => 10, 'utilidad_porcentaje' => 25]);
+    $articulo = Articulo::factory()->for($user)->for($catalogo)->create([
+        'precio_proveedor' => 200,
+        'costo_con_descuento' => 180,
+        'precio_unitario_sin_iva' => 225,
+    ]);
+
+    $response = $this->actingAs($user)
+        ->postJson("/api/v1/catalogos-proveedor/{$catalogo->id}/aumentar-costos", ['aumento_porcentaje' => 5]);
+
+    $response->assertOk();
+    $response->assertExactJson(['actualizados' => 1]);
+
+    $articulo->refresh();
+    expect((float) $articulo->precio_proveedor)->toBe(210.0)
+        ->and((float) $articulo->costo_con_descuento)->toBe(189.0)
+        ->and((float) $articulo->precio_unitario_sin_iva)->toBe(236.25);
+});
+
+test('el aumento no toca el descuento del catalogo, la utilidad del articulo ni el costo de goma', function () {
+    $user = User::factory()->create();
+    $catalogo = Catalogo::factory()->for($user)->create(['descuento' => 10, 'utilidad_porcentaje' => 25]);
+    $propio = Articulo::factory()->for($user)->for($catalogo)->conGoma(TamanoGoma::Mediana, 10.0)->create([
+        'utilidad_porcentaje' => 50,
+        'precio_proveedor' => 100,
+        'costo_con_descuento' => 90,
+    ]);
+    $heredado = Articulo::factory()->for($user)->for($catalogo)->create([
+        'precio_proveedor' => 100,
+        'costo_con_descuento' => 90,
+    ]);
+
+    $this->actingAs($user)
+        ->postJson("/api/v1/catalogos-proveedor/{$catalogo->id}/aumentar-costos", ['aumento_porcentaje' => 10])
+        ->assertOk();
+
+    $catalogo->refresh();
+    expect((float) $catalogo->descuento)->toBe(10.0)
+        ->and((float) $catalogo->utilidad_porcentaje)->toBe(25.0);
+
+    // El que tiene porcentaje propio lo conserva, y la goma no se aumenta:
+    // 110 → −10% = 99 → +10 de goma = 109 → +50% = 163.50
+    $propio->refresh();
+    expect((float) $propio->utilidad_porcentaje)->toBe(50.0)
+        ->and((float) $propio->costo_goma)->toBe(10.0)
+        ->and((float) $propio->precio_unitario_sin_iva)->toBe(163.50);
+
+    // El que hereda sigue heredando: 110 → −10% = 99 → +25% = 123.75
+    $heredado->refresh();
+    expect($heredado->utilidad_porcentaje)->toBeNull()
+        ->and((float) $heredado->precio_unitario_sin_iva)->toBe(123.75);
+});
+
+test('el nuevo precio de proveedor se redondea a centavos', function () {
+    $user = User::factory()->create();
+    $catalogo = Catalogo::factory()->for($user)->create(['descuento' => 0, 'utilidad_porcentaje' => 0]);
+    $articulo = Articulo::factory()->for($user)->for($catalogo)->create([
+        'precio_proveedor' => 199.99,
+        'costo_con_descuento' => 199.99,
+        'precio_unitario_sin_iva' => 199.99,
+    ]);
+
+    $this->actingAs($user)
+        ->postJson("/api/v1/catalogos-proveedor/{$catalogo->id}/aumentar-costos", ['aumento_porcentaje' => 5])
+        ->assertOk();
+
+    // 199.99 × 1.05 = 209.9895 → 209.99
+    expect((float) $articulo->refresh()->precio_proveedor)->toBe(209.99);
+});
+
+test('un aumento cuyo efecto no llega a medio centavo deja el articulo igual', function () {
+    $user = User::factory()->create();
+    $catalogo = Catalogo::factory()->for($user)->create(['descuento' => 0, 'utilidad_porcentaje' => 0]);
+    $articulo = Articulo::factory()->for($user)->for($catalogo)->create([
+        'precio_proveedor' => 1,
+        'costo_con_descuento' => 1,
+        'precio_unitario_sin_iva' => 1,
+    ]);
+
+    // 1.00 × 1.004 = 1.004 → 1.00. Medio centavo justo (0.5%) sí subiría: round() lo lleva a 1.01.
+    $this->actingAs($user)
+        ->postJson("/api/v1/catalogos-proveedor/{$catalogo->id}/aumentar-costos", ['aumento_porcentaje' => 0.4])
+        ->assertOk();
+
+    expect((float) $articulo->refresh()->precio_proveedor)->toBe(1.0);
+});
+
+test('la vista previa del aumento coincide al centavo con lo que queda guardado', function () {
+    $user = User::factory()->create();
+    $catalogo = Catalogo::factory()->for($user)->create(['descuento' => 12.5, 'utilidad_porcentaje' => 33.33]);
+    Articulo::factory()->count(5)->for($user)->for($catalogo)->create();
+
+    $previa = $this->actingAs($user)
+        ->postJson("/api/v1/catalogos-proveedor/{$catalogo->id}/impacto-precios", ['aumento_porcentaje' => 7.25])
+        ->assertOk()
+        ->json('articulos');
+
+    $this->actingAs($user)
+        ->postJson("/api/v1/catalogos-proveedor/{$catalogo->id}/aumentar-costos", ['aumento_porcentaje' => 7.25])
+        ->assertOk();
+
+    foreach ($previa as $proyectado) {
+        $articulo = Articulo::findOrFail($proyectado['id']);
+
+        // El cast a float de ambos lados es por el JSON: un valor redondo viaja como entero.
+        expect((float) $articulo->precio_proveedor)->toBe((float) $proyectado['precio_proveedor'])
+            ->and((float) $articulo->costo_con_descuento)->toBe((float) $proyectado['costo_con_descuento'])
+            ->and((float) $articulo->precio_unitario_sin_iva)->toBe((float) $proyectado['precio_unitario_sin_iva']);
+    }
+});
+
+test('el aumento solo alcanza a los articulos del catalogo indicado', function () {
+    $user = User::factory()->create();
+    $catalogo = Catalogo::factory()->for($user)->create(['descuento' => 0, 'utilidad_porcentaje' => 0]);
+    $otro = Catalogo::factory()->for($user)->create(['descuento' => 0, 'utilidad_porcentaje' => 0]);
+    $ajeno = Articulo::factory()->for($user)->for($otro)->create([
+        'precio_proveedor' => 100,
+        'costo_con_descuento' => 100,
+        'precio_unitario_sin_iva' => 100,
+    ]);
+    Articulo::factory()->for($user)->for($catalogo)->create();
+
+    $this->actingAs($user)
+        ->postJson("/api/v1/catalogos-proveedor/{$catalogo->id}/aumentar-costos", ['aumento_porcentaje' => 10])
+        ->assertExactJson(['actualizados' => 1]);
+
+    expect((float) $ajeno->refresh()->precio_proveedor)->toBe(100.0);
+});
+
+test('el aumento rechaza el cero, los negativos, los mayores a cien y los de tres decimales', function (mixed $aumento) {
+    $user = User::factory()->create();
+    $catalogo = Catalogo::factory()->for($user)->create();
+
+    $this->actingAs($user)
+        ->postJson("/api/v1/catalogos-proveedor/{$catalogo->id}/aumentar-costos", ['aumento_porcentaje' => $aumento])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('aumento_porcentaje');
+})->with([0, -5, 100.01, 150, 5.005, 'abc', null]);
+
+test('no se puede aumentar el costo del catalogo de otro usuario', function () {
+    $user = User::factory()->create();
+    $catalogoAjeno = Catalogo::factory()->for(User::factory()->create())->create();
+
+    $this->actingAs($user)
+        ->postJson("/api/v1/catalogos-proveedor/{$catalogoAjeno->id}/aumentar-costos", ['aumento_porcentaje' => 5])
+        ->assertNotFound();
+});
+
 test('el endpoint de impacto de precios no permite consultar el catalogo de otro usuario', function () {
     $user = User::factory()->create();
     $otro = User::factory()->create();
@@ -285,13 +459,47 @@ test('eliminar un catalogo sin articulos lo remueve del listado pero no lo borra
     $this->assertSoftDeleted('catalogos', ['id' => $catalogo->id]);
 });
 
-test('eliminar un catalogo con articulos asociados responde 409 y no lo elimina', function () {
+// Antes respondía 409, lo que dejaba sin salida a quien quisiera borrar un catálogo de cientos de
+// artículos (ver 021-mantenimiento-articulos-catalogos.md).
+test('eliminar un catalogo con articulos se lleva tambien sus articulos', function () {
     $user = User::factory()->create();
     $catalogo = Catalogo::factory()->for($user)->create();
+    $articulos = Articulo::factory()->count(3)->for($user)->for($catalogo)->create();
+
+    $this->actingAs($user)->deleteJson("/api/v1/catalogos-proveedor/{$catalogo->id}")->assertNoContent();
+
+    $this->assertSoftDeleted('catalogos', ['id' => $catalogo->id]);
+    foreach ($articulos as $articulo) {
+        $this->assertSoftDeleted('articulos', ['id' => $articulo->id]);
+    }
+    $this->actingAs($user)->getJson('/api/v1/articulos')->assertJsonCount(0, 'data');
+});
+
+test('eliminar un catalogo no toca al proveedor ni a los demas catalogos del proveedor', function () {
+    $user = User::factory()->create();
+    $proveedor = Proveedor::factory()->for($user)->create();
+    $catalogo = Catalogo::factory()->for($user)->for($proveedor)->create(['nombre' => 'Se va']);
+    $otroCatalogo = Catalogo::factory()->for($user)->for($proveedor)->create(['nombre' => 'Se queda']);
+    $articuloAjeno = Articulo::factory()->for($user)->for($otroCatalogo)->create();
     Articulo::factory()->for($user)->for($catalogo)->create();
 
-    $response = $this->actingAs($user)->deleteJson("/api/v1/catalogos-proveedor/{$catalogo->id}");
+    $this->actingAs($user)->deleteJson("/api/v1/catalogos-proveedor/{$catalogo->id}")->assertNoContent();
 
-    $response->assertStatus(409);
-    $this->assertDatabaseHas('catalogos', ['id' => $catalogo->id, 'deleted_at' => null]);
+    $this->assertDatabaseHas('proveedores', ['id' => $proveedor->id, 'deleted_at' => null]);
+    $this->assertDatabaseHas('catalogos', ['id' => $otroCatalogo->id, 'deleted_at' => null]);
+    $this->assertDatabaseHas('articulos', ['id' => $articuloAjeno->id, 'deleted_at' => null]);
+});
+
+test('el listado y el detalle de catalogos exponen cuantos articulos tiene cada uno', function () {
+    $user = User::factory()->create();
+    $catalogo = Catalogo::factory()->for($user)->create();
+    Articulo::factory()->count(2)->for($user)->for($catalogo)->create();
+
+    $this->actingAs($user)->getJson('/api/v1/catalogos-proveedor')
+        ->assertOk()
+        ->assertJsonPath('data.0.articulos_count', 2);
+
+    $this->actingAs($user)->getJson("/api/v1/catalogos-proveedor/{$catalogo->id}")
+        ->assertOk()
+        ->assertJsonPath('data.articulos_count', 2);
 });

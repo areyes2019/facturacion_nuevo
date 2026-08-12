@@ -21,6 +21,9 @@ class CatalogoResource extends JsonResource
             'nombre' => $this->nombre,
             'descuento' => (float) $this->descuento,
             'utilidad_porcentaje' => (float) $this->utilidad_porcentaje,
+            // Cuántos artículos se lleva por delante el borrado del catálogo (ver
+            // 021-mantenimiento-articulos-catalogos.md). `whenCounted` lo omite donde no se cargó.
+            'articulos_count' => $this->whenCounted('articulos'),
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
         ];

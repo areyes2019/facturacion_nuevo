@@ -174,6 +174,19 @@ export const useArticulosStore = defineStore('articulos', {
       this.items = this.items.filter((articulo) => articulo.id !== id)
     },
 
+    /**
+     * Borrado en lote (ver 021-mantenimiento-articulos-catalogos.md).
+     *
+     * Va en **una sola petición** con la lista completa: con una petición por artículo, una conexión
+     * que se cae a la mitad dejaría un subconjunto arbitrario borrado y sin forma de saber cuál.
+     */
+    async removeLote(ids: number[]): Promise<number> {
+      const { data } = await http.post('/articulos/eliminar-lote', { ids })
+      this.items = this.items.filter((articulo) => !ids.includes(articulo.id))
+
+      return data.eliminados
+    },
+
     async importarCsv(catalogoId: number, archivo: File): Promise<ImportarCsvReporte> {
       const formData = new FormData()
       formData.append('archivo', archivo)

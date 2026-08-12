@@ -48,6 +48,12 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
     Route::get('articulos/exportar-csv', [ArticuloController::class, 'exportarCsv']);
 
+    // Borrado en lote (ver 021-mantenimiento-articulos-catalogos.md). Es `POST` y no `DELETE` con
+    // cuerpo porque el cuerpo de un `DELETE` no está garantizado de punta a punta: proxies y
+    // servidores intermedios pueden descartarlo, y perder los identificadores por el camino aquí
+    // significaría no borrar nada o fallar de forma difícil de leer.
+    Route::post('articulos/eliminar-lote', [ArticuloController::class, 'eliminarLote']);
+
     // Imágenes de artículo (ver 020-imagenes-articulos.md). Van ANTES del apiResource: con
     // {articulo}/imagen después, el resource no las capturaría, pero se mantiene el orden por la
     // misma razón que exportar-csv arriba — las rutas más específicas primero, sin excepciones que
@@ -92,6 +98,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
     // catálogo concreto (ver 020-imagenes-articulos.md).
     Route::post('catalogos-proveedor/{catalogo}/articulos/imagenes', [ArticuloImagenController::class, 'cargaMasiva']);
     Route::post('catalogos-proveedor/{catalogo}/impacto-precios', [CatalogoProveedorController::class, 'impactoPrecios']);
+    // Aumento porcentual del costo de todos los artículos del catálogo (ver
+    // 021-mantenimiento-articulos-catalogos.md).
+    Route::post('catalogos-proveedor/{catalogo}/aumentar-costos', [CatalogoProveedorController::class, 'aumentarCostos']);
 
     Route::apiResource('facturas', FacturaController::class);
 

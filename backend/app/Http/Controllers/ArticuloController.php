@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Enums\ObjetoImpuesto;
 use App\Enums\TamanoGoma;
+use App\Http\Requests\Articulos\EliminarLoteArticulosRequest;
 use App\Http\Requests\Articulos\StoreArticuloRequest;
 use App\Http\Requests\Articulos\UpdateArticuloRequest;
 use App\Http\Resources\ArticuloResource;
@@ -19,6 +20,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -140,6 +142,34 @@ class ArticuloController extends Controller
         $articulo->delete();
 
         return response()->noContent();
+    }
+
+    /**
+     * Borra en lote los artículos seleccionados en el listado (ver
+     * 021-mantenimiento-articulos-catalogos.md).
+     *
+     * Viaja en **una sola petición** con la lista de identificadores, no en una por artículo: con N
+     * peticiones, una conexión que se cae a la mitad deja un subconjunto arbitrario borrado y sin
+     * forma de saber cuál.
+     *
+     * La pertenencia de cada `id` al usuario ya la garantizó `EliminarLoteArticulosRequest`; el
+     * `whereIn` se aplica igual sobre la relación del usuario, para que el scopeo no dependa de que
+     * nadie relaje esa regla más adelante.
+     *
+     * Borrado lógico, igual que el individual: las imágenes se quedan en disco por si el artículo se
+     * restaura (ver 020-imagenes-articulos.md).
+     */
+    public function eliminarLote(EliminarLoteArticulosRequest $request): JsonResponse
+    {
+        $ids = $request->validated()['ids'];
+
+        // La transacción es lo que hace real el "todo o nada": si algo falla a media operación, la
+        // base de datos deshace lo que llevaba y queda exactamente como estaba.
+        $eliminados = DB::transaction(
+            fn (): int => $request->user()->articulos()->whereIn('id', $ids)->delete()
+        );
+
+        return response()->json(['eliminados' => $eliminados]);
     }
 
     /**

@@ -67,6 +67,23 @@ class PrecioArticuloCalculator
     }
 
     /**
+     * Precio de proveedor tras un aumento porcentual = redondeo2(precio_proveedor × (1 + aumento / 100)).
+     *
+     * Es el único eslabón capturado a mano de toda la cadena, y por eso es el que mueve el aumento
+     * masivo por catálogo (ver 021-mantenimiento-articulos-catalogos.md): subir directamente el
+     * `costo_con_descuento` dejaría el precio de proveedor guardado mintiendo sobre la lista real, y
+     * el primer recálculo —editar el artículo, o cambiar el descuento del catálogo— devolvería el
+     * costo viejo sin que nadie se entere.
+     *
+     * Redondeo matemático a centavos, el mismo de `costoConDescuento`: un aumento cuyo efecto no
+     * llega a medio centavo deja el precio igual, y dos aumentos encadenados no equivalen a su suma.
+     */
+    public static function precioProveedorAumentado(float $precioProveedor, float $aumentoPorcentaje): float
+    {
+        return self::redondeo2($precioProveedor * (1 + $aumentoPorcentaje / 100));
+    }
+
+    /**
      * Costo total = redondeo2(costo_con_descuento + costo_goma).
      *
      * Los dos sumandos ya vienen con 2 decimales, así que el redondeo no cambia ningún valor de

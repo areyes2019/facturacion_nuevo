@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { PlusIcon, PencilIcon, TrashIcon } from '@heroicons/vue/24/outline'
 import { useCatalogosStore, type Catalogo } from '../stores/catalogos'
@@ -8,6 +8,7 @@ import AppLayout from '../layouts/AppLayout.vue'
 import { Button } from '../components/ui/button'
 import { Card, CardContent } from '../components/ui/card'
 import { Input } from '../components/ui/input'
+import { Label } from '../components/ui/label'
 import { Alert, AlertDescription } from '../components/ui/alert'
 import {
   Table,
@@ -32,6 +33,21 @@ const catalogoAEliminar = ref<Catalogo | null>(null)
 const eliminando = ref(false)
 const errorEliminar = ref<string | null>(null)
 
+/**
+ * Cerrojo del borrado de un catálogo con artículos (ver 021-mantenimiento-articulos-catalogos.md):
+ * un clic accidental se lleva cientos de artículos, y aunque el borrado sea lógico, recuperarlos
+ * exige soporte técnico. Escribir el nombre es imposible de hacer por inercia.
+ */
+const nombreConfirmacion = ref('')
+
+const catalogoTieneArticulos = computed(() => (catalogoAEliminar.value?.articulos_count ?? 0) > 0)
+
+const puedeEliminar = computed(
+  () =>
+    !catalogoTieneArticulos.value ||
+    nombreConfirmacion.value.trim() === catalogoAEliminar.value?.nombre,
+)
+
 onMounted(() => catalogos.fetchList())
 
 let buscarTimeout: ReturnType<typeof setTimeout>
@@ -47,15 +63,17 @@ function irAPagina(pagina: number) {
 function abrirEliminar(catalogo: Catalogo) {
   catalogoAEliminar.value = catalogo
   errorEliminar.value = null
+  nombreConfirmacion.value = ''
 }
 
 function cerrarEliminar() {
   catalogoAEliminar.value = null
   errorEliminar.value = null
+  nombreConfirmacion.value = ''
 }
 
 async function confirmarEliminar() {
-  if (!catalogoAEliminar.value) return
+  if (!catalogoAEliminar.value || !puedeEliminar.value) return
 
   eliminando.value = true
   errorEliminar.value = null
@@ -164,6 +182,22 @@ async function confirmarEliminar() {
               solo por soporte técnico.
             </DialogDescription>
           </DialogHeader>
+
+          <div v-if="catalogoTieneArticulos" class="min-w-0 space-y-3">
+            <p class="text-destructive text-sm font-medium">
+              Se eliminarán también {{ catalogoAEliminar?.articulos_count }} artículo{{
+                catalogoAEliminar?.articulos_count === 1 ? '' : 's'
+              }}
+              de este catálogo.
+            </p>
+            <div class="space-y-1.5">
+              <Label for="confirmar_nombre">
+                Escribe "{{ catalogoAEliminar?.nombre }}" para confirmar
+              </Label>
+              <Input id="confirmar_nombre" v-model="nombreConfirmacion" autocomplete="off" />
+            </div>
+          </div>
+
           <Alert v-if="errorEliminar" variant="destructive">
             <AlertDescription>{{ errorEliminar }}</AlertDescription>
           </Alert>
@@ -171,8 +205,12 @@ async function confirmarEliminar() {
             <Button variant="outline" :disabled="eliminando" @click="cerrarEliminar">
               Cancelar
             </Button>
-            <Button variant="destructive" :disabled="eliminando" @click="confirmarEliminar">
-              Eliminar
+            <Button
+              variant="destructive"
+              :disabled="eliminando || !puedeEliminar"
+              @click="confirmarEliminar"
+            >
+              {{ eliminando ? 'Eliminando...' : 'Eliminar' }}
             </Button>
           </DialogFooter>
         </DialogContent>
