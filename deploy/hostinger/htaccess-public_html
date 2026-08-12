@@ -1,0 +1,108 @@
+# =============================================================================
+# .htaccess del docroot de producción
+#
+# Se copia a public_html/.htaccess (SIN el prefijo "htaccess-").
+#
+# En este archivo conviven dos aplicaciones: el SPA compilado y el front
+# controller de Laravel. El orden de los bloques importa y no se debe alterar.
+#
+# IMPORTANTE: cada `npm run build` genera un dist/.htaccess propio (el de
+# frontend/public/.htaccess, con las cabeceras de caché). deploy-frontend.sh lo
+# excluye para que no pise este archivo. Las cabeceras de aquel están
+# incorporadas íntegras al final de este.
+# =============================================================================
+
+DirectoryIndex index.html
+
+<IfModule mod_negotiation.c>
+    Options -MultiViews -Indexes
+</IfModule>
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # -------------------------------------------------------------------------
+    # 1. Host canónico y HTTPS
+    #
+    # No es cosmético. La cookie de sesión es host-only, así que para el
+    # navegador www.prosello.com.mx y prosello.com.mx son dos sitios distintos:
+    # un usuario que entra por uno después de haberse logueado en el otro
+    # aparece como no autenticado, sin ninguna explicación visible.
+    # HTTPS además es requisito del service worker: sin él no hay PWA.
+    # -------------------------------------------------------------------------
+    RewriteCond %{HTTPS} !=on
+    RewriteCond %{HTTP:X-Forwarded-Proto} !=https
+    RewriteRule ^ https://prosello.com.mx%{REQUEST_URI} [L,R=301]
+
+    RewriteCond %{HTTP_HOST} ^www\. [NC]
+    RewriteRule ^ https://prosello.com.mx%{REQUEST_URI} [L,R=301]
+
+    # -------------------------------------------------------------------------
+    # 2. Cabeceras que Apache no reexpone por su cuenta
+    #    (idénticas a las de backend/public/.htaccess)
+    # -------------------------------------------------------------------------
+    RewriteCond %{HTTP:Authorization} .
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+    RewriteCond %{HTTP:x-xsrf-token} .
+    RewriteRule .* - [E=HTTP_X_XSRF_TOKEN:%{HTTP:X-XSRF-Token}]
+
+    # -------------------------------------------------------------------------
+    # 3. Lo que le toca a Laravel
+    #
+    #    /api/v1/*          el API             (apiPrefix en bootstrap/app.php)
+    #    /sanctum/*         la cookie CSRF
+    #    /up                el healthcheck
+    #
+    # Van al front controller SIEMPRE, existan o no como archivo en disco.
+    # -------------------------------------------------------------------------
+    RewriteRule ^(api|sanctum)(/.*)?$ index.php [L]
+    RewriteRule ^up$ index.php [L]
+
+    # -------------------------------------------------------------------------
+    # 4. Todo lo demás es del SPA
+    #
+    # Si el archivo existe en disco se sirve tal cual (assets, iconos, sw.js).
+    # Si no, responde index.html y el router de Vue resuelve la ruta en el
+    # cliente: así /facturas/nueva escrito a mano en la barra de direcciones
+    # carga la aplicación en vez de dar 404.
+    # -------------------------------------------------------------------------
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^ index.html [L]
+</IfModule>
+
+# =============================================================================
+# 5. Cabeceras de caché del SPA
+#    (copia íntegra de frontend/public/.htaccess — ver specs/011)
+# =============================================================================
+
+# No todas las instalaciones de Apache traen mapeada la extensión .webmanifest, y
+# servida con el tipo equivocado hay navegadores que descartan el manifest —y sin
+# manifest no hay instalación.
+<IfModule mod_mime.c>
+    AddType application/manifest+json .webmanifest
+</IfModule>
+
+<IfModule mod_headers.c>
+    # Solo los archivos con hash de contenido en el nombre son inmutables. Se hace
+    # por patrón de nombre y no por extensión, porque favicon.svg e icons.svg viven
+    # en la raíz sin hash y sí necesitan revalidarse.
+    <FilesMatch "-[A-Za-z0-9_-]{8,}\.(js|css)$">
+        Header set Cache-Control "public, max-age=31536000, immutable"
+    </FilesMatch>
+
+    # El índice siempre se revalida contra el servidor.
+    <Files "index.html">
+        Header set Cache-Control "no-cache, must-revalidate"
+    </Files>
+
+    # Lo mismo para las piezas de la PWA, que tampoco llevan hash en el nombre. Si
+    # sw.js queda cacheado, la aplicación instalada sigue sirviendo para siempre el
+    # precache viejo: es la causa habitual de "la PWA no se actualiza". El
+    # workbox-XXXXXXXX.js que carga el service worker sí lleva hash y lo cubre la
+    # regla de arriba.
+    <FilesMatch "^(sw\.js|registerSW\.js|manifest\.webmanifest)$">
+        Header set Cache-Control "no-cache, must-revalidate"
+    </FilesMatch>
+</IfModule>
