@@ -40,8 +40,87 @@ die()  { printf '\n%sERROR: %s%s\n\n' "$C_ERR" "$*" "$C_OFF" >&2; exit 1; }
 # colgado esperando una contraseña que nadie va a escribir.
 remote() { ssh -o BatchMode=yes "$SSH_ALIAS" "$@"; }
 
+# Archivos temporales: se borran pase lo que pase.
+TEMPORALES=()
+limpiar_temporales() { [ ${#TEMPORALES[@]} -eq 0 ] || rm -f "${TEMPORALES[@]}"; }
+temporal() {
+    local t
+    t="$(mktemp)"
+    TEMPORALES+=("$t")
+    printf '%s' "$t"
+}
+
+# Sube un directorio al servidor con tar sobre SSH.
+#
+# Se usa tar y no rsync porque Git Bash en Windows no trae rsync, y depender de
+# instalarlo a mano en cada máquina es exactamente la clase de requisito que se
+# olvida. tar viene con Git for Windows y con cualquier Linux.
+#
+# La lista de lo que se sube sale del propio paquete (`tar -t`), así que no hay
+# forma de que diverja de lo que realmente viajó: un solo juego de exclusiones
+# gobierna las dos cosas.
+#
+#   subir_paquete <dir_local> <dir_remoto> <exclusiones de tar...>
+#
+# Deja en la variable LISTA_SUBIDA la ruta de un archivo con los nombres
+# subidos, para que quien llame pueda calcular qué sobra en el servidor.
+subir_paquete() {
+    local origen="$1" destino="$2"
+    shift 2
+
+    local paquete lista
+    paquete="$(temporal)"
+    lista="$(temporal)"
+
+    tar -czf "$paquete" -C "$origen" "$@" . \
+        || die "no se pudo empaquetar $origen"
+
+    tar -tzf "$paquete" | grep -v '/$' | sed 's|^\./||' | LC_ALL=C sort > "$lista"
+    ok "$(wc -l < "$lista" | tr -d ' ') archivos empaquetados ($(du -h "$paquete" | cut -f1 | tr -d ' '))"
+
+    remote "mkdir -p '$destino' && tar -xzf - -C '$destino'" < "$paquete" \
+        || die "falló la extracción en el servidor"
+
+    LISTA_SUBIDA="$lista"
+}
+
+# Borra en el servidor los archivos que ya no existen en el repositorio, que es
+# lo que daba `rsync --delete`. Sin esto, un archivo eliminado en local seguiría
+# ejecutándose en producción indefinidamente.
+#
+# La expresión de `find` remota tiene que excluir EXACTAMENTE lo mismo que el
+# paquete. Lo que no se sube y tampoco se excluye aquí, se borraría: por eso
+# .env, storage/ y vendor/ aparecen en las dos listas.
+#
+#   borrar_sobrantes <dir_remoto> <expresión find de exclusión>
+borrar_sobrantes() {
+    local destino="$1" prune="$2"
+
+    remote "cat > /tmp/deploy-esperado.txt" < "$LISTA_SUBIDA"
+    remote "DEST='$destino' PRUNE='$prune' bash -s" <<'FIN_BORRADO'
+set -euo pipefail
+cd "$DEST"
+
+# shellcheck disable=SC2086
+eval "find . $PRUNE -type f -print" \
+    | sed 's|^\./||' | LC_ALL=C sort > /tmp/deploy-actual.txt
+
+comm -13 /tmp/deploy-esperado.txt /tmp/deploy-actual.txt > /tmp/deploy-sobran.txt
+
+if [ -s /tmp/deploy-sobran.txt ]; then
+    echo "    borrando $(wc -l < /tmp/deploy-sobran.txt | tr -d ' ') archivo(s) que ya no están en el repositorio:"
+    sed 's/^/        /' /tmp/deploy-sobran.txt
+    tr '\n' '\0' < /tmp/deploy-sobran.txt | xargs -0 --no-run-if-empty rm -f --
+else
+    echo "    nada que borrar"
+fi
+
+rm -f /tmp/deploy-esperado.txt /tmp/deploy-actual.txt /tmp/deploy-sobran.txt
+FIN_BORRADO
+}
+
 # Comprueba la conexión antes de hacer cualquier cosa. Fallar aquí es barato;
-# fallar a mitad de un rsync deja el servidor en un estado intermedio.
+# fallar a mitad de una subida deja el servidor en un estado intermedio.
 require_connection() {
     say "Comprobando conexión con $SSH_ALIAS"
     remote true >/dev/null 2>&1 \

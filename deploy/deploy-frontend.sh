@@ -18,6 +18,8 @@ for arg in "$@"; do
     esac
 done
 
+trap limpiar_temporales EXIT
+
 require_connection
 
 # --- Build -------------------------------------------------------------------
@@ -32,8 +34,8 @@ DIST="$REPO_ROOT/frontend/dist"
 [ -f "$DIST/index.html" ] || die "no existe frontend/dist/index.html — corre el build primero"
 
 # --- Publicación -------------------------------------------------------------
-# Las tres exclusiones son la parte importante de este script y hacen dos cosas
-# a la vez, porque rsync no borra en destino lo que tiene excluido:
+# Las tres exclusiones son la parte importante de este script, y aparecen dos
+# veces: una para no subirlas, otra para no borrarlas.
 #
 #   .htaccess   Vite copia el suyo (cabeceras de caché de la PWA) a dist/. Si
 #               llegara al docroot pisaría el .htaccess de producción, que es
@@ -43,13 +45,19 @@ DIST="$REPO_ROOT/frontend/dist"
 #   index.php   Front controller de Laravel. No viene del build y no se toca.
 #   robots.txt  Se sube una sola vez en la instalación inicial.
 say "Publicando dist/ en el docroot"
-rsync -rlptz --delete --human-readable \
-    -e "ssh -o BatchMode=yes" \
-    --exclude='.htaccess' \
-    --exclude='index.php' \
-    --exclude='robots.txt' \
-    "$DIST/" "$SSH_ALIAS:$REMOTE_DOCROOT/"
+subir_paquete "$DIST" "$REMOTE_DOCROOT" \
+    --exclude='./.htaccess' \
+    --exclude='./index.php' \
+    --exclude='./robots.txt'
 ok "SPA publicado"
+
+# Los chunks de Vite llevan hash en el nombre, así que cada build genera
+# archivos nuevos sin reemplazar a los viejos. Sin este borrado, assets/ crece
+# indefinidamente con las versiones de todos los despliegues anteriores.
+borrar_sobrantes "$REMOTE_DOCROOT" "\
+    -name .htaccess -prune -o \
+    -name index.php -prune -o \
+    -name robots.txt -prune -o"
 
 # El .htaccess y el index.php de producción tienen que seguir ahí. Si faltan,
 # el sitio responde 404 o descarga el PHP en crudo, y más vale saberlo ahora.

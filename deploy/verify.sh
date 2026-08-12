@@ -49,9 +49,31 @@ case "$API_TIPO" in
 esac
 
 say "Nada del proyecto es descargable"
-for ruta in .env composer.json composer.lock artisan storage/logs/laravel.log vendor/autoload.php; do
-    comprobar "/$ruta devuelve 404"               404 "$(codigo "$SITE_URL/$ruta")"
-done
+
+# Aquí NO se comprueba el código de estado. Con el fallback del SPA, una ruta
+# que no existe en el docroot devuelve 200 con index.html, que es correcto y no
+# filtra nada. Lo que importa es el contenido: si la respuesta trae la cadena
+# delatora del archivo real, entonces el archivo sí se está sirviendo.
+#
+#   no_filtra <ruta> <cadena que solo aparece en el archivo real>
+no_filtra() {
+    local cuerpo
+    cuerpo="$(curl -s --max-time 20 "$SITE_URL/$1")"
+    if printf '%s' "$cuerpo" | grep -qF -- "$2"; then
+        warn "/$1 ESTÁ SIRVIENDO EL ARCHIVO REAL (contiene '$2')"
+        FALLOS=$((FALLOS + 1))
+    else
+        ok "/$1 no expone el archivo"
+    fi
+}
+
+no_filtra .env                     "APP_KEY="
+no_filtra composer.json            "laravel/framework"
+no_filtra composer.lock            "packages-dev"
+no_filtra artisan                  "Illuminate\\Foundation\\Application"
+no_filtra vendor/autoload.php      "ComposerAutoloaderInit"
+no_filtra storage/logs/laravel.log "production.ERROR"
+no_filtra .git/config              "[remote \"origin\"]"
 
 say "PWA"
 comprobar "manifest.webmanifest disponible"       200 "$(codigo "$SITE_URL/manifest.webmanifest")"

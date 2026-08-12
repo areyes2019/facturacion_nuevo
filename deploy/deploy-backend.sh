@@ -8,7 +8,7 @@
 # Qué hace, en orden:
 #   1. Comprueba conexión e instalación
 #   2. Pone el sitio en mantenimiento
-#   3. Sube el código con rsync (sin .env, storage/, vendor/ ni public/)
+#   3. Sube el código con tar sobre SSH (sin .env, storage/, vendor/ ni public/)
 #   4. composer install --no-scripts + package:discover
 #   5. Respalda la base de datos
 #   6. php artisan migrate --force
@@ -41,7 +41,7 @@ levantar() {
         && ok "sitio levantado" \
         || warn "NO se pudo levantar el sitio. Hazlo a mano: deploy/artisan.sh up"
 }
-trap levantar EXIT
+trap 'levantar; limpiar_temporales' EXIT
 
 if remote "[ -f '$REMOTE_APP/vendor/autoload.php' ]"; then
     say "Poniendo el sitio en mantenimiento"
@@ -56,25 +56,59 @@ else
 fi
 
 # --- Código ------------------------------------------------------------------
-# --delete borra en el servidor lo que ya no existe en el repositorio, para que
-# un archivo eliminado en local desaparezca allá también. Las rutas excluidas
-# quedan protegidas de ese borrado: rsync no elimina lo que no mira.
+# Estas exclusiones se repiten abajo en la expresión de find, y las dos listas
+# tienen que decir lo mismo: lo que no se sube y tampoco se excluye del borrado,
+# se borraría del servidor. Por eso .env, storage/ y vendor/ están en ambas.
 say "Subiendo el código de backend/"
-rsync -rlptz --delete --human-readable \
-    -e "ssh -o BatchMode=yes" \
-    --exclude='.env' \
-    --exclude='.env.*' \
-    --exclude='vendor/' \
-    --exclude='node_modules/' \
-    --exclude='storage/' \
-    --exclude='bootstrap/cache/' \
-    --exclude='public/' \
-    --exclude='tests/' \
-    --exclude='.git*' \
-    --exclude='*.log' \
-    --exclude='.phpunit.result.cache' \
-    "$REPO_ROOT/backend/" "$SSH_ALIAS:$REMOTE_APP/"
-ok "código sincronizado"
+subir_paquete "$REPO_ROOT/backend" "$REMOTE_APP" \
+    --exclude='./.env' \
+    --exclude='./.env.*' \
+    --exclude='./vendor' \
+    --exclude='./node_modules' \
+    --exclude='./storage' \
+    --exclude='./bootstrap/cache' \
+    --exclude='./public' \
+    --exclude='./tests' \
+    --exclude='./.git' \
+    --exclude='./.gitignore' \
+    --exclude='./.gitattributes' \
+    --exclude='./.phpunit.result.cache' \
+    --exclude='*.log'
+ok "código extraído en el servidor"
+
+borrar_sobrantes "$REMOTE_APP" "\
+    -path ./vendor -prune -o \
+    -path ./node_modules -prune -o \
+    -path ./storage -prune -o \
+    -path ./bootstrap/cache -prune -o \
+    -path ./public -prune -o \
+    -path ./tests -prune -o \
+    -name .env -prune -o \
+    -name '.env.*' -prune -o \
+    -name '*.log' -prune -o \
+    -name .desplegado -prune -o"
+
+# --- Directorios de runtime --------------------------------------------------
+# storage/ y bootstrap/cache/ quedan fuera de la subida porque su contenido es
+# del servidor: logs, sesiones y caché compilada. Pero entonces nadie crea los
+# directorios en el primer despliegue, y Laravel falla con "The bootstrap/cache
+# directory must be present and writable" desde package:discover, mucho antes
+# de llegar a nada que se parezca a la causa.
+#
+# mkdir -p es idempotente: en los despliegues siguientes no hace nada, y en
+# ningún caso toca lo que ya haya dentro.
+say "Asegurando los directorios de runtime"
+remote "cd '$REMOTE_APP' && mkdir -p \
+    bootstrap/cache \
+    storage/app/private \
+    storage/app/public \
+    storage/framework/cache/data \
+    storage/framework/sessions \
+    storage/framework/testing \
+    storage/framework/views \
+    storage/logs && \
+    chmod -R 775 bootstrap/cache storage"
+ok "directorios listos"
 
 # --- Dependencias ------------------------------------------------------------
 # --no-scripts es obligatorio: Hostinger deshabilita proc_open, y el script
