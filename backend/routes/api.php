@@ -8,6 +8,7 @@ use App\Http\Controllers\ConfiguracionController;
 use App\Http\Controllers\ConstanciaFiscalController;
 use App\Http\Controllers\CotizacionController;
 use App\Http\Controllers\CuentaController;
+use App\Http\Controllers\EmisorController;
 use App\Http\Controllers\FacturaController;
 use App\Http\Controllers\InventarioController;
 use App\Http\Controllers\MovimientoController;
@@ -62,6 +63,15 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('configuracion/impacto-precios', [ConfiguracionController::class, 'impactoPrecios']);
     Route::get('configuracion', [ConfiguracionController::class, 'index']);
     Route::put('configuracion', [ConfiguracionController::class, 'update']);
+
+    // Datos fiscales del emisor (ver 019-formato-pdf-documentos.md). Únicos endpoints del sistema
+    // que NO se scopean por usuario: el emisor es uno solo para toda la instalación, porque el
+    // timbrado usa una única llave de Facturapi.
+    Route::get('emisor', [EmisorController::class, 'show']);
+    Route::put('emisor', [EmisorController::class, 'update']);
+    Route::get('emisor/logo/{tipo}', [EmisorController::class, 'verLogo']);
+    Route::post('emisor/logo', [EmisorController::class, 'subirLogo']);
+    Route::delete('emisor/logo/{tipo}', [EmisorController::class, 'eliminarLogo']);
 
     // Prefijo "catalogos-proveedor" (no "catalogos") para no chocar con el grupo de catálogos SAT
     // de referencia registrado más abajo bajo /catalogos (ver 009-catalogos.md).

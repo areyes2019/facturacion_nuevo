@@ -146,7 +146,9 @@ class Cotizacion extends Model implements DocumentoEnviable
      */
     public function datosPdf(): array
     {
-        $this->loadMissing(['cliente', 'lineas.articulo']);
+        // `withTrashed` en el artículo: la Clave SAT del PDF sale de ahí y las líneas no guardan
+        // copia propia (ver 019-formato-pdf-documentos.md).
+        $this->loadMissing(['cliente', 'lineas.articulo' => fn ($relacion) => $relacion->withTrashed()]);
 
         return ['cotizacion' => $this];
     }

@@ -35,6 +35,7 @@ import {
 import MotivoCancelacionSelect from '../components/MotivoCancelacionSelect.vue'
 import FacturaSustitutaCombobox from '../components/FacturaSustitutaCombobox.vue'
 import FormaPagoSelect from '../components/FormaPagoSelect.vue'
+import AvisoEmisorIncompleto from '../components/AvisoEmisorIncompleto.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -234,6 +235,8 @@ async function confirmarComplemento() {
             para verificar si ya se confirmó.
           </AlertDescription>
         </Alert>
+
+        <AvisoEmisorIncompleto />
 
         <div v-if="factura.estado === 'timbrada'" class="flex flex-wrap gap-2">
           <Button variant="outline" @click="abrirEnviar">

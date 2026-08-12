@@ -122,7 +122,12 @@ class OrdenCompra extends Model implements DocumentoEnviable
      */
     public function datosPdf(): array
     {
-        $this->loadMissing(['proveedor', 'lineas']);
+        // `lineas.articulo` con `withTrashed`: la Clave SAT del PDF sale del artículo, y las líneas
+        // no guardan copia propia. Sin `withTrashed`, dar de baja un artículo haría que la
+        // reimpresión de una orden vieja perdiera esa columna (ver 019-formato-pdf-documentos.md).
+        // La restricción va aquí y no en la relación `articulo()`, que la usan el listado y la API
+        // y que no deben empezar a devolver artículos borrados.
+        $this->loadMissing(['proveedor', 'lineas.articulo' => fn ($relacion) => $relacion->withTrashed()]);
 
         return ['orden' => $this];
     }

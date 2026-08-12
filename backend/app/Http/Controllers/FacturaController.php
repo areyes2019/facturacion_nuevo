@@ -257,7 +257,10 @@ class FacturaController extends Controller
         abort_unless($factura->user_id === $request->user()->id, 404);
         abort_unless(in_array($factura->estado, [EstadoFactura::Timbrada, EstadoFactura::Cancelada], true), 404);
 
-        $factura->load(['cliente', 'lineas.articulo']);
+        // `withTrashed` en el artículo: la Clave SAT del PDF sale de ahí y las líneas no guardan
+        // copia propia, así que sin esto una factura de un artículo dado de baja perdería esa
+        // columna al reimprimirse (ver 019-formato-pdf-documentos.md).
+        $factura->load(['cliente', 'lineas.articulo' => fn ($relacion) => $relacion->withTrashed()]);
 
         $pdf = app('dompdf.wrapper')->loadView('pdf.factura', ['factura' => $factura]);
 
@@ -272,7 +275,7 @@ class FacturaController extends Controller
         abort_unless($factura->user_id === $request->user()->id, 404);
         abort_unless($factura->estado === EstadoFactura::Timbrada, 422, 'Solo se puede enviar por correo una factura timbrada.');
 
-        $factura->load(['cliente', 'lineas.articulo']);
+        $factura->load(['cliente', 'lineas.articulo' => fn ($relacion) => $relacion->withTrashed()]);
 
         try {
             $xml = $this->facturapi->descargarXml((string) $factura->facturapi_invoice_id);

@@ -1,105 +1,79 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="utf-8">
-    <title>Factura {{ $factura->folio }}</title>
-    <style>
-        @page { margin: 28px 32px; }
-        body { font-family: 'Helvetica', 'DejaVu Sans', sans-serif; font-size: 11px; color: #1e293b; }
-        h1 { font-family: 'Helvetica', 'DejaVu Sans', sans-serif; font-size: 18px; color: #4F46E5; margin: 0 0 4px; }
-        .subtitulo { color: #64748b; margin: 0 0 16px; }
-        table { width: 100%; border-collapse: collapse; }
-        .encabezado { width: 100%; margin-bottom: 16px; }
-        .encabezado td { vertical-align: top; }
-        .caja { border: 1px solid #e2e8f0; border-radius: 4px; padding: 8px 10px; margin-bottom: 10px; }
-        .caja h2 { font-size: 11px; text-transform: uppercase; color: #7C3AED; margin: 0 0 6px; }
-        .lineas th { background: #4F46E5; color: #fff; padding: 6px 8px; text-align: left; font-size: 10px; }
-        .lineas td { padding: 6px 8px; border-bottom: 1px solid #e2e8f0; font-size: 10px; }
-        .num { text-align: right; }
-        .totales { width: 260px; margin-left: auto; margin-top: 10px; }
-        .totales td { padding: 3px 6px; font-size: 11px; }
-        .totales .total { font-weight: bold; font-size: 13px; border-top: 1px solid #4F46E5; }
-        .sellos { margin-top: 16px; font-size: 8px; color: #64748b; word-wrap: break-word; }
-        .sellos p { margin: 2px 0; word-break: break-all; }
-        .estado-cancelada { color: #DC2626; font-weight: bold; }
-    </style>
-</head>
-<body>
-    <table class="encabezado">
-        <tr>
-            <td>
-                <h1>Facturación</h1>
-                <p class="subtitulo">Representación impresa de CFDI</p>
-            </td>
-            <td class="num">
-                <p><strong>Folio:</strong> {{ $factura->facturapi_serie }}{{ $factura->facturapi_folio ?? $factura->folio }}</p>
-                <p><strong>Fecha de timbrado:</strong> {{ optional($factura->fecha_timbrado)->format('d/m/Y H:i') }}</p>
-                @if ($factura->estado->value === 'cancelada')
-                    <p class="estado-cancelada">CANCELADA</p>
-                @endif
-            </td>
-        </tr>
-    </table>
+@php
+    $cancelada = $factura->estado->value === 'cancelada';
+    $serieFolio = trim(($factura->facturapi_serie ?? '').($factura->facturapi_folio ?? $factura->folio));
+@endphp
 
-    <div class="caja">
-        <h2>Receptor</h2>
-        <p><strong>{{ $factura->cliente->razon_social }}</strong> ({{ $factura->cliente->rfc }})</p>
-        <p>Régimen fiscal: {{ $factura->cliente->regimen_fiscal }} &middot; CP: {{ $factura->cliente->codigo_postal_fiscal }}</p>
-    </div>
+@extends('pdf.documento', [
+    'titulo' => 'FACTURA',
+    'folio' => $serieFolio,
+    'fecha' => $factura->fecha_timbrado ?? $factura->created_at,
+    'estadoEtiqueta' => $cancelada ? 'Cancelada' : 'Vigente',
+    'estadoCancelado' => $cancelada,
+    'lineas' => $factura->lineas,
+    'documento' => $factura,
+    'etiquetaPrecio' => 'Precio unitario',
+    'moneda' => $factura->moneda,
+    'notaPie' => 'Este documento es una representación impresa de un CFDI',
+])
 
-    <div class="caja">
-        <h2>Datos del comprobante</h2>
-        <p>Uso de CFDI: {{ $factura->uso_cfdi }} &middot; Forma de pago: {{ $factura->forma_pago }} &middot; Método de pago: {{ $factura->metodo_pago->value }}</p>
-    </div>
+@section('contraparte')
+    <p class="parte-titulo">Receptor</p>
+    <p><strong>{{ $factura->cliente->razon_social }}</strong></p>
+    <p>RFC: <strong>{{ $factura->cliente->rfc }}</strong></p>
+    @if ($factura->cliente->direccion_comercial)
+        <p>{{ $factura->cliente->direccion_comercial }}</p>
+    @endif
+    <p>Código postal: {{ $factura->cliente->codigo_postal_fiscal }}</p>
+    <p>Uso del CFDI: {{ $sat->usoCfdi($factura->uso_cfdi) }}</p>
+    <p>Régimen fiscal: {{ $sat->regimenFiscal($factura->cliente->regimen_fiscal) }}</p>
+    {{-- Forma y método de pago viven aquí y no en una caja aparte: son datos del comprobante que
+         describen a esta operación con este receptor (ver 019, "Encabezado, emisor y contraparte"). --}}
+    <p>Forma de pago: {{ $sat->formaPago($factura->forma_pago) }}</p>
+    <p>Método de pago: {{ $factura->metodo_pago->value }}</p>
+    @if ($factura->cliente->correo_contacto)
+        <p>Correo: {{ $factura->cliente->correo_contacto }}</p>
+    @endif
+@endsection
 
-    <table class="lineas">
-        <thead>
-            <tr>
-                <th>Cant.</th>
-                <th>Descripción</th>
-                <th>Modelo</th>
-                <th class="num">Precio unitario</th>
-                <th class="num">Descuento</th>
-                <th>IVA</th>
-                <th class="num">Total</th>
-            </tr>
-        </thead>
-        <tbody>
-            @foreach ($factura->lineas as $linea)
+@section('timbre')
+    {{-- Solo las facturas timbradas llevan timbre. Una pendiente o con error de timbrado imprime el
+         resto del documento, no un bloque vacío. Una cancelada lo conserva completo: el CFDI
+         existió y su constancia impresa sigue siendo válida como representación. --}}
+    @if ($factura->uuid_fiscal)
+        @php($qr = app(\App\Services\QrTimbreFiscal::class)->datos($factura, $emisor))
+
+        <div class="timbre">
+            <p class="timbre-titulo">Timbre Fiscal Digital</p>
+
+            <table class="tfd">
                 <tr>
-                    <td>{{ $linea->cantidad }}</td>
-                    <td>{{ $linea->descripcion }}</td>
-                    <td>{{ $linea->modelo }}</td>
-                    <td class="num">${{ number_format($linea->precio_unitario, 2) }}</td>
-                    <td class="num">
-                        @if ($linea->descuento_valor)
-                            {{ $linea->descuento_tipo->value === 'porcentaje' ? $linea->descuento_valor.'%' : '$'.number_format($linea->descuento_valor, 2) }}
-                        @else
-                            —
+                    <td class="tfd-izq">
+                        @if ($qr['imagen'])
+                            <img src="{{ $qr['imagen'] }}" width="115">
+                        @elseif ($qr['url'])
+                            <p class="tfd-label tfd-label-primera">Verificación</p>
+                            <x-pdf.mono-box :texto="$qr['url']" />
                         @endif
+
+                        <p class="tfd-label">Folio fiscal (UUID)</p>
+                        <p class="mono-sm">{{ $factura->uuid_fiscal }}</p>
+
+                        <p class="tfd-label">Serie del CSD del SAT</p>
+                        <p class="mono-sm">{{ $factura->no_certificado_sat }}</p>
                     </td>
-                    <td>{{ $linea->tasa_iva->value === 'exento' ? 'Exento' : $linea->tasa_iva->value.'%' }}</td>
-                    <td class="num">${{ number_format($linea->importe, 2) }}</td>
+
+                    <td class="tfd-der">
+                        <p class="tfd-label tfd-label-primera">Sello CFDI</p>
+                        <x-pdf.mono-box :texto="$factura->sello_cfdi" />
+
+                        <p class="tfd-label">Sello SAT</p>
+                        <x-pdf.mono-box :texto="$factura->sello_sat" />
+
+                        <p class="tfd-label">Cadena original del complemento de certificación digital del SAT</p>
+                        <x-pdf.mono-box :texto="$factura->cadena_original_sat" />
+                    </td>
                 </tr>
-            @endforeach
-        </tbody>
-    </table>
-
-    <table class="totales">
-        <tr><td>Subtotal</td><td class="num">${{ number_format($factura->subtotal, 2) }}</td></tr>
-        <tr><td>Descuento</td><td class="num">${{ number_format($factura->total_descuento, 2) }}</td></tr>
-        <tr><td>IVA 16%</td><td class="num">${{ number_format($factura->total_iva_16, 2) }}</td></tr>
-        <tr><td>IVA 0% / Exento</td><td class="num">${{ number_format($factura->total_iva_0 + $factura->total_exento, 2) }}</td></tr>
-        <tr class="total"><td>Total</td><td class="num">${{ number_format($factura->total, 2) }} {{ $factura->moneda }}</td></tr>
-    </table>
-
-    <div class="sellos">
-        <p><strong>Folio fiscal (UUID):</strong> {{ $factura->uuid_fiscal }}</p>
-        <p><strong>No. de certificado del SAT:</strong> {{ $factura->no_certificado_sat }}</p>
-        <p><strong>Sello CFDI:</strong> {{ $factura->sello_cfdi }}</p>
-        <p><strong>Sello SAT:</strong> {{ $factura->sello_sat }}</p>
-        <p><strong>Cadena original del complemento de certificación digital del SAT:</strong>
-            {{ $factura->cadena_original_sat }}</p>
-    </div>
-</body>
-</html>
+            </table>
+        </div>
+    @endif
+@endsection

@@ -17,6 +17,7 @@ import {
   DialogTitle,
 } from '../components/ui/dialog'
 import AppLayout from '../layouts/AppLayout.vue'
+import EmisorForm from '../components/EmisorForm.vue'
 
 /**
  * Ajustes globales del sistema (ver specs/014-costo-elaboracion-goma.md).
@@ -132,6 +133,10 @@ async function guardar() {
       <Alert v-if="guardado">
         <AlertDescription>Los ajustes se guardaron.</AlertDescription>
       </Alert>
+
+      <!-- Sección hermana con su propio formulario y su propio botón: guardar el emisor no puede
+           arrastrar el recálculo de precios de los costos de goma (ver specs/019). -->
+      <EmisorForm />
 
       <form v-if="!cargando" class="space-y-6" @submit.prevent="onSubmit">
         <Card>

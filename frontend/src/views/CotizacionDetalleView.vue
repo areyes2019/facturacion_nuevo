@@ -43,6 +43,7 @@ import {
   DialogDescription,
 } from '../components/ui/dialog'
 import CuentaSelect from '../components/CuentaSelect.vue'
+import AvisoEmisorIncompleto from '../components/AvisoEmisorIncompleto.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -314,6 +315,8 @@ async function onDuplicar() {
             {{ cotizacion.estado }}
           </Badge>
         </div>
+
+        <AvisoEmisorIncompleto />
 
         <div class="flex flex-wrap gap-2">
           <Button variant="outline" @click="abrirEnviar">
