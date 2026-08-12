@@ -215,6 +215,37 @@ significa que un despliegue depende de que GitHub responda, y que producción pu
 versión de los catálogos que nunca se probó en desarrollo. Subir el archivo deja las dos máquinas
 con exactamente los mismos datos, verificado por checksum.
 
+### `backend/config/dompdf.php` (nuevo)
+
+`barryvdh/laravel-dompdf` resuelve la ruta base de dompdf al construir el objeto:
+
+```php
+$path = realpath($app['config']->get('dompdf.public_path') ?: base_path('public'));
+if ($path === false) {
+    throw new \RuntimeException('Cannot resolve public path');
+}
+```
+
+`dompdf.public_path` viene en `null` por omisión, así que cae en `base_path('public')`. **Ese
+directorio no existe en producción**: el docroot es `public_html/`, hermano de la aplicación, y el
+despliegue excluye `public/` justamente porque el front controller vive del otro lado. `realpath()`
+devuelve `false` y el contenedor lanza la excepción.
+
+Falla, entonces, **toda** generación de PDF: facturas, cotizaciones y órdenes de compra, tanto al
+descargarlas como al enviarlas por correo o WhatsApp —`EnvioDocumentoService` genera el adjunto
+antes de entregarlo a `Mail`—. Y el mensaje que llega a la interfaz es un `Server Error` genérico:
+con `APP_DEBUG=false` el usuario ve un error que no menciona ni el PDF ni el correo.
+
+Se publica un `config/dompdf.php` con una sola clave, `'public_path' => base_path()`. El resto de
+las opciones las sigue aportando el paquete por `mergeConfigFrom`. `base_path()` existe en las dos
+máquinas y coincide con el `chroot` que dompdf ya usa por omisión.
+
+La ruta es hoy **nominal**: ninguna vista de `resources/views/pdf/` referencia imagen, hoja de
+estilo ni fuente externa, así que dompdf nunca resuelve nada relativo contra ella. Se apunta a
+`base_path()` y no al docroot de producción porque un asset que un PDF necesite debe vivir en el
+repositorio —donde se versiona y se despliega— y no en `public_html/`, que en producción está fuera
+de la aplicación y que `deploy-frontend.sh` sobrescribe con el build del SPA.
+
 ### `deploy/lib.sh` pasa la expresión de exclusión por archivo, no por la línea de comandos
 
 `borrar_sobrantes()` borra en el servidor lo que ya no está en el repositorio, y para no borrar lo
