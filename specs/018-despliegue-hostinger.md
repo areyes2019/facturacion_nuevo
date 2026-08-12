@@ -269,6 +269,27 @@ que aparece por un archivo ajeno al repositorio no es algo que convenga dejar ar
 La expresión pasa ahora por un archivo (`/tmp/deploy-prune.txt`) que el script remoto lee dentro del
 `eval`. Así el texto se interpreta **una sola vez**, en el `eval`, y las comillas hacen su trabajo.
 
+### El script remoto fija `LC_ALL=C`
+
+Segundo error latente en la misma función, aparecido al desplegar
+[019](019-formato-pdf-documentos.md). Las dos listas que compara `borrar_sobrantes()` se ordenan con
+`LC_ALL=C sort` —una en la máquina de desarrollo, otra en el servidor—, pero el `comm` que las
+compara corría con el locale del servidor, que es `en_US.UTF-8`. Y las dos collations no coinciden:
+en orden de bytes `CotizacionFormView` va antes que `CotizacionesListView`, y en `en_US.UTF-8` va
+después. `comm` concluye que la entrada está desordenada, avisa por `stderr` y sale con estado
+distinto de cero, que con `set -euo pipefail` aborta el script **justo antes del borrado**.
+
+Consecuencia: el SPA se publica correctamente pero los bundles de la compilación anterior se quedan
+en el docroot para siempre, y el despliegue termina en error sin que nada visible esté roto.
+
+El fallo depende de que la lista contenga dos nombres cuyo orden relativo cambie entre collations,
+y por eso el backend nunca lo disparó: sus rutas son casi todas minúsculas. Las del build del
+frontend llevan el nombre de cada vista en CamelCase, así que era cuestión de tiempo.
+
+El script remoto exporta ahora `LC_ALL=C` en su primera línea, con lo que `find`, `sort` y `comm`
+comparten el mismo orden. Se eligió eso sobre ordenar en la collation del servidor porque el orden
+de bytes es el único que no depende de cómo esté configurada una máquina que no controlamos.
+
 ### Nada más
 
 `config/cors.php` no se toca. Con un solo origen el navegador no manda `Origin` en peticiones del

@@ -108,11 +108,21 @@ borrar_sobrantes() {
     printf '%s\n' "$prune" | remote "cat > /tmp/deploy-prune.txt"
     remote "DEST='$destino' bash -s" <<'FIN_BORRADO'
 set -euo pipefail
+
+# Orden de bytes en TODO el script, no solo en el sort. La lista de lo esperado se ordena con
+# LC_ALL=C en la máquina de desarrollo, y sin esto `comm` la compara con la collation del servidor
+# (en_US.UTF-8), donde `CotizacionFormView` va DESPUÉS de `CotizacionesListView` y en orden de bytes
+# va antes. `comm` concluye que la entrada está desordenada y sale con error, que con `set -e` mata
+# el script justo antes del borrado: el despliegue termina en rojo y los archivos viejos se quedan.
+# El orden de bytes es el único que no depende de cómo esté configurada una máquina que no
+# controlamos.
+export LC_ALL=C
+
 cd "$DEST"
 
 # shellcheck disable=SC2086
 eval "find . $(cat /tmp/deploy-prune.txt) -type f -print" \
-    | sed 's|^\./||' | LC_ALL=C sort > /tmp/deploy-actual.txt
+    | sed 's|^\./||' | sort > /tmp/deploy-actual.txt
 
 comm -13 /tmp/deploy-esperado.txt /tmp/deploy-actual.txt > /tmp/deploy-sobran.txt
 
