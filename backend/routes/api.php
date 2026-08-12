@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\ArticuloController;
+use App\Http\Controllers\ArticuloImagenController;
 use App\Http\Controllers\CatalogoController;
 use App\Http\Controllers\CatalogoProveedorController;
 use App\Http\Controllers\ClienteController;
@@ -46,6 +47,15 @@ Route::middleware(['auth:sanctum'])->group(function () {
         ->parameters(['proveedores' => 'proveedor']);
 
     Route::get('articulos/exportar-csv', [ArticuloController::class, 'exportarCsv']);
+
+    // Imágenes de artículo (ver 020-imagenes-articulos.md). Van ANTES del apiResource: con
+    // {articulo}/imagen después, el resource no las capturaría, pero se mantiene el orden por la
+    // misma razón que exportar-csv arriba — las rutas más específicas primero, sin excepciones que
+    // haya que recordar.
+    Route::get('articulos/{articulo}/imagen', [ArticuloImagenController::class, 'show']);
+    Route::post('articulos/{articulo}/imagen', [ArticuloImagenController::class, 'store']);
+    Route::delete('articulos/{articulo}/imagen', [ArticuloImagenController::class, 'destroy']);
+
     Route::apiResource('articulos', ArticuloController::class);
 
     // Existencias (ver 017-inventario.md). Las rutas estáticas van ANTES del binding {articulo},
@@ -78,6 +88,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::apiResource('catalogos-proveedor', CatalogoProveedorController::class)
         ->parameters(['catalogos-proveedor' => 'catalogo']);
     Route::post('catalogos-proveedor/{catalogo}/articulos/importar-csv', [ArticuloController::class, 'importarCsv']);
+    // Misma idea que la importación CSV de arriba, con imágenes: una carga masiva dirigida a un
+    // catálogo concreto (ver 020-imagenes-articulos.md).
+    Route::post('catalogos-proveedor/{catalogo}/articulos/imagenes', [ArticuloImagenController::class, 'cargaMasiva']);
     Route::post('catalogos-proveedor/{catalogo}/impacto-precios', [CatalogoProveedorController::class, 'impactoPrecios']);
 
     Route::apiResource('facturas', FacturaController::class);

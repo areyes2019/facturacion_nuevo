@@ -1,7 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useArticulosStore, type Articulo, type ArticuloPayload } from '../stores/articulos'
+import {
+  imagenUrl,
+  useArticulosStore,
+  type Articulo,
+  type ArticuloPayload,
+} from '../stores/articulos'
 import { useCatalogosStore } from '../stores/catalogos'
 import { useConfiguracionStore } from '../stores/configuracion'
 import { extractErrorMessage, extractFieldErrors } from '../lib/errors'
@@ -129,6 +134,16 @@ function pesos(valor: number): string {
   return valor.toFixed(2)
 }
 
+/**
+ * Copia del artículo tal como lo devolvió el servidor, para el bloque de imagen (ver
+ * 020-imagenes-articulos.md). El formulario trabaja con `form`, que no lleva la imagen porque no
+ * viaja en el payload: la foto se guarda contra un artículo que ya existe, por su propio endpoint.
+ */
+const articuloActual = ref<Articulo | null>(null)
+const subiendoImagen = ref(false)
+const errorImagen = ref<string | null>(null)
+const urlImagen = computed(() => (articuloActual.value ? imagenUrl(articuloActual.value) : null))
+
 const cargando = ref(false)
 const guardando = ref(false)
 const errorGeneral = ref<string | null>(null)
@@ -149,6 +164,7 @@ onMounted(async () => {
   cargando.value = true
   try {
     const articulo = await articulos.fetchOne(articuloId.value)
+    articuloActual.value = articulo
     form.catalogo_id = articulo.catalogo_id
     form.nombre = articulo.nombre
     form.modelo = articulo.modelo
@@ -189,6 +205,49 @@ function discrepancia(guardado: Articulo): string | null {
     `$${pesos(guardado.precio_unitario_sin_iva)}, en lugar de $${pesos(local.costo_total)} ` +
     `y $${pesos(local.precio_unitario_sin_iva)}. Recarga la página y verifica el artículo.`
   )
+}
+
+async function onImagenSeleccionada(event: Event) {
+  const input = event.target as HTMLInputElement
+  const archivo = input.files?.[0]
+
+  if (!archivo || !articuloId.value) return
+
+  subiendoImagen.value = true
+  errorImagen.value = null
+
+  try {
+    articuloActual.value = await articulos.subirImagen(articuloId.value, archivo)
+  } catch (err) {
+    errorImagen.value = extractErrorMessage(err)
+  } finally {
+    subiendoImagen.value = false
+    // Sin esto, elegir el mismo archivo dos veces seguidas no dispara el evento y el usuario
+    // creería que el reintento no hizo nada.
+    input.value = ''
+  }
+}
+
+async function quitarImagen() {
+  if (!articuloId.value) return
+
+  subiendoImagen.value = true
+  errorImagen.value = null
+
+  try {
+    await articulos.eliminarImagen(articuloId.value)
+    if (articuloActual.value) {
+      articuloActual.value = {
+        ...articuloActual.value,
+        tiene_imagen: false,
+        imagen_version: null,
+      }
+    }
+  } catch (err) {
+    errorImagen.value = extractErrorMessage(err)
+  } finally {
+    subiendoImagen.value = false
+  }
 }
 
 async function onSubmit() {
@@ -418,6 +477,66 @@ async function onSubmit() {
                 </div>
               </dl>
             </div>
+          </CardContent>
+        </Card>
+
+        <!-- La carga masiva resuelve el volumen; este bloque resuelve la foto suelta que salió
+             mal, sin obligar a armar un ZIP para corregir un producto (ver 020). -->
+        <Card>
+          <CardHeader>
+            <CardTitle class="text-base">Imagen</CardTitle>
+          </CardHeader>
+          <CardContent class="space-y-4">
+            <p v-if="!esEdicion" class="text-muted-foreground text-sm">
+              Guarda el artículo primero: la imagen se asocia a un artículo que ya existe.
+            </p>
+
+            <template v-else>
+              <div class="flex flex-wrap items-start gap-4">
+                <div
+                  class="bg-muted flex size-32 shrink-0 items-center justify-center overflow-hidden rounded-md"
+                >
+                  <img
+                    v-if="urlImagen"
+                    :src="urlImagen"
+                    :alt="form.nombre"
+                    class="h-full w-full object-contain"
+                  />
+                  <span v-else class="text-muted-foreground text-xs">Sin imagen</span>
+                </div>
+
+                <div class="min-w-0 flex-1 space-y-2">
+                  <Label for="imagen_articulo">
+                    {{ urlImagen ? 'Reemplazar imagen' : 'Subir imagen' }}
+                  </Label>
+                  <input
+                    id="imagen_articulo"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    :disabled="subiendoImagen"
+                    class="border-input w-full min-w-0 rounded-md border px-3 py-1.5 text-sm"
+                    @change="onImagenSeleccionada"
+                  />
+                  <p class="text-muted-foreground text-sm">
+                    JPG, PNG o WEBP, hasta 10 MB. Se guarda reducida a 1200 px de lado.
+                  </p>
+                  <Button
+                    v-if="urlImagen"
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    :disabled="subiendoImagen"
+                    @click="quitarImagen"
+                  >
+                    Quitar imagen
+                  </Button>
+                </div>
+              </div>
+
+              <Alert v-if="errorImagen" variant="destructive">
+                <AlertDescription>{{ errorImagen }}</AlertDescription>
+              </Alert>
+            </template>
           </CardContent>
         </Card>
 

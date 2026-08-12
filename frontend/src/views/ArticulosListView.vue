@@ -9,16 +9,19 @@ import {
   ArrowDownTrayIcon,
   ChevronUpIcon,
   ChevronDownIcon,
+  PhotoIcon,
 } from '@heroicons/vue/24/outline'
 import {
   useArticulosStore,
   type Articulo,
   type ArticuloSort,
   type ImportarCsvReporte,
+  type ImagenesReporte,
 } from '../stores/articulos'
 import { extractErrorMessage } from '../lib/errors'
 import AppLayout from '../layouts/AppLayout.vue'
 import CatalogoSelect from '../components/CatalogoSelect.vue'
+import ArticuloDetalleDialog from '../components/ArticuloDetalleDialog.vue'
 import { Button } from '../components/ui/button'
 import { Card, CardContent } from '../components/ui/card'
 import { Input } from '../components/ui/input'
@@ -56,6 +59,16 @@ const archivoImportar = ref<File | null>(null)
 const importando = ref(false)
 const errorImportar = ref<string | null>(null)
 const reporteImportar = ref<ImportarCsvReporte | null>(null)
+
+const articuloDetalle = ref<Articulo | null>(null)
+
+const mostrarImagenes = ref(false)
+const catalogoImagenes = ref<number | null>(null)
+const archivosImagenes = ref<File[]>([])
+const subiendoImagenes = ref(false)
+const progresoImagenes = ref({ enviados: 0, total: 0 })
+const errorImagenes = ref<string | null>(null)
+const reporteImagenes = ref<ImagenesReporte | null>(null)
 
 onMounted(() => articulos.fetchList())
 
@@ -140,6 +153,42 @@ function onArchivoSeleccionado(event: Event) {
   archivoImportar.value = input.files?.[0] ?? null
 }
 
+function abrirImagenes() {
+  mostrarImagenes.value = true
+  catalogoImagenes.value = null
+  archivosImagenes.value = []
+  errorImagenes.value = null
+  reporteImagenes.value = null
+  progresoImagenes.value = { enviados: 0, total: 0 }
+}
+
+function onImagenesSeleccionadas(event: Event) {
+  const input = event.target as HTMLInputElement
+  archivosImagenes.value = Array.from(input.files ?? [])
+}
+
+async function confirmarImagenes() {
+  if (!catalogoImagenes.value || archivosImagenes.value.length === 0) return
+
+  subiendoImagenes.value = true
+  errorImagenes.value = null
+  reporteImagenes.value = null
+  progresoImagenes.value = { enviados: 0, total: archivosImagenes.value.length }
+
+  try {
+    reporteImagenes.value = await articulos.cargarImagenes(
+      catalogoImagenes.value,
+      archivosImagenes.value,
+      (enviados, total) => (progresoImagenes.value = { enviados, total }),
+    )
+    await articulos.fetchList(articulos.meta?.current_page ?? 1)
+  } catch (err) {
+    errorImagenes.value = extractErrorMessage(err)
+  } finally {
+    subiendoImagenes.value = false
+  }
+}
+
 async function confirmarImportar() {
   if (!catalogoImportar.value || !archivoImportar.value) return
 
@@ -173,6 +222,10 @@ async function confirmarImportar() {
           <Button variant="outline" @click="abrirImportar">
             <ArrowUpTrayIcon class="size-4" />
             Importar CSV
+          </Button>
+          <Button variant="outline" @click="abrirImagenes">
+            <PhotoIcon class="size-4" />
+            Subir imágenes
           </Button>
           <Button as-child>
             <RouterLink :to="{ name: 'articulos-crear' }">
@@ -239,7 +292,17 @@ async function confirmarImportar() {
                 </TableCell>
               </TableRow>
               <TableRow v-for="articulo in articulos.items" :key="articulo.id">
-                <TableCell>{{ articulo.nombre }}</TableCell>
+                <TableCell>
+                  <!-- El nombre es el enlace a la ficha. No hay miniatura en la tabla: las fotos
+                       le quitarían al listado la densidad que lo hace útil para trabajar. -->
+                  <button
+                    type="button"
+                    class="hover:text-primary text-left font-medium underline-offset-4 hover:underline"
+                    @click="articuloDetalle = articulo"
+                  >
+                    {{ articulo.nombre }}
+                  </button>
+                </TableCell>
                 <TableCell>{{ articulo.modelo }}</TableCell>
                 <TableCell truncate :title="articulo.catalogo_nombre ?? undefined">
                   {{ articulo.catalogo_nombre ?? '—' }}
@@ -387,6 +450,106 @@ async function confirmarImportar() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog :open="mostrarImagenes" @update:open="(v) => !v && (mostrarImagenes = false)">
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Subir imágenes de productos</DialogTitle>
+            <DialogDescription>
+              Cada imagen se asocia sola al artículo cuyo modelo coincida con el nombre del archivo.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div class="min-w-0 space-y-4">
+            <p class="text-muted-foreground text-sm">
+              Se ignoran mayúsculas, acentos y la diferencia entre espacios, guiones y guiones
+              bajos:
+              <code>a 1234.jpg</code>, <code>A-1234.jpg</code> y <code>A_1234.webp</code> encuentran
+              al mismo artículo. Formatos: JPG, PNG y WEBP.
+            </p>
+
+            <p class="text-muted-foreground text-sm">
+              También puedes subir un <code>.zip</code>, pero debe venir <strong>plano</strong>: si
+              trae carpetas dentro se rechaza completo. Comprime la selección de archivos, no la
+              carpeta que los contiene.
+            </p>
+
+            <div class="space-y-1.5">
+              <Label>Catálogo</Label>
+              <CatalogoSelect v-model="catalogoImagenes" />
+            </div>
+
+            <div class="min-w-0 space-y-1.5">
+              <Label for="archivos_imagenes">Imágenes o archivo ZIP</Label>
+              <input
+                id="archivos_imagenes"
+                type="file"
+                multiple
+                accept="image/jpeg,image/png,image/webp,.zip"
+                class="border-input w-full min-w-0 rounded-md border px-3 py-1.5 text-sm"
+                @change="onImagenesSeleccionadas"
+              />
+              <p v-if="archivosImagenes.length > 0" class="text-muted-foreground text-sm">
+                {{ archivosImagenes.length }} archivo(s) seleccionado(s).
+              </p>
+            </div>
+
+            <!-- Una carga de 300 fotos son 15 peticiones seguidas; sin barra no habría forma de
+                 distinguirla de un cuelgue. -->
+            <div v-if="subiendoImagenes && progresoImagenes.total > 0" class="space-y-1.5">
+              <div class="bg-muted h-2 w-full overflow-hidden rounded-full">
+                <div
+                  class="bg-primary h-full transition-all"
+                  :style="{
+                    width: `${Math.round((progresoImagenes.enviados / progresoImagenes.total) * 100)}%`,
+                  }"
+                />
+              </div>
+              <p class="text-muted-foreground text-sm">
+                {{ progresoImagenes.enviados }} de {{ progresoImagenes.total }} archivos enviados.
+              </p>
+            </div>
+
+            <Alert v-if="errorImagenes" variant="destructive">
+              <AlertDescription>{{ errorImagenes }}</AlertDescription>
+            </Alert>
+
+            <Alert v-if="reporteImagenes">
+              <AlertDescription>
+                {{ reporteImagenes.asociadas }} imagen(es) asociada(s).
+                <template v-if="reporteImagenes.errores.length > 0">
+                  {{ reporteImagenes.errores.length }} archivo(s) sin asociar:
+                  <ul class="mt-1 max-h-48 list-disc overflow-y-auto pl-5">
+                    <li
+                      v-for="(error, i) in reporteImagenes.errores"
+                      :key="`${error.archivo}-${i}`"
+                    >
+                      {{ error.archivo }}: {{ error.motivo }}
+                    </li>
+                  </ul>
+                </template>
+              </AlertDescription>
+            </Alert>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" :disabled="subiendoImagenes" @click="mostrarImagenes = false">
+              Cerrar
+            </Button>
+            <Button
+              :disabled="subiendoImagenes || !catalogoImagenes || archivosImagenes.length === 0"
+              @click="confirmarImagenes"
+            >
+              {{ subiendoImagenes ? 'Subiendo...' : 'Subir' }}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <ArticuloDetalleDialog
+        :articulo="articuloDetalle"
+        @update:open="(v) => !v && (articuloDetalle = null)"
+      />
     </div>
   </AppLayout>
 </template>

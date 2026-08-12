@@ -38,6 +38,11 @@ class ArticuloResource extends JsonResource
                 fn () => PrecioArticuloCalculator::utilidadEfectiva($this->resource, $this->catalogo)
             ),
             'tamano_goma' => $this->tamano_goma?->value,
+            'tiene_imagen' => filled($this->imagen_ruta),
+            // La ruta interna del archivo no se expone: es un detalle del servidor. Lo que el
+            // frontend necesita es un valor que cambie con cada reemplazo, para colgarlo de la URL
+            // de la imagen y que el navegador no le sirva la anterior desde su caché (ver 020).
+            'imagen_version' => $this->imagen_version,
             'costo_goma' => (float) $this->costo_goma,
             'costo_con_descuento' => (float) $this->costo_con_descuento,
             'costo_total' => $this->costo_total,
