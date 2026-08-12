@@ -92,17 +92,26 @@ subir_paquete() {
 # paquete. Lo que no se sube y tampoco se excluye aquí, se borraría: por eso
 # .env, storage/ y vendor/ aparecen en las dos listas.
 #
+# La expresión viaja por un archivo y no como variable de entorno del comando
+# ssh. Metida en la línea de comandos, sus comillas simples cierran las del
+# `PRUNE='...'` que las envuelve, y patrones como `-name '.env.*'` llegan al
+# servidor SIN comillas: el `eval` los expande contra el directorio del
+# proyecto y find recibe `-name .env.save .env.save.1` en vez de un patrón.
+# Por archivo, el texto se interpreta una sola vez —en el `eval`— y las
+# comillas hacen su trabajo.
+#
 #   borrar_sobrantes <dir_remoto> <expresión find de exclusión>
 borrar_sobrantes() {
     local destino="$1" prune="$2"
 
     remote "cat > /tmp/deploy-esperado.txt" < "$LISTA_SUBIDA"
-    remote "DEST='$destino' PRUNE='$prune' bash -s" <<'FIN_BORRADO'
+    printf '%s\n' "$prune" | remote "cat > /tmp/deploy-prune.txt"
+    remote "DEST='$destino' bash -s" <<'FIN_BORRADO'
 set -euo pipefail
 cd "$DEST"
 
 # shellcheck disable=SC2086
-eval "find . $PRUNE -type f -print" \
+eval "find . $(cat /tmp/deploy-prune.txt) -type f -print" \
     | sed 's|^\./||' | LC_ALL=C sort > /tmp/deploy-actual.txt
 
 comm -13 /tmp/deploy-esperado.txt /tmp/deploy-actual.txt > /tmp/deploy-sobran.txt
@@ -115,7 +124,7 @@ else
     echo "    nada que borrar"
 fi
 
-rm -f /tmp/deploy-esperado.txt /tmp/deploy-actual.txt /tmp/deploy-sobran.txt
+rm -f /tmp/deploy-esperado.txt /tmp/deploy-actual.txt /tmp/deploy-sobran.txt /tmp/deploy-prune.txt
 FIN_BORRADO
 }
 

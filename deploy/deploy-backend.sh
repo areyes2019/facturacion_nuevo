@@ -10,12 +10,15 @@
 #   2. Pone el sitio en mantenimiento
 #   3. Sube el código con tar sobre SSH (sin .env, storage/, vendor/ ni public/)
 #   4. composer install --no-scripts + package:discover
-#   5. Respalda la base de datos
-#   6. php artisan migrate --force
-#   7. Recachea configuración, rutas y eventos
-#   8. Levanta el sitio
+#   5. Sincroniza la base sqlite de catálogos SAT (solo si cambió)
+#   6. Respalda la base de datos
+#   7. php artisan migrate --force
+#   8. Recachea configuración, rutas y eventos
+#   9. Levanta el sitio
 #
-# Nunca toca: .env, storage/, bootstrap/cache/, ni nada dentro de public_html.
+# Nunca toca: .env, bootstrap/cache/, ni nada dentro de public_html. De storage/
+# escribe un solo archivo, sat-catalogos.sqlite, que es un artefacto de la
+# aplicación y no estado del servidor (ver el paso 5).
 
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
@@ -122,6 +125,45 @@ say "Instalando dependencias de Composer"
 remote "cd '$REMOTE_APP' && composer install --no-dev --optimize-autoloader --no-interaction --no-progress --no-scripts"
 remote "cd '$REMOTE_APP' && $REMOTE_PHP artisan package:discover --no-ansi"
 ok "dependencias listas"
+
+# --- Catálogos SAT -----------------------------------------------------------
+# Los seis catálogos del SAT (régimen fiscal, código postal, clave de
+# producto/servicio, clave de unidad, uso de CFDI y forma de pago) viven en una
+# base sqlite de ~13 MB que genera `php artisan catalogos-sat:actualizar`. No
+# está en git (son binarios regenerables) y cae dentro de storage/, que este
+# script excluye de la subida. O sea: el único archivo de storage/ que es
+# artefacto de la aplicación y no estado del servidor. Sin este paso no llega
+# nunca a producción, y allá los seis catálogos responden vacío.
+say "Sincronizando los catálogos SAT"
+CATALOGOS_LOCAL="$REPO_ROOT/backend/storage/app/sat-catalogos.sqlite"
+CATALOGOS_REMOTO="$REMOTE_APP/storage/app/sat-catalogos.sqlite"
+
+[ -s "$CATALOGOS_LOCAL" ] || die "falta $CATALOGOS_LOCAL
+       Genérala antes de desplegar:  cd backend && php artisan catalogos-sat:actualizar"
+
+SUMA_LOCAL="$(md5sum "$CATALOGOS_LOCAL" | cut -d' ' -f1)"
+SUMA_REMOTA="$(remote "md5sum '$CATALOGOS_REMOTO' 2>/dev/null | cut -d' ' -f1" || true)"
+
+if [ "$SUMA_LOCAL" = "$SUMA_REMOTA" ]; then
+    ok "sin cambios ($(du -h "$CATALOGOS_LOCAL" | cut -f1 | tr -d ' '))"
+else
+    # Se escribe en un temporal y se mueve al final. Escribir directo sobre el
+    # destino deja la aplicación leyendo un archivo a medio escribir, y una
+    # transferencia interrumpida deja una base truncada que sqlite abre SIN
+    # error y que responde "no hay resultados" a todo: una falla silenciosa,
+    # idéntica desde la interfaz a un catálogo que no encuentra nada. El mv,
+    # dentro del mismo sistema de archivos, es atómico.
+    say "  subiendo $(du -h "$CATALOGOS_LOCAL" | cut -f1 | tr -d ' ') comprimidos"
+    gzip -c "$CATALOGOS_LOCAL" \
+        | remote "gzip -dc > '$CATALOGOS_REMOTO.nuevo' && mv -f '$CATALOGOS_REMOTO.nuevo' '$CATALOGOS_REMOTO'" \
+        || die "no se pudieron subir los catálogos SAT"
+
+    SUMA_VERIFICADA="$(remote "md5sum '$CATALOGOS_REMOTO' | cut -d' ' -f1")"
+    [ "$SUMA_LOCAL" = "$SUMA_VERIFICADA" ] \
+        || die "los catálogos SAT llegaron corruptos (esperado $SUMA_LOCAL, recibido $SUMA_VERIFICADA)"
+
+    ok "catálogos actualizados ($SUMA_LOCAL)"
+fi
 
 # --- Caché vieja -------------------------------------------------------------
 # Se limpia ANTES de migrar: una configuración cacheada de la versión anterior

@@ -173,6 +173,71 @@ archivo no versionado es exactamente la clase de detalle que se olvida.
 
 `navigateFallbackDenylist` pasa de `[/^\/api\//]` a `[/^\/api\//, /^\/sanctum\//, /^\/up$/]`.
 
+### `deploy/deploy-backend.sh` sincroniza la base de catálogos SAT
+
+Los catálogos del SAT (`c_RegimenFiscal`, `c_CodigoPostal`, `c_ClaveProdServ`, `c_ClaveUnidad`,
+`c_UsoCFDI` y `c_FormaPago`) no viven en MySQL: viven en una base SQLite de ~13 MB en
+`backend/storage/app/sat-catalogos.sqlite`, que genera el comando `catalogos-sat:actualizar`
+(ver `004-gestion-clientes.md`, `006-gestion-articulos.md` y `007-facturacion.md`).
+
+Ese archivo cae en la intersección de dos reglas que, cada una por su lado, son correctas:
+
+- **No está en git.** `backend/storage/app/.gitignore` ignora todo el directorio, y así debe seguir:
+  son 13 MB binarios regenerables por comando, no código.
+- **El despliegue no sube `storage/`.** Su contenido es del servidor —logs, sesiones, caché— y
+  pisarlo desde local sería destruir estado vivo.
+
+El resultado es que el único archivo de `storage/` que **sí** es un artefacto de la aplicación y no
+estado del servidor no llegaba nunca a producción. Sin él, los seis catálogos quedan vacíos: los
+`<select>` de régimen fiscal y forma de pago no ofrecen opciones, y las búsquedas de clave de
+producto/servicio, clave de unidad, uso de CFDI y código postal no devuelven nada. La validación de
+alta también rechaza cualquier clave, porque `App\Rules\*Valido` consulta esa misma base.
+
+Por eso `deploy-backend.sh` gana un paso propio, **antes** de las migraciones:
+
+1. Compara el `md5sum` del archivo local con el del remoto.
+2. Si coinciden, no sube nada. El archivo cambia solo cuando se corre `catalogos-sat:actualizar`
+   (dos o tres veces al año), y 13 MB en cada despliegue serían puro peaje.
+3. Si difieren o el remoto no existe, lo sube comprimido con `gzip` sobre SSH (~3 MB en tránsito),
+   **a un nombre temporal**, y solo entonces lo mueve sobre el definitivo.
+4. Verifica el `md5sum` del resultado y aborta el despliegue si no coincide.
+
+El nombre temporal más el `mv` no son ceremonia: escribir directo sobre el destino deja la
+aplicación leyendo un archivo a medio escribir mientras dura la transferencia, y una transferencia
+interrumpida deja una base truncada —o de cero bytes— que SQLite abre **sin error** y que responde
+"no hay resultados" a todo. Es un modo de falla silencioso, indistinguible desde la interfaz de un
+catálogo que simplemente no encuentra nada. `mv` dentro del mismo sistema de archivos es atómico:
+o está la base completa y anterior, o está la completa y nueva.
+
+Se sube el archivo desde local en vez de correr `catalogos-sat:actualizar` en el servidor. El
+comando descarga un ZIP de ~20 MB desde GitHub y reconstruye la base; hacerlo en producción
+significa que un despliegue depende de que GitHub responda, y que producción pueda quedar con una
+versión de los catálogos que nunca se probó en desarrollo. Subir el archivo deja las dos máquinas
+con exactamente los mismos datos, verificado por checksum.
+
+### `deploy/lib.sh` pasa la expresión de exclusión por archivo, no por la línea de comandos
+
+`borrar_sobrantes()` borra en el servidor lo que ya no está en el repositorio, y para no borrar lo
+que nunca se sube (`.env`, `storage/`, `vendor/`) le pasa a `find` una expresión de exclusión.
+Esa expresión viajaba como variable de entorno del comando ssh:
+
+```bash
+remote "DEST='$destino' PRUNE='$prune' bash -s"
+```
+
+Y `$prune` contiene comillas simples: `-name '.env.*' -prune -o`. Al construirse la línea, esas
+comillas **cierran** las de `PRUNE='...'`, así que el valor llega al servidor sin ellas. El `eval`
+del script remoto expande entonces `.env.*` contra el directorio del proyecto y `find` recibe
+`-name .env.save .env.save.1` —dos rutas donde esperaba un patrón— y aborta con
+`paths must precede expression`.
+
+El fallo depende de que exista un archivo que case con el patrón, así que el despliegue funcionó
+hasta que editar el `.env` en el servidor con `nano` dejó sus `.env.save` al lado. Un error latente
+que aparece por un archivo ajeno al repositorio no es algo que convenga dejar armado.
+
+La expresión pasa ahora por un archivo (`/tmp/deploy-prune.txt`) que el script remoto lee dentro del
+`eval`. Así el texto se interpreta **una sola vez**, en el `eval`, y las comillas hacen su trabajo.
+
 ### Nada más
 
 `config/cors.php` no se toca. Con un solo origen el navegador no manda `Origin` en peticiones del
@@ -304,6 +369,10 @@ anotado en `deploy/hostinger/README.md` como advertencia junto a la línea.
 12. `APP_DEBUG=false`: un error provocado devuelve la página genérica, sin stack ni variables de
     entorno.
 13. El cron de `cotizaciones:purgar-vencidas` queda registrado y deja rastro de su ejecución.
+14. Los catálogos SAT responden en producción: la búsqueda de clave de producto/servicio y la de
+    clave de unidad devuelven resultados, los `<select>` de régimen fiscal y forma de pago vienen
+    poblados, y guardar un artículo con una clave válida no es rechazado por la validación. El
+    `md5sum` de `storage/app/sat-catalogos.sqlite` en el servidor coincide con el de local.
 
 ## Estado de implementación
 
@@ -331,3 +400,6 @@ Pendiente.
 14. `config:cache` es seguro porque no hay llamadas a `env()` fuera de `config/`; si eso cambia, el
     procedimiento deja de ser válido.
 15. No se toca ninguna regla de negocio, pantalla ni endpoint.
+16. `backend/storage/app/sat-catalogos.sqlite` sigue fuera de git y se sincroniza por checksum desde
+    la máquina de desarrollo. Es la única excepción a "el despliegue no toca `storage/`", y lo es
+    porque ese archivo es un artefacto de la aplicación, no estado del servidor.

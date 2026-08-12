@@ -174,8 +174,10 @@ Rellena los `<...>` con los valores reales de hPanel.
 bash deploy/deploy-backend.sh
 ```
 
-Sube el código, instala Composer, respalda (no habrá nada que respaldar) y
-migra. Después, generar la llave de la aplicación:
+Sube el código, instala Composer, sincroniza los catálogos del SAT (ver abajo;
+si `backend/storage/app/sat-catalogos.sqlite` no existe todavía, el script se
+detiene y te dice qué correr), respalda (no habrá nada que respaldar) y migra.
+Después, generar la llave de la aplicación:
 
 ```bash
 bash deploy/artisan.sh key:generate --force
@@ -262,7 +264,7 @@ a mano y con un respaldo delante.
 | Ruta | Por qué |
 |---|---|
 | `facturacion/.env` | Credenciales reales. Se edita a mano en el servidor. |
-| `facturacion/storage/` | Logs, sesiones y caché vivos. |
+| `facturacion/storage/` | Logs, sesiones y caché vivos. **Una excepción**: `storage/app/sat-catalogos.sqlite`, que sí se sincroniza (ver abajo). |
 | `facturacion/bootstrap/cache/` | Caché compilada; se regenera sola. |
 | `facturacion/vendor/` | Lo instala Composer allá, no se sube. |
 | `public_html/` | Territorio del frontend. |
@@ -279,6 +281,42 @@ a mano y con un respaldo delante.
 Ambos usan `rsync --delete`, así que un archivo borrado en el repositorio
 desaparece también del servidor. Las rutas excluidas quedan protegidas de ese
 borrado: rsync no elimina lo que no mira.
+
+---
+
+## Los catálogos del SAT
+
+Los seis catálogos que usa el sistema —régimen fiscal, código postal, clave de
+producto/servicio, clave de unidad, uso de CFDI y forma de pago— **no están en
+MySQL**. Viven en una base SQLite de ~13 MB:
+
+```
+backend/storage/app/sat-catalogos.sqlite
+```
+
+Ese archivo no está en git (son binarios regenerables, no código) y cae dentro
+de `storage/`, que el despliegue excluye por regla general. Es la única
+excepción a esa regla: `deploy-backend.sh` lo sincroniza en cada despliegue,
+pero **solo si cambió** —compara `md5sum` antes de mover un byte—, lo sube
+comprimido (~3 MB en tránsito), lo escribe con nombre temporal y recién
+entonces lo mueve sobre el definitivo, y verifica el checksum del resultado.
+
+El nombre temporal importa. Una transferencia interrumpida sobre el archivo
+definitivo deja una base truncada, y SQLite abre una base truncada **sin dar
+error**: los catálogos simplemente responden vacío. Desde la pantalla se ve
+igual que una búsqueda sin resultados, y no hay nada en el log.
+
+Para actualizar los catálogos cuando el SAT publica una versión nueva:
+
+```bash
+cd backend && php artisan catalogos-sat:actualizar
+bash deploy/deploy-backend.sh --sin-migrar
+```
+
+El comando descarga el recurso de `phpcfdi/resources-sat-catalogs` y reconstruye
+la base **en local**; el despliegue la copia al servidor. No se corre en
+producción a propósito: haría que un despliegue dependa de que GitHub responda,
+y dejaría al servidor con una versión de los catálogos que nunca se probó aquí.
 
 ---
 
@@ -309,5 +347,6 @@ gunzip -c ~/backups/facturacion-AAAAMMDD-HHMMSS.sql.gz | mysql -u USUARIO -p BAS
 | El login deja de funcionar después de un deploy de frontend | El `.htaccess` de `dist/` pisó al de producción. Vuelve a subir `deploy/hostinger/htaccess-public_html`. |
 | El API devuelve HTML donde se esperaba JSON | Igual que el anterior: las reglas de `/api` no se están aplicando. |
 | 500 sin explicación | `ssh prosello 'tail -50 ~/domains/prosello.com.mx/facturacion/storage/logs/laravel.log'` |
+| Las claves de producto/servicio o de unidad no devuelven resultados, o los `<select>` de régimen fiscal y forma de pago salen vacíos | La base de catálogos SAT del servidor falta, está vacía o está truncada. `bash deploy/deploy-backend.sh --sin-migrar` la vuelve a subir. Compruébalo con `ssh prosello 'ls -l ~/domains/prosello.com.mx/facturacion/storage/app/sat-catalogos.sqlite'`: si pesa 0, es esto. |
 | El sitio quedó en mantenimiento | `bash deploy/artisan.sh up` |
 | `composer install` aborta | Falta `--no-scripts`; ver la restricción de `proc_open`. |
