@@ -1,0 +1,237 @@
+{
+  "descripcion": "Casos frontera de la cadena de precios de un articulo (ver specs/011-precio-proveedor-utilidad.md y specs/014-costo-elaboracion-goma.md). Definicion ejecutable compartida: la consumen PHPUnit (backend) y Vitest (frontend), de modo que cambiar una implementacion sin la otra rompe la suite del lado no tocado. Los valores esperados se derivaron con aritmetica entera de centavos, independiente de ambas implementaciones. Todos los montos van en MXN sin IVA. Los casos con costo_goma en 0 son los originales de 011 y sus resultados no cambiaron al agregar el eslabon de la goma: son la prueba de que el eslabon nuevo es transparente cuando no se usa.",
+  "cadena": "costo_con_descuento = redondeo2(precio_proveedor * (1 - descuento / 100)); costo_total = redondeo2(costo_con_descuento + costo_goma); precio_unitario_sin_iva = techo2(costo_total * (1 + utilidad_porcentaje / 100)); utilidad = precio_unitario_sin_iva - costo_total",
+  "casos": [
+    {
+      "descripcion": "cadena canonica de la spec",
+      "precio_proveedor": 200.0,
+      "descuento": 10.0,
+      "utilidad_porcentaje": 25.0,
+      "costo_goma": 0.0,
+      "costo_con_descuento": 180.0,
+      "costo_total": 180.0,
+      "precio_unitario_sin_iva": 225.0,
+      "utilidad": 45.0
+    },
+    {
+      "descripcion": "caso capturado en produccion: descuento alto y porcentaje de dos digitos",
+      "precio_proveedor": 347.27,
+      "descuento": 55.0,
+      "utilidad_porcentaje": 99.0,
+      "costo_goma": 0.0,
+      "costo_con_descuento": 156.27,
+      "costo_total": 156.27,
+      "precio_unitario_sin_iva": 310.98,
+      "utilidad": 154.71
+    },
+    {
+      "descripcion": "techo real frente a redondeo estandar: 133.0133 sube a 133.02, no baja a 133.01",
+      "precio_proveedor": 100.01,
+      "descuento": 0.0,
+      "utilidad_porcentaje": 33.0,
+      "costo_goma": 0.0,
+      "costo_con_descuento": 100.01,
+      "costo_total": 100.01,
+      "precio_unitario_sin_iva": 133.02,
+      "utilidad": 33.01
+    },
+    {
+      "descripcion": "frontera de punto flotante: el techo debe redondear despues de escalar a centavos",
+      "precio_proveedor": 15.4,
+      "descuento": 0.0,
+      "utilidad_porcentaje": 5.0,
+      "costo_goma": 0.0,
+      "costo_con_descuento": 15.4,
+      "costo_total": 15.4,
+      "precio_unitario_sin_iva": 16.17,
+      "utilidad": 0.77
+    },
+    {
+      "descripcion": "utilidad cero: se vende exactamente a costo",
+      "precio_proveedor": 100.0,
+      "descuento": 0.0,
+      "utilidad_porcentaje": 0.0,
+      "costo_goma": 0.0,
+      "costo_con_descuento": 100.0,
+      "costo_total": 100.0,
+      "precio_unitario_sin_iva": 100.0,
+      "utilidad": 0.0
+    },
+    {
+      "descripcion": "producto exacto sin residuo: el techo no debe agregar un centavo",
+      "precio_proveedor": 100.0,
+      "descuento": 0.0,
+      "utilidad_porcentaje": 25.0,
+      "costo_goma": 0.0,
+      "costo_con_descuento": 100.0,
+      "costo_total": 100.0,
+      "precio_unitario_sin_iva": 125.0,
+      "utilidad": 25.0
+    },
+    {
+      "descripcion": "producto exacto con decimales: 210 al 30% da 273.00 clavado",
+      "precio_proveedor": 210.0,
+      "descuento": 0.0,
+      "utilidad_porcentaje": 30.0,
+      "costo_goma": 0.0,
+      "costo_con_descuento": 210.0,
+      "costo_total": 210.0,
+      "precio_unitario_sin_iva": 273.0,
+      "utilidad": 63.0
+    },
+    {
+      "descripcion": "fraccion de centavo exacta: 218.75 no se altera",
+      "precio_proveedor": 175.0,
+      "descuento": 0.0,
+      "utilidad_porcentaje": 25.0,
+      "costo_goma": 0.0,
+      "costo_con_descuento": 175.0,
+      "costo_total": 175.0,
+      "precio_unitario_sin_iva": 218.75,
+      "utilidad": 43.75
+    },
+    {
+      "descripcion": "descuento alto de catalogo con porcentaje fraccionario",
+      "precio_proveedor": 1000.0,
+      "descuento": 55.0,
+      "utilidad_porcentaje": 12.5,
+      "costo_goma": 0.0,
+      "costo_con_descuento": 450.0,
+      "costo_total": 450.0,
+      "precio_unitario_sin_iva": 506.25,
+      "utilidad": 56.25
+    },
+    {
+      "descripcion": "descuento que produce un costo no redondo antes del redondeo2",
+      "precio_proveedor": 99.99,
+      "descuento": 33.33,
+      "utilidad_porcentaje": 15.0,
+      "costo_goma": 0.0,
+      "costo_con_descuento": 66.66,
+      "costo_total": 66.66,
+      "precio_unitario_sin_iva": 76.66,
+      "utilidad": 10.0
+    },
+    {
+      "descripcion": "descuento y porcentaje ambos con decimales",
+      "precio_proveedor": 33.33,
+      "descuento": 12.5,
+      "utilidad_porcentaje": 33.33,
+      "costo_goma": 0.0,
+      "costo_con_descuento": 29.16,
+      "costo_total": 29.16,
+      "precio_unitario_sin_iva": 38.88,
+      "utilidad": 9.72
+    },
+    {
+      "descripcion": "porcentaje de tres digitos: markup no tiene singularidad matematica",
+      "precio_proveedor": 50.0,
+      "descuento": 0.0,
+      "utilidad_porcentaje": 300.0,
+      "costo_goma": 0.0,
+      "costo_con_descuento": 50.0,
+      "costo_total": 50.0,
+      "precio_unitario_sin_iva": 200.0,
+      "utilidad": 150.0
+    },
+    {
+      "descripcion": "tope superior del rango permitido por decimal(5,2)",
+      "precio_proveedor": 10.0,
+      "descuento": 0.0,
+      "utilidad_porcentaje": 999.99,
+      "costo_goma": 0.0,
+      "costo_con_descuento": 10.0,
+      "costo_total": 10.0,
+      "precio_unitario_sin_iva": 110.0,
+      "utilidad": 100.0
+    },
+    {
+      "descripcion": "goma: cadena canonica de la historia, aparato 200 mas goma mediana 10 al 25%",
+      "precio_proveedor": 200.0,
+      "descuento": 0.0,
+      "utilidad_porcentaje": 25.0,
+      "costo_goma": 10.0,
+      "costo_con_descuento": 200.0,
+      "costo_total": 210.0,
+      "precio_unitario_sin_iva": 262.5,
+      "utilidad": 52.5
+    },
+    {
+      "descripcion": "goma: el mismo costo total por otra ruta debe dar el mismo precio (5.40 + 10.00 = 15.40 al 5% da 16.17, no 16.18)",
+      "precio_proveedor": 5.4,
+      "descuento": 0.0,
+      "utilidad_porcentaje": 5.0,
+      "costo_goma": 10.0,
+      "costo_con_descuento": 5.4,
+      "costo_total": 15.4,
+      "precio_unitario_sin_iva": 16.17,
+      "utilidad": 0.77
+    },
+    {
+      "descripcion": "goma: 80.01 mas goma grande 20.00 alcanza el techo de 133.02, no 133.01",
+      "precio_proveedor": 80.01,
+      "descuento": 0.0,
+      "utilidad_porcentaje": 33.0,
+      "costo_goma": 20.0,
+      "costo_con_descuento": 80.01,
+      "costo_total": 100.01,
+      "precio_unitario_sin_iva": 133.02,
+      "utilidad": 33.01
+    },
+    {
+      "descripcion": "goma: el descuento del catalogo no toca el costo de la goma (55% sobre 347.27 da 156.27, mas 20.00 enteros)",
+      "precio_proveedor": 347.27,
+      "descuento": 55.0,
+      "utilidad_porcentaje": 99.0,
+      "costo_goma": 20.0,
+      "costo_con_descuento": 156.27,
+      "costo_total": 176.27,
+      "precio_unitario_sin_iva": 350.78,
+      "utilidad": 174.51
+    },
+    {
+      "descripcion": "goma: costo no redondo por descuento mas goma chica 6.00",
+      "precio_proveedor": 99.99,
+      "descuento": 33.33,
+      "utilidad_porcentaje": 15.0,
+      "costo_goma": 6.0,
+      "costo_con_descuento": 66.66,
+      "costo_total": 72.66,
+      "precio_unitario_sin_iva": 83.56,
+      "utilidad": 10.9
+    },
+    {
+      "descripcion": "goma: utilidad cero con goma, se vende exactamente al costo total",
+      "precio_proveedor": 100.0,
+      "descuento": 0.0,
+      "utilidad_porcentaje": 0.0,
+      "costo_goma": 20.0,
+      "costo_con_descuento": 100.0,
+      "costo_total": 120.0,
+      "precio_unitario_sin_iva": 120.0,
+      "utilidad": 0.0
+    },
+    {
+      "descripcion": "goma: la goma empuja el total a un valor que exige techo (21.34 al 5% da 22.41)",
+      "precio_proveedor": 15.34,
+      "descuento": 0.0,
+      "utilidad_porcentaje": 5.0,
+      "costo_goma": 6.0,
+      "costo_con_descuento": 15.34,
+      "costo_total": 21.34,
+      "precio_unitario_sin_iva": 22.41,
+      "utilidad": 1.07
+    },
+    {
+      "descripcion": "goma: categoria con costo 0.00 se comporta igual que no llevar goma",
+      "precio_proveedor": 100.0,
+      "descuento": 0.0,
+      "utilidad_porcentaje": 25.0,
+      "costo_goma": 0.0,
+      "costo_con_descuento": 100.0,
+      "costo_total": 100.0,
+      "precio_unitario_sin_iva": 125.0,
+      "utilidad": 25.0
+    }
+  ]
+}

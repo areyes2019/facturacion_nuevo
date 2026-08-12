@@ -1,0 +1,36 @@
+# Cabeceras de caché del SPA (ver specs/011-precio-proveedor-utilidad.md).
+#
+# Los assets salen de Vite con hash de contenido en el nombre (AppLayout-DOov2PEk.js), así que su
+# URL cambia cada vez que cambia su contenido y se pueden cachear indefinidamente. index.html NO
+# lleva hash: es el índice que apunta a esos assets, y si se queda cacheado la aplicación termina
+# pidiendo chunks que ya no existen en disco (`dist/` se vacía en cada build).
+#
+# Este archivo vive en public/ para que Vite lo copie a dist/ en cada build.
+
+# No todas las instalaciones de Apache traen mapeada la extensión .webmanifest, y servida con el
+# tipo equivocado hay navegadores que descartan el manifest —y sin manifest no hay instalación.
+<IfModule mod_mime.c>
+    AddType application/manifest+json .webmanifest
+</IfModule>
+
+<IfModule mod_headers.c>
+    # Solo los archivos con hash de contenido en el nombre son inmutables. Se hace por patrón de
+    # nombre y no por extensión, porque favicon.svg e icons.svg viven en la raíz sin hash y sí
+    # necesitan revalidarse.
+    <FilesMatch "-[A-Za-z0-9_-]{8,}\.(js|css)$">
+        Header set Cache-Control "public, max-age=31536000, immutable"
+    </FilesMatch>
+
+    # El índice siempre se revalida contra el servidor.
+    <Files "index.html">
+        Header set Cache-Control "no-cache, must-revalidate"
+    </Files>
+
+    # Lo mismo para las piezas de la PWA, que tampoco llevan hash en el nombre. Si sw.js queda
+    # cacheado, la aplicación instalada sigue sirviendo para siempre el precache viejo: es la
+    # causa habitual de "la PWA no se actualiza". El workbox-XXXXXXXX.js que carga el service
+    # worker sí lleva hash y lo cubre la regla de arriba.
+    <FilesMatch "^(sw\.js|registerSW\.js|manifest\.webmanifest)$">
+        Header set Cache-Control "no-cache, must-revalidate"
+    </FilesMatch>
+</IfModule>

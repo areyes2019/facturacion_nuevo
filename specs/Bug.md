@@ -1,0 +1,1 @@
+- Al Factura una cotizacio, poner el tag "Facturado", para saber en que etapa del proceso esta la cortizacion

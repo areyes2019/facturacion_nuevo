@@ -1,0 +1,65 @@
+# =============================================================================
+# backend/.gitignore  --  Laravel
+#
+# Las rutas que empiezan con "/" son relativas a esta carpeta (backend/),
+# no a la raiz del repositorio. Por eso "/vendor" aqui SI funciona.
+#
+# Las carpetas de storage/ y bootstrap/cache/ no se listan aqui: Laravel ya
+# trae un .gitignore dentro de cada una que conserva la carpeta y descarta su
+# contenido. No hay que duplicar esas reglas.
+# =============================================================================
+
+# --- Entorno y secretos ------------------------------------------------------
+# Ninguna variante de .env se versiona. La unica fuente publica de que
+# variables existen es .env.example, que SI se versiona.
+.env
+.env.backup
+.env.production
+.env.stage
+.env.testing
+.env.local
+.env.*.local
+/auth.json
+
+# --- Dependencias ------------------------------------------------------------
+# Se reinstalan en cada maquina y en el servidor a partir de composer.lock,
+# que si se versiona.
+/vendor
+/node_modules
+
+# --- Artefactos compilados y caches ------------------------------------------
+/public/build
+/public/hot
+/public/storage
+/public/fonts-manifest.dev.json
+/storage/*.key
+/storage/pail
+/bootstrap/cache/*.php
+.phpunit.result.cache
+/.phpunit.cache
+_ide_helper.php
+.phpactor.json
+
+# --- Logs --------------------------------------------------------------------
+*.log
+
+# --- Bases de datos locales --------------------------------------------------
+/database/*.sqlite
+/database/*.sqlite-journal
+
+# --- Editores ----------------------------------------------------------------
+/.codex
+/.cursor/
+/.fleet
+/.idea
+/.nova
+/.vscode
+/.zed
+
+# --- Herramientas en desuso --------------------------------------------------
+Homestead.json
+Homestead.yaml
+
+# --- Sistema operativo -------------------------------------------------------
+.DS_Store
+Thumbs.db

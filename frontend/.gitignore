@@ -1,0 +1,50 @@
+# =============================================================================
+# frontend/.gitignore  --  Vite
+#
+# Nota sobre los .env de aqui: las variables VITE_* terminan incrustadas en el
+# bundle que se descarga el navegador, asi que por definicion NO pueden guardar
+# un secreto. Por eso .env (localhost) y .env.production (/api/v1) SI se
+# versionan: son configuracion publica, y que un clon nuevo compile igual que
+# esta maquina depende de ellos. Lo unico que se ignora es *.local, que es la
+# convencion de Vite para el override personal de cada desarrollador.
+# =============================================================================
+
+# --- Dependencias ------------------------------------------------------------
+node_modules
+
+# --- Salida de compilacion ---------------------------------------------------
+# dist/ se regenera con `npm run build` y se sube al servidor por rsync.
+dist
+dist-ssr
+dev-dist
+stats.html
+*.tsbuildinfo
+
+# --- Overrides personales (convencion de Vite) -------------------------------
+*.local
+
+# --- Caches de herramientas --------------------------------------------------
+.eslintcache
+/coverage
+
+# --- Logs --------------------------------------------------------------------
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# --- Editores ----------------------------------------------------------------
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# --- Sistema operativo -------------------------------------------------------
+.DS_Store

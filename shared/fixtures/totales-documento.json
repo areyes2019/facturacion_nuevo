@@ -1,0 +1,246 @@
+{
+  "descripcion": "Casos del calculo de totales de un documento (factura, cotizacion u orden de compra), ver specs/012-ordenes-compra.md. Definicion ejecutable compartida: la consumen PHPUnit sobre FacturaTotalesCalculator y Vitest sobre frontend/src/lib/totalesDocumento.ts, de modo que cambiar una implementacion sin la otra rompe la suite del lado no tocado. Todos los montos van en MXN.",
+  "algoritmo": "Dos pasadas. Primera: importe de cada linea = redondeo2(cantidad * precio_unitario) menos su propio descuento; subtotal = suma de esos importes. Segunda: el descuento global se convierte a monto y se prorratea entre las lineas proporcional a su importe (la ultima absorbe el residuo), y el IVA de cada linea se calcula sobre su importe ya neto de esa parte. total = subtotal - descuento_global + total_iva_16 + total_iva_0. El importe que se persiste por linea es el neto ANTES del descuento global; solo el IVA lo refleja.",
+  "casos": [
+    {
+      "descripcion": "sin descuentos: dos piezas a 100 con IVA del 16%",
+      "lineas": [
+        {
+          "cantidad": 2,
+          "precio_unitario": 100.0,
+          "descuento_tipo": null,
+          "descuento_valor": null,
+          "tasa_iva": "16"
+        }
+      ],
+      "descuento_global_tipo": null,
+      "descuento_global_valor": null,
+      "esperado": {
+        "subtotal": 200.0,
+        "total_descuento": 0.0,
+        "total_iva_16": 32.0,
+        "total_iva_0": 0.0,
+        "total_exento": 0.0,
+        "total": 232.0,
+        "lineas": [{ "importe": 200.0, "iva_importe": 32.0 }]
+      }
+    },
+    {
+      "descripcion": "el descuento global reduce la base gravable del IVA, no solo el total",
+      "lineas": [
+        {
+          "cantidad": 1,
+          "precio_unitario": 1000.0,
+          "descuento_tipo": null,
+          "descuento_valor": null,
+          "tasa_iva": "16"
+        }
+      ],
+      "descuento_global_tipo": "monto",
+      "descuento_global_valor": 500.0,
+      "esperado": {
+        "subtotal": 1000.0,
+        "total_descuento": 500.0,
+        "total_iva_16": 80.0,
+        "total_iva_0": 0.0,
+        "total_exento": 0.0,
+        "total": 580.0,
+        "lineas": [{ "importe": 1000.0, "iva_importe": 80.0 }]
+      }
+    },
+    {
+      "descripcion": "el descuento global se prorratea proporcional al importe de cada linea (700/300)",
+      "lineas": [
+        {
+          "cantidad": 1,
+          "precio_unitario": 700.0,
+          "descuento_tipo": null,
+          "descuento_valor": null,
+          "tasa_iva": "16"
+        },
+        {
+          "cantidad": 1,
+          "precio_unitario": 300.0,
+          "descuento_tipo": null,
+          "descuento_valor": null,
+          "tasa_iva": "16"
+        }
+      ],
+      "descuento_global_tipo": "monto",
+      "descuento_global_valor": 500.0,
+      "esperado": {
+        "subtotal": 1000.0,
+        "total_descuento": 500.0,
+        "total_iva_16": 80.0,
+        "total_iva_0": 0.0,
+        "total_exento": 0.0,
+        "total": 580.0,
+        "lineas": [
+          { "importe": 700.0, "iva_importe": 56.0 },
+          { "importe": 300.0, "iva_importe": 24.0 }
+        ]
+      }
+    },
+    {
+      "descripcion": "la ultima linea absorbe el residuo del prorrateo: 100 entre 3 lineas iguales da 33.33 + 33.33 + 33.34",
+      "lineas": [
+        {
+          "cantidad": 1,
+          "precio_unitario": 100.0,
+          "descuento_tipo": null,
+          "descuento_valor": null,
+          "tasa_iva": "16"
+        },
+        {
+          "cantidad": 1,
+          "precio_unitario": 100.0,
+          "descuento_tipo": null,
+          "descuento_valor": null,
+          "tasa_iva": "16"
+        },
+        {
+          "cantidad": 1,
+          "precio_unitario": 100.0,
+          "descuento_tipo": null,
+          "descuento_valor": null,
+          "tasa_iva": "16"
+        }
+      ],
+      "descuento_global_tipo": "monto",
+      "descuento_global_valor": 100.0,
+      "esperado": {
+        "subtotal": 300.0,
+        "total_descuento": 100.0,
+        "total_iva_16": 32.01,
+        "total_iva_0": 0.0,
+        "total_exento": 0.0,
+        "total": 232.01,
+        "lineas": [
+          { "importe": 100.0, "iva_importe": 10.67 },
+          { "importe": 100.0, "iva_importe": 10.67 },
+          { "importe": 100.0, "iva_importe": 10.67 }
+        ]
+      }
+    },
+    {
+      "descripcion": "mezcla de las tres tasas (16, 0 y exento) con descuento porcentual de linea",
+      "lineas": [
+        {
+          "cantidad": 3,
+          "precio_unitario": 150.0,
+          "descuento_tipo": "porcentaje",
+          "descuento_valor": 10.0,
+          "tasa_iva": "16"
+        },
+        {
+          "cantidad": 1,
+          "precio_unitario": 200.0,
+          "descuento_tipo": null,
+          "descuento_valor": null,
+          "tasa_iva": "0"
+        },
+        {
+          "cantidad": 2,
+          "precio_unitario": 50.0,
+          "descuento_tipo": null,
+          "descuento_valor": null,
+          "tasa_iva": "exento"
+        }
+      ],
+      "descuento_global_tipo": null,
+      "descuento_global_valor": null,
+      "esperado": {
+        "subtotal": 705.0,
+        "total_descuento": 45.0,
+        "total_iva_16": 64.8,
+        "total_iva_0": 0.0,
+        "total_exento": 0.0,
+        "total": 769.8,
+        "lineas": [
+          { "importe": 405.0, "iva_importe": 64.8 },
+          { "importe": 200.0, "iva_importe": 0.0 },
+          { "importe": 100.0, "iva_importe": 0.0 }
+        ]
+      }
+    },
+    {
+      "descripcion": "descuento global porcentual sobre lineas de distinta tasa: solo la gravada baja su IVA",
+      "lineas": [
+        {
+          "cantidad": 1,
+          "precio_unitario": 1000.0,
+          "descuento_tipo": null,
+          "descuento_valor": null,
+          "tasa_iva": "16"
+        },
+        {
+          "cantidad": 1,
+          "precio_unitario": 500.0,
+          "descuento_tipo": null,
+          "descuento_valor": null,
+          "tasa_iva": "exento"
+        }
+      ],
+      "descuento_global_tipo": "porcentaje",
+      "descuento_global_valor": 10.0,
+      "esperado": {
+        "subtotal": 1500.0,
+        "total_descuento": 150.0,
+        "total_iva_16": 144.0,
+        "total_iva_0": 0.0,
+        "total_exento": 0.0,
+        "total": 1494.0,
+        "lineas": [
+          { "importe": 1000.0, "iva_importe": 144.0 },
+          { "importe": 500.0, "iva_importe": 0.0 }
+        ]
+      }
+    },
+    {
+      "descripcion": "descuento de linea en monto fijo sobre un precio con decimales",
+      "lineas": [
+        {
+          "cantidad": 4,
+          "precio_unitario": 33.33,
+          "descuento_tipo": "monto",
+          "descuento_valor": 10.0,
+          "tasa_iva": "16"
+        }
+      ],
+      "descuento_global_tipo": null,
+      "descuento_global_valor": null,
+      "esperado": {
+        "subtotal": 123.32,
+        "total_descuento": 10.0,
+        "total_iva_16": 19.73,
+        "total_iva_0": 0.0,
+        "total_exento": 0.0,
+        "total": 143.05,
+        "lineas": [{ "importe": 123.32, "iva_importe": 19.73 }]
+      }
+    },
+    {
+      "descripcion": "importes de centavos: 3 x 0.07 con IVA del 16% redondea a 0.03",
+      "lineas": [
+        {
+          "cantidad": 3,
+          "precio_unitario": 0.07,
+          "descuento_tipo": null,
+          "descuento_valor": null,
+          "tasa_iva": "16"
+        }
+      ],
+      "descuento_global_tipo": null,
+      "descuento_global_valor": null,
+      "esperado": {
+        "subtotal": 0.21,
+        "total_descuento": 0.0,
+        "total_iva_16": 0.03,
+        "total_iva_0": 0.0,
+        "total_exento": 0.0,
+        "total": 0.24,
+        "lineas": [{ "importe": 0.21, "iva_importe": 0.03 }]
+      }
+    }
+  ]
+}

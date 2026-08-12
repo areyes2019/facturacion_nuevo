@@ -1,0 +1,48 @@
+# =============================================================================
+# .gitignore RAIZ  --  este repositorio es un monorepo
+#
+# Cubre unicamente lo que vive en la raiz y lo que aplica a todo el arbol.
+# Cada mitad protege lo suyo, en su propio archivo:
+#
+#   backend/.gitignore    ->  vendor/, .env, caches de PHP
+#   frontend/.gitignore   ->  node_modules/, dist/, *.local
+#
+# CUIDADO CON LAS RUTAS: una regla que empieza con "/" aplica SOLO a la carpeta
+# donde vive el .gitignore. Aqui "/vendor" NO ignoraria "backend/vendor", y
+# "/node_modules" NO ignoraria "frontend/node_modules". Por eso las reglas de
+# cada mitad viven dentro de esa mitad.
+# =============================================================================
+
+# --- Sistema operativo -------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+*~
+
+# --- Editores e IDEs (en cualquier nivel del arbol) --------------------------
+**/.idea/
+**/.fleet/
+**/.nova/
+**/.zed/
+**/.cursor/
+**/.codex/
+**/.phpactor.json
+**/.claude/settings.local.json
+/.vscode/
+
+# --- Logs sueltos ------------------------------------------------------------
+*.log
+
+# --- Despliegue --------------------------------------------------------------
+# La configuracion real (rutas y datos del servidor) nunca se versiona.
+# El molde con valores de ejemplo si: deploy/config.example.sh
+/deploy/config.sh
+/deploy/*.local.sh
+
+# --- Respaldos y temporales --------------------------------------------------
+*.bak
+*.orig
+*.rej
+/tmp/
