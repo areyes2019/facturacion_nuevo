@@ -45,7 +45,10 @@ trap 'levantar; limpiar_temporales' EXIT
 
 if remote "[ -f '$REMOTE_APP/vendor/autoload.php' ]"; then
     say "Poniendo el sitio en mantenimiento"
-    if remote "cd '$REMOTE_APP' && $REMOTE_PHP artisan down --render=503" >/dev/null 2>&1; then
+    # Sin --render: esa opción exige una vista Blade errors/503, y este proyecto
+    # es API pura. Con `down` a secas, Laravel responde 503 con su JSON por
+    # defecto, que es justo lo que el SPA sabe interpretar.
+    if remote "cd '$REMOTE_APP' && $REMOTE_PHP artisan down --retry=60" >/dev/null 2>&1; then
         EN_MANTENIMIENTO=1
         ok "en mantenimiento"
     else
