@@ -416,7 +416,9 @@ async function confirmarImportar() {
 </script>
 
 <template>
-  <AppLayout>
+  <!-- Listado denso: nueve columnas y una fila de filtros no caben en el ancho de lectura del resto
+       del sistema (ver 025-filtros-columna-listado-articulos.md). -->
+  <AppLayout ancho="amplio">
     <div class="space-y-4">
       <div class="flex flex-wrap items-center justify-between gap-4">
         <h1 class="font-heading text-foreground text-xl font-semibold">Artículos</h1>
@@ -487,7 +489,10 @@ async function confirmarImportar() {
 
       <Card>
         <CardContent class="p-0">
-          <Table>
+          <!-- `table-fixed`: los anchos los mandan las clases de la primera fila y ningún contenido
+               puede ensanchar la tabla. Es lo que garantiza que un nombre largo se recorte en vez de
+               empujar los botones de acciones fuera de la vista. -->
+          <Table class="table-fixed">
             <TableHeader>
               <TableRow>
                 <TableHead class="w-10">
@@ -503,7 +508,7 @@ async function confirmarImportar() {
                 </TableHead>
                 <!-- El id es el orden de captura: ordenado ascendente devuelve los artículos en el
                      orden del archivo importado (ver 025-filtros-columna-listado-articulos.md). -->
-                <TableHead class="w-20">
+                <TableHead class="w-16">
                   <ColumnaOrdenable
                     etiqueta="id"
                     class="w-full justify-end"
@@ -512,10 +517,15 @@ async function confirmarImportar() {
                     @ordenar="articulos.toggleSort('id')"
                   />
                 </TableHead>
+                <!-- Nombre es la única sin ancho: se queda con lo que sobre. -->
                 <TableHead>Nombre</TableHead>
-                <TableHead>Modelo</TableHead>
-                <TableHead>Catálogo</TableHead>
-                <TableHead v-for="columna in columnasNumericas" :key="columna.clave">
+                <TableHead class="w-32">Modelo</TableHead>
+                <TableHead class="w-44">Catálogo</TableHead>
+                <TableHead
+                  v-for="columna in columnasNumericas"
+                  :key="columna.clave"
+                  class="w-40 whitespace-normal"
+                >
                   <ColumnaOrdenable
                     :etiqueta="columna.etiqueta"
                     :activa="articulos.sort === columna.clave"
@@ -523,7 +533,7 @@ async function confirmarImportar() {
                     @ordenar="articulos.toggleSort(columna.clave)"
                   />
                 </TableHead>
-                <TableHead class="text-right">Acciones</TableHead>
+                <TableHead class="w-24 text-right">Acciones</TableHead>
               </TableRow>
 
               <!-- Fila de filtros. Siempre visibles y no detrás de un menú por columna: escondidos
@@ -532,10 +542,11 @@ async function confirmarImportar() {
               <TableRow class="hover:bg-transparent">
                 <TableHead class="h-auto py-2"></TableHead>
                 <TableHead class="h-auto py-2">
+                  <!-- Texto y no `number`: las flechitas del control nativo se comen un tercio de
+                       una celda tan angosta, y lo que no sea un número el backend ya lo ignora en
+                       silencio (ver 025-filtros-columna-listado-articulos.md). -->
                   <Input
                     :model-value="articulos.filtros.id"
-                    type="number"
-                    min="1"
                     inputmode="numeric"
                     placeholder="="
                     aria-label="Filtrar por id"
@@ -569,7 +580,12 @@ async function confirmarImportar() {
                     :model-value="articulos.filtros.catalogoId?.toString() ?? TODOS_LOS_CATALOGOS"
                     @update:model-value="(v) => onFiltroCatalogo(String(v))"
                   >
-                    <SelectTrigger class="h-8 w-full text-xs" aria-label="Filtrar por catálogo">
+                    <!-- `min-w-0` en el disparador y en su valor: sin eso, "Proveedor — Catálogo de
+                         nombre largo" ensancha el control por encima de su columna. -->
+                    <SelectTrigger
+                      class="h-8 w-full min-w-0 text-xs *:min-w-0"
+                      aria-label="Filtrar por catálogo"
+                    >
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -594,9 +610,6 @@ async function confirmarImportar() {
                   <div class="flex items-center gap-1">
                     <Input
                       :model-value="articulos.filtros[columna.min]"
-                      type="number"
-                      min="0"
-                      step="0.01"
                       inputmode="decimal"
                       placeholder="min"
                       :aria-label="`${columna.etiqueta} mínimo`"
@@ -606,9 +619,6 @@ async function confirmarImportar() {
                     <span class="text-muted-foreground text-xs">–</span>
                     <Input
                       :model-value="articulos.filtros[columna.max]"
-                      type="number"
-                      min="0"
-                      step="0.01"
                       inputmode="decimal"
                       placeholder="max"
                       :aria-label="`${columna.etiqueta} máximo`"
@@ -645,16 +655,21 @@ async function confirmarImportar() {
                 </TableCell>
                 <TableCell>
                   <!-- El nombre es el enlace a la ficha. No hay miniatura en la tabla: las fotos
-                       le quitarían al listado la densidad que lo hace útil para trabajar. -->
+                       le quitarían al listado la densidad que lo hace útil para trabajar.
+                       Se recorta con elipsis porque con `table-fixed` un nombre largo se saldría de
+                       su columna en vez de ensancharla; el `title` muestra el completo. -->
                   <button
                     type="button"
-                    class="hover:text-primary text-left font-medium underline-offset-4 hover:underline"
+                    class="hover:text-primary block w-full truncate text-left font-medium underline-offset-4 hover:underline"
+                    :title="articulo.nombre"
                     @click="articuloDetalle = articulo"
                   >
                     {{ articulo.nombre }}
                   </button>
                 </TableCell>
-                <TableCell>{{ articulo.modelo }}</TableCell>
+                <TableCell class="truncate" :title="articulo.modelo">{{
+                  articulo.modelo
+                }}</TableCell>
                 <TableCell truncate :title="articulo.catalogo_nombre ?? undefined">
                   {{ articulo.catalogo_nombre ?? '—' }}
                 </TableCell>
@@ -663,17 +678,22 @@ async function confirmarImportar() {
                   ${{ pesos(articulo.precio_unitario_sin_iva) }}
                 </TableCell>
                 <TableCell class="tabular-nums">${{ pesos(articulo.utilidad) }}</TableCell>
-                <TableCell class="flex justify-end gap-2 text-right">
-                  <Button as-child variant="outline" size="icon-sm">
-                    <RouterLink :to="{ name: 'articulos-editar', params: { id: articulo.id } }">
-                      <PencilIcon class="size-4" />
-                      <span class="sr-only">Editar</span>
-                    </RouterLink>
-                  </Button>
-                  <Button variant="outline" size="icon-sm" @click="abrirEliminar(articulo)">
-                    <TrashIcon class="size-4" />
-                    <span class="sr-only">Eliminar</span>
-                  </Button>
+                <!-- Los botones van en un `div` y no en el propio `td`: un `display:flex` sobre la
+                     celda la saca del algoritmo de la tabla y deja de respetar el ancho de su
+                     columna, que es justo lo que los desbordaba. -->
+                <TableCell class="text-right">
+                  <div class="flex justify-end gap-2">
+                    <Button as-child variant="outline" size="icon-sm">
+                      <RouterLink :to="{ name: 'articulos-editar', params: { id: articulo.id } }">
+                        <PencilIcon class="size-4" />
+                        <span class="sr-only">Editar</span>
+                      </RouterLink>
+                    </Button>
+                    <Button variant="outline" size="icon-sm" @click="abrirEliminar(articulo)">
+                      <TrashIcon class="size-4" />
+                      <span class="sr-only">Eliminar</span>
+                    </Button>
+                  </div>
                 </TableCell>
               </TableRow>
             </TableBody>

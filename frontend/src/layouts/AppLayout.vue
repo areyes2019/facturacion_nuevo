@@ -30,6 +30,21 @@ import {
   type OpcionNavegacion,
 } from '../config/navegacion'
 
+/**
+ * Ancho del contenedor de la página.
+ *
+ * `normal` es el de siempre y sirve a casi todo: formularios y prosa se leen mal a lo ancho de una
+ * pantalla completa. `amplio` existe para los listados densos, donde el ancho no es estética sino la
+ * diferencia entre ver la tabla completa y tener que arrastrar una barra
+ * (ver 025-filtros-columna-listado-articulos.md).
+ *
+ * La clase se aplica a la barra superior, al menú móvil y al `<main>` a la vez: si solo se ensanchara
+ * el contenido, la tabla saldría descuadrada respecto del encabezado que tiene encima.
+ */
+const props = withDefaults(defineProps<{ ancho?: 'normal' | 'amplio' }>(), { ancho: 'normal' })
+
+const anchoContenedor = computed(() => (props.ancho === 'amplio' ? 'max-w-[96rem]' : 'max-w-5xl'))
+
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
@@ -84,7 +99,10 @@ async function onLogout() {
 <template>
   <div class="bg-muted min-h-screen">
     <header class="bg-background border-border border-b">
-      <div class="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
+      <div
+        class="mx-auto flex items-center justify-between gap-4 px-4 py-3 sm:px-6"
+        :class="anchoContenedor"
+      >
         <div class="flex items-center gap-6">
           <!-- El título es el enlace al dashboard: no hay entrada "Inicio". -->
           <RouterLink
@@ -192,7 +210,8 @@ async function onLogout() {
       <nav
         v-if="menuMovilAbierto"
         id="menu-movil"
-        class="border-border mx-auto max-w-5xl border-t px-4 py-2 md:hidden"
+        class="border-border mx-auto border-t px-4 py-2 md:hidden"
+        :class="anchoContenedor"
       >
         <div v-for="grupo in gruposNavegacion" :key="grupo.id" class="py-0.5">
           <button
@@ -251,7 +270,7 @@ async function onLogout() {
       </nav>
     </header>
 
-    <main class="mx-auto max-w-5xl p-4 sm:p-6">
+    <main class="mx-auto p-4 sm:p-6" :class="anchoContenedor">
       <slot />
     </main>
   </div>

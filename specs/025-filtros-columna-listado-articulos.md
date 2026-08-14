@@ -177,11 +177,35 @@ borrar.
 
 ### Layout
 
-Ocho columnas más una fila de controles es lo más ancho que ha estado esta tabla. Se sostienen las
-reglas de [003](003-design-system-tailwind.md): la tabla dentro de su contenedor con
-`overflow-x-auto`, cada control con `min-w-0`, y los campos de rango angostos —caben dos y un guion
-en el ancho de una columna de dinero—. **El `<body>` nunca hace scroll horizontal**; si la tabla no
-cabe, la que se desplaza es la tabla.
+Nueve columnas más una fila de controles es lo más ancho que ha estado esta tabla, y no cabe en el
+ancho de lectura con el que se presenta el resto del sistema. **La pantalla de artículos se muestra
+en el contenedor amplio** de [003](003-design-system-tailwind.md): el ancho de lectura está pensado
+para formularios y prosa, y aplicárselo a un listado denso no es una decisión de estética sino la
+diferencia entre ver la tabla completa y tener que arrastrar una barra.
+
+**En escritorio la tabla no lleva barra de desplazamiento horizontal.** Ninguna. Una barra dentro de
+la tabla es la peor forma de esconder algo: la columna de acciones queda fuera de la vista y nada en
+pantalla dice que está ahí, que es exactamente el desborde que hubo que corregir en
+[006](006-gestion-articulos.md) el 2026-08-03.
+
+Para que eso se sostenga sin depender de qué tan largo sea el contenido:
+
+- **La tabla es de ancho fijo** (`table-fixed`): los anchos los mandan las clases de la fila de
+  cabeceras y ningún dato puede ensanchar su columna. Sin eso, un nombre de artículo largo empuja al
+  resto y el desborde vuelve por donde vino.
+- **Nombre es la única columna sin ancho declarado**: se queda con lo que sobre, que es donde mejor
+  se aprovecha. Se recorta con elipsis y expone el texto completo en el `title`, igual que Modelo y
+  Catálogo.
+- **Los campos de rango van con espacio suficiente para escribir un importe**, no apretados hasta
+  que solo quepan tres dígitos. Son campos de texto y no `<input type="number">`: las flechitas del
+  control nativo se comen un tercio de una celda tan angosta, y lo que no sea un número el backend ya
+  lo ignora en silencio.
+- **Los botones de acciones van en su propio contenedor dentro de la celda**, no en la celda misma:
+  una celda de tabla en modo flex deja de respetar el ancho de su columna.
+
+En móvil la tabla sí se desplaza dentro de su tarjeta, porque nueve columnas de números no caben en
+375 px de ninguna manera legible. Es la única excepción, y **el `<body>` no hace scroll horizontal
+nunca**: lo que se desplaza es la tabla, jamás la página.
 
 ## Fuera de alcance
 
@@ -253,10 +277,17 @@ cabe, la que se desplaza es la tabla.
 22. El endpoint sigue respondiendo lo mismo que hoy cuando no se le manda ningún parámetro de filtro
     nuevo, y `proveedor_id` sigue acotando el selector de artículos de Orden de compra
     ([012](012-ordenes-compra.md)).
-23. La tabla con las ocho columnas y la fila de filtros se ve completa en escritorio (≥1280px) y en
-    móvil sin que la página desborde horizontalmente; si algo se desplaza, es la tabla dentro de su
-    contenedor.
-24. Pint corre sin errores sobre el código de backend modificado, ESLint y Prettier sobre el de
+23. En escritorio (≥1280px) la tabla con sus nueve columnas y la fila de filtros se ve completa **sin
+    barra de desplazamiento horizontal**, con los dos botones de acciones enteros dentro de la vista
+    y los campos de rango con espacio para escribir un importe de cinco cifras.
+24. Un artículo con nombre largo (más de 60 caracteres) se recorta con elipsis y no ensancha su
+    columna ni empuja a las demás; el nombre completo se ve en el `title`. Lo mismo con un catálogo
+    de nombre largo.
+25. En móvil la página no desborda horizontalmente: si algo se desplaza es la tabla dentro de su
+    tarjeta, nunca el `<body>`.
+26. Las demás pantallas conservan su ancho de lectura de siempre: solo el listado de artículos usa el
+    contenedor amplio.
+27. Pint corre sin errores sobre el código de backend modificado, ESLint y Prettier sobre el de
     frontend, la suite de Pest sigue pasando y `npm run build` compila la SPA completa.
 
 ## Supuestos asumidos (registro completo)
@@ -301,6 +332,17 @@ cabe, la que se desplaza es la tabla.
     la misma ordenación que el listado.
 25. **(Adición técnica)** Los campos de texto y numéricos comparten el rebote de 300 ms que ya tiene
     el buscador global; el selector de catálogo consulta de inmediato.
+26. **(Adición técnica)** El listado de artículos se muestra en el contenedor amplio de
+    [003](003-design-system-tailwind.md), que ensancha a la vez la barra superior, el menú móvil y el
+    contenido: ensanchar solo el contenido dejaría la tabla descuadrada respecto de su encabezado. El
+    resto de las pantallas conserva el ancho de lectura, que es el correcto para formularios y prosa.
+27. **(Adición técnica)** La tabla es de ancho fijo y sus columnas de texto se recortan con elipsis.
+    Es lo que impide que el ancho de la tabla dependa de qué tan largo sea el nombre de un artículo,
+    y por lo tanto lo que hace que "sin barra horizontal" sea una propiedad y no una casualidad del
+    catálogo que se tenga cargado.
+28. **(Adición técnica)** Los campos numéricos de la fila de filtros son de texto, no
+    `<input type="number">`. Las flechitas del control nativo no caben en una celda tan angosta, y la
+    validación ya vive en el servidor, que ignora en silencio lo que no sea un número.
 
 ## Estado de implementación
 
@@ -334,9 +376,39 @@ Implementada el 2026-08-14.
   Se agregaron 12 pruebas de backend, con datasets para las tres columnas de dinero, los dos
   extremos por separado, el rango invertido y las siete formas de filtro inválido.
 
+### Corrección del ancho de la tabla (2026-08-14, tras la verificación visual del usuario)
+
+La primera implementación dejó la tabla en el contenedor de lectura de siempre, `max-w-5xl`, y
+confió en el `overflow-x-auto` de la tarjeta para lo que no cupiera. En pantalla eso resultó ser
+inaceptable: las nueve columnas más la fila de filtros no caben ni de lejos en ese ancho, así que la
+tabla apareció comprimida, **con los botones de acciones fuera de la vista tras una barra de
+desplazamiento** y con los campos de rango tan angostos que no se podía escribir un importe. Es el
+mismo desborde que ya se había corregido en [006](006-gestion-articulos.md) el 2026-08-03, reaparecido
+por la vía del ancho del contenedor en vez de por la del contenido de una celda.
+
+El error de fondo fue de la spec, no de la implementación: su sección de Layout **autorizaba
+explícitamente** que la tabla se desplazara dentro de su contenedor, en vez de exigir que cupiera.
+La sección y los criterios quedaron reescritos arriba con el comportamiento correcto.
+
+- **Archivos modificados**: `frontend/src/layouts/AppLayout.vue` (la prop `ancho`) y
+  `frontend/src/views/ArticulosListView.vue`.
+- **`AppLayout` gana la prop `ancho`** con `normal` por omisión, de modo que ninguna otra pantalla
+  cambia. La clase se aplica a la barra superior, al menú móvil y al `<main>` a la vez.
+- **La tabla pasó a `table-fixed`** con anchos declarados por columna y elipsis en Nombre, Modelo y
+  Catálogo. Sin ancho fijo, un nombre largo vuelve a ensanchar la tabla y la barra regresa.
+- **Los botones de acciones se envolvieron en un `div`**. Estaban en un `td` con `display:flex`, que
+  saca a la celda del algoritmo de la tabla: dejaba de respetar el ancho de su columna, que es
+  precisamente lo que los empujaba fuera.
+- **Los campos numéricos de los filtros dejaron de ser `type="number"`**: las flechitas del control
+  nativo se comían un tercio de cada celda. La tolerancia a lo que no sea un número ya estaba en el
+  servidor, así que no se pierde nada.
+- **Verificación**: `npm run build` compila con `vue-tsc`, ESLint y Prettier limpios, y los 65 tests
+  de Vitest siguen pasando. El backend no se tocó.
+
 ### Pendiente de verificación visual
 
 **No se pudo verificar visualmente en un navegador real** (misma limitación de entorno que el resto
-de las historias) — falta abrir `/articulos` para confirmar el ancho de la fila de filtros con las
-nueve columnas, que el selector de catálogo quepa en su celda, y que la tabla se desplace dentro de
-su contenedor sin que la página desborde en móvil.
+de las historias; el proyecto no tiene herramienta de automatización de navegador instalada) — falta
+abrir `/articulos` y confirmar que en escritorio no queda barra horizontal, que los dos botones de
+acciones se ven enteros, que los campos de rango admiten un importe de cinco cifras y que el
+selector de catálogo no se sale de su celda.

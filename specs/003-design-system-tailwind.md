@@ -218,6 +218,35 @@ Implementada el 2026-07-30.
   prop vuelva en el siguiente ciclo de render. La regla resultante quedó arriba, en "Escribir y leer
   un `defineModel` en el mismo manejador". Ni `vue-tsc` ni ESLint pueden detectarlo: los tipos son
   correctos y el patrón no se distingue estáticamente de una lectura legítima.
+- **Regla del ancho de página y de las tablas de listado** (agregada el 2026-08-14, tras quedar el
+  listado de artículos de [025](025-filtros-columna-listado-articulos.md) comprimido en el ancho de
+  lectura, con los botones de acciones escondidos tras una barra de desplazamiento). Cierra además el
+  **pendiente** que dejó [006](006-gestion-articulos.md) el 2026-08-03: formalizar aquí, como regla
+  general de `Table`, el truncado que entonces se resolvió con una prop de `TableCell`.
+
+  El ancho de lectura por omisión de `AppLayout` es el correcto para formularios y prosa, y el
+  equivocado para un listado denso: una tabla que no cabe no se encoge, se desborda, y lo que queda
+  fuera es la última columna —la de acciones— sin que nada en pantalla anuncie que está ahí. **Una
+  barra de desplazamiento dentro de una tabla es una forma de esconder controles, no de mostrarlos.**
+
+  1. `AppLayout` acepta una prop `ancho` (`normal` por omisión, `amplio` para listados densos). La
+     clase ensancha la barra superior, el menú móvil y el `<main>` **a la vez**: ensanchar solo el
+     contenido deja la tabla descuadrada respecto de su encabezado.
+  2. Una tabla de listado con muchas columnas va con **ancho fijo** (`table-fixed`) y un ancho
+     declarado por columna, dejando sin declarar solo la columna que deba quedarse con el sobrante.
+     Sin ancho fijo, el ancho de la tabla lo decide el dato más largo que haya cargado, y "cabe" pasa
+     a ser una casualidad de los datos en vez de una propiedad del diseño.
+  3. Toda columna de texto libre de una tabla de ancho fijo **se recorta con elipsis** y expone el
+     texto completo en el `title`, con la prop `truncate` de `TableCell` o con `truncate` sobre el
+     elemento de bloque que haya dentro de la celda.
+  4. Los controles de una celda —botones de acción, campos de filtro— van **dentro de un contenedor**
+     propio, nunca convirtiendo el `<td>` en flex: un `display:flex` sobre la celda la saca del
+     algoritmo de la tabla y deja de respetar el ancho de su columna.
+  5. En una celda angosta no se usa `<input type="number">`: las flechitas del control nativo se
+     comen buena parte del ancho útil. Va un campo de texto con `inputmode` y la validación del lado
+     del servidor.
+  - Nada de esto lo detectan `vue-tsc` ni ESLint: son propiedades de lo que se ve, y solo aparecen
+    abriendo la pantalla con datos reales.
 
 ## Criterios de aceptación
 
@@ -240,6 +269,11 @@ Implementada el 2026-07-30.
    con ambas familias, el `@theme` y los tokens propios.
 10. Ningún manejador que escriba un ref de `defineModel` lee ese mismo ref en la misma pasada para
     derivar un dato, emitir otro evento o decidir una navegación: usa el valor que ya tiene a mano.
+11. `AppLayout` acepta el ancho `amplio` para listados densos y conserva el ancho de lectura por
+    omisión, de modo que una pantalla que no lo pida se ve exactamente igual que antes.
+12. Ninguna tabla de listado esconde su columna de acciones tras una barra de desplazamiento
+    horizontal en escritorio (≥1280px), y el ancho de una tabla no depende de qué tan largo sea el
+    dato más largo que tenga cargado.
 
 ## Supuestos asumidos (registro completo)
 

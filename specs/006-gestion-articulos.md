@@ -139,9 +139,11 @@ en sí, ni inventario/existencias.
   vista), para quedar disponible en el resto de tablas de listado de la app (Proveedores,
   Clientes, Catálogos, Facturas, Cotizaciones) — mismo espíritu que la regla general de `Dialog`
   con contenido dinámico ya documentada en
-  [003-design-system-tailwind.md](003-design-system-tailwind.md); formalizar esa prop como regla
-  general de `Table` en 003 queda **pendiente** como paso aparte (ver detalle de la corrección en
-  "Estado de implementación").
+  [003-design-system-tailwind.md](003-design-system-tailwind.md). Esa prop quedó formalizada como
+  regla general de `Table` en 003 el 2026-08-14, junto con el ancho de página de los listados densos,
+  cuando el mismo desborde reapareció en el listado de artículos de
+  [025](025-filtros-columna-listado-articulos.md) por la vía del contenedor en vez de la del
+  contenido de una celda (ver detalle de la corrección original en "Estado de implementación").
 - **`/articulos/crear`**: formulario de alta con:
   - Selector de proveedor: `Select` simple con los proveedores propios del usuario (obligatorio).
   - `nombre`, `modelo`: `Input` de texto (obligatorios).
