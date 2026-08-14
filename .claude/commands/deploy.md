@@ -1,5 +1,5 @@
 ---
-description: Despliega a produccion (prosello.com.mx) lo que haya cambiado desde el ultimo despliegue
+description: Despliega a produccion (app.prosello.com.mx) lo que haya cambiado desde el ultimo despliegue
 argument-hint: "[backend | frontend | todo]  (por defecto: detectar solo)"
 ---
 
@@ -40,6 +40,7 @@ Reglas para decidir:
 | algo bajo `frontend/` | `bash deploy/deploy-frontend.sh` |
 | solo `specs/`, `deploy/README.md`, `.gitignore` | nada — dilo y termina |
 | `deploy/hostinger/htaccess-public_html` o `index.php` | avisa: hay que resubirlos a mano (paso 4 de la instalación inicial en `deploy/README.md`) |
+| `deploy/hostinger/htaccess-apex` o `sw-apex.js` | avisa: van al docroot del **dominio raíz**, que ningún script toca (mismo paso 4) |
 
 Si el usuario pidió un alcance explícito en `$ARGUMENTS`, respétalo por encima
 de la detección.

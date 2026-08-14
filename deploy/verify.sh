@@ -33,9 +33,33 @@ comprobar "GET / responde 200"                    200 "$(codigo "$SITE_URL/")"
 
 say "Host canónico"
 comprobar "http:// redirige con 301"              301 "$(codigo "http://$HOST/")"
-comprobar "www. redirige con 301"                 301 "$(codigo "https://www.$HOST/")"
-DESTINO_WWW="$(cabecera "https://www.$HOST/")"
-comprobar "www. apunta al host sin www"           "$SITE_URL/" "$DESTINO_WWW"
+
+# No se comprueba www.<host>. Con el sistema en app.prosello.com.mx, eso sería
+# www.app.prosello.com.mx: un nombre con doble prefijo que no tiene registro DNS
+# ni cobertura en el certificado, y que nadie teclea jamás. La regla de www sigue
+# en el .htaccess —no cuesta nada y cubre el caso genérico— pero fallaría siempre
+# aquí por una razón que no es un problema. El www que sí importa es el del
+# dominio raíz, y se comprueba abajo.
+
+say "Dominio raíz"
+if [ "$APEX_URL" = "$SITE_URL" ]; then
+    warn "APEX_URL y SITE_URL son el mismo host: la mudanza de specs/022-subdominio-app.md"
+    warn "todavía no se completó. Comprobaciones del dominio raíz OMITIDAS."
+else
+    APEX_HOST="${APEX_URL#https://}"
+
+    # 302 y no 301: un 301 aquí lo cachearía el navegador durante meses, y el día
+    # que exista la página de clientes sus visitantes seguirían siendo lanzados al
+    # sistema sin verla. Que este número sea el correcto es parte del criterio.
+    comprobar "el dominio raíz redirige con 302"  302 "$(codigo "$APEX_URL/")"
+    comprobar "y apunta al sistema"               "$SITE_URL/" "$(cabecera "$APEX_URL/")"
+    comprobar "www. del dominio raíz va al sistema" "$SITE_URL/" "$(cabecera "https://www.$APEX_HOST/")"
+
+    # El service worker de apagado tiene que servirse como archivo real. Si lo
+    # alcanzara la redirección, el navegador trataría la actualización como error
+    # y el service worker de la PWA vieja sobreviviría sirviendo su caché.
+    comprobar "sw.js del dominio raíz se sirve sin redirigir" 200 "$(codigo "$APEX_URL/sw.js")"
+fi
 
 say "Separación entre SPA y API"
 comprobar "ruta profunda del SPA carga la app"    200 "$(codigo "$SITE_URL/facturas/nueva")"

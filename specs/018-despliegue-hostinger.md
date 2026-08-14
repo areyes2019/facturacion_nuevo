@@ -1,5 +1,12 @@
 # Spec: Despliegue en Hostinger (producción, un solo origen)
 
+> **El host de esta spec quedó reemplazado por [022-subdominio-app.md](022-subdominio-app.md).**
+> El sistema ya no se publica en `prosello.com.mx` sino en `app.prosello.com.mx`; el dominio raíz
+> quedó libre para una página web de clientes. Todo lo demás de este documento —origen único, código
+> fuera del docroot, restricciones de `proc_open`, sincronización de los catálogos SAT, artefactos de
+> `deploy/hostinger/`— sigue siendo la referencia válida. Donde aquí se lea `prosello.com.mx` como
+> host del sistema, hoy corresponde `app.prosello.com.mx`.
+
 ## Historia de usuario
 
 Como desarrollador único del sistema, quiero publicar la aplicación en el hosting compartido de
@@ -428,7 +435,8 @@ anotado en `deploy/hostinger/README.md` como advertencia junto a la línea.
 
 ## Estado de implementación
 
-Pendiente.
+Implementada el 2026-08-11, fecha en que se verificaron en el servidor las restricciones registradas
+en `deploy/README.md`. El host cambió después; ver [022-subdominio-app.md](022-subdominio-app.md).
 
 ## Supuestos asumidos (registro completo)
 

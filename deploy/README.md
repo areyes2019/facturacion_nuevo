@@ -14,18 +14,24 @@ deploy/
 ├── verify.sh                      comprueba el sitio publicado
 └── hostinger/                     archivos que se suben UNA SOLA VEZ
     ├── index.php                  front controller de producción
-    ├── htaccess-public_html       .htaccess del docroot
+    ├── htaccess-public_html       .htaccess del docroot del sistema
+    ├── htaccess-apex              .htaccess del docroot del dominio raíz
+    ├── sw-apex.js                 service worker de apagado del dominio raíz
     ├── env.production.example     plantilla del .env real
     └── robots.txt
 ```
 
 ## Topología en el servidor
 
+El sistema vive en el subdominio **`app.prosello.com.mx`**. El dominio raíz
+quedó libre para la futura página web de clientes (ver
+`specs/022-subdominio-app.md`).
+
 El código de Laravel **no vive dentro del docroot**. Si viviera, `.env`,
 `storage/logs/laravel.log` y `composer.lock` serían descargables por URL.
 
 ```
-~/domains/prosello.com.mx/
+~/domains/app.prosello.com.mx/
 ├── facturacion/                ← fuera del docroot, inaccesible por web
 │   ├── app/ bootstrap/ config/ database/ routes/ storage/ vendor/
 │   ├── artisan
@@ -41,28 +47,77 @@ El código de Laravel **no vive dentro del docroot**. Si viviera, `.env`,
     └── favicon.svg  icons.svg  apple-touch-icon.png  pwa-*.png
 ```
 
+Y al lado, sin nada del sistema:
+
+```
+~/domains/prosello.com.mx/
+└── public_html/                ← docroot del dominio raíz
+    ├── .htaccess               ← de deploy/hostinger/htaccess-apex
+    └── sw.js                   ← de deploy/hostinger/sw-apex.js
+```
+
 `facturacion/` es **hermano** de `public_html/`, no una ruta absoluta: el front
-controller la alcanza con `__DIR__.'/../facturacion'` y funciona igual si el
-dominio es el principal de la cuenta o uno adicional.
+controller la alcanza con `__DIR__.'/../facturacion'` y funciona igual en
+cualquier dominio de la cuenta. Esa ruta relativa es lo que hizo que la mudanza
+al subdominio no obligara a tocar el front controller.
+
+**El subdominio se creó como sitio web independiente** (hPanel → *Añadir sitio
+web* → *Sitio web PHP/HTML personalizado*), no desde la pantalla de
+*Subdominios*: esa otra fuerza la casilla «Carpeta personalizada» y deja el
+docroot **dentro** del `public_html/` del dominio raíz, con tres consecuencias
+malas —el sistema queda accesible también como `prosello.com.mx/app`, los
+`.htaccess` del dominio raíz se aplican encima de las peticiones del subdominio,
+y el código de Laravel se queda sin lugar fuera del docroot—.
 
 ## Un solo origen
 
 ```
-https://prosello.com.mx/            → el SPA
-https://prosello.com.mx/api/v1/*    → Laravel
-https://prosello.com.mx/sanctum/*   → Laravel (cookie CSRF)
-https://prosello.com.mx/up          → Laravel (healthcheck)
+https://app.prosello.com.mx/            → el SPA
+https://app.prosello.com.mx/api/v1/*    → Laravel
+https://app.prosello.com.mx/sanctum/*   → Laravel (cookie CSRF)
+https://app.prosello.com.mx/up          → Laravel (healthcheck)
 ```
 
-Se descartó separar en `app.` + `api.`. La autenticación es Sanctum por cookie
-de sesión, no por token Bearer, y con subdominios harían falta tres piezas que
-con un solo origen sencillamente no existen: una lista de orígenes en
-`config/cors.php` que mantener sincronizada, una cookie emitida en
-`.prosello.com.mx` —visible para cualquier subdominio que llegue a existir— y
-un `preflight` extra en cada `POST`.
+Se descartó separar el API en `api.prosello.com.mx`. La autenticación es Sanctum
+por cookie de sesión, no por token Bearer, y con el API en otro host harían falta
+tres piezas que con un solo origen sencillamente no existen: una lista de
+orígenes en `config/cors.php` que mantener sincronizada, una cookie emitida en
+`.prosello.com.mx` —visible para cualquier host del dominio, incluida la futura
+página de clientes— y un `preflight` extra en cada `POST`.
 
 El único costo es que el `.htaccess` del docroot tiene que decidir qué petición
 va a dónde. Es un archivo, y está versionado.
+
+## El dominio raíz
+
+`prosello.com.mx` no tiene ni un archivo del sistema. Su docroot contiene dos
+cosas, y las dos se suben a mano una sola vez:
+
+| Archivo | De dónde sale | Para qué |
+|---|---|---|
+| `.htaccess` | `deploy/hostinger/htaccess-apex` | Redirige todo al sistema con **302** |
+| `sw.js` | `deploy/hostinger/sw-apex.js` | Apaga el service worker de la PWA vieja |
+
+**Por qué 302 y no 301.** Un 301 es permanente y los navegadores lo cachean
+durante meses. El día que exista la página de clientes y se quite la regla, todo
+el que hubiera entrado antes seguiría siendo lanzado al sistema sin verla nunca,
+y limpiarlo exigiría que cada usuario vaciara su caché. Con 302 el navegador
+vuelve a preguntar cada vez.
+
+**Por qué hay un `sw.js` ahí.** Quien tuviera la PWA instalada desde el dominio
+raíz conserva un service worker registrado en ese origen, que sirve la interfaz
+desde su propia caché: la redirección no lo alcanza, porque responde antes de que
+la petición salga a la red. Y no se apaga solo — el navegador comprueba las
+actualizaciones pidiendo `/sw.js`, y **una redirección en esa petición se trata
+como error**, así que el service worker viejo sobreviviría intacto. Por eso el
+`.htaccess` excluye `sw.js` de la redirección y ahí hay un archivo real que borra
+las cachés, se desregistra y recarga la ventana.
+
+**El día que se publique la página de clientes:** ese sitio reemplaza el
+`.htaccess`, y las comprobaciones del dominio raíz de `verify.sh` empiezan a
+fallar. Es deseable: el verificador avisa de que hay algo que actualizar en vez
+de callarse. El `sw.js` conviene conservarlo mientras queden instalaciones
+antiguas dando vueltas.
 
 ---
 
@@ -102,6 +157,11 @@ Consecuencias:
   falta: `FILESYSTEM_DISK` es `local` y no se sirve ningún archivo desde
   `storage/`.
 
+Y una más, sin relación con `proc_open`: **no hay `crontab` en la shell**. La
+tarea programada se administra únicamente desde hPanel, así que su línea —y
+sobre todo la ruta que contiene— es un paso manual que ningún script puede
+cambiar por ti.
+
 ---
 
 ## Instalación inicial
@@ -112,7 +172,10 @@ scripts.
 ### 1. hPanel
 
 - **PHP 8.3 o superior** en *Avanzado → Configuración de PHP*.
-- **SSL activo** para `prosello.com.mx` en *Seguridad → SSL*.
+- **El subdominio creado como sitio web independiente**: *Añadir sitio web →
+  Sitio web PHP/HTML personalizado*, con el nombre completo
+  `app.prosello.com.mx`. No desde *Subdominios* (ver la topología, arriba).
+- **SSL activo** para `app.prosello.com.mx` en *Seguridad → SSL*.
 - **Base de datos MySQL** creada en *Bases de datos → MySQL*. Anota nombre,
   usuario y contraseña: llevan el prefijo de la cuenta y la contraseña solo se
   muestra al crearla.
@@ -124,8 +187,9 @@ scripts.
 cp deploy/config.example.sh deploy/config.sh
 ```
 
-Y pon dentro el alias de `~/.ssh/config`, las dos rutas remotas, la ruta de PHP
-y la URL. Comprueba que la conexión funciona sin pedir contraseña:
+Y pon dentro el alias de `~/.ssh/config`, las dos rutas remotas, la ruta de PHP,
+la URL del sistema y la del dominio raíz (`APEX_URL`). Comprueba que la conexión
+funciona sin pedir contraseña:
 
 ```bash
 ssh -o BatchMode=yes prosello 'echo ok'
@@ -155,6 +219,16 @@ scp deploy/hostinger/htaccess-public_html "$SSH_ALIAS:$REMOTE_DOCROOT/.htaccess"
 ```
 
 Ojo con el tercero: cambia de nombre al llegar (`.htaccess`, con punto).
+
+Y los dos del **dominio raíz**, que van a su propio docroot y también cambian de
+nombre. `APEX_DOCROOT` no está en `config.sh` porque los scripts nunca escriben
+ahí; se pone a mano una vez:
+
+```bash
+APEX_DOCROOT="/home/u648715341/domains/prosello.com.mx/public_html"
+scp deploy/hostinger/htaccess-apex "$SSH_ALIAS:$APEX_DOCROOT/.htaccess"
+scp deploy/hostinger/sw-apex.js    "$SSH_ALIAS:$APEX_DOCROOT/sw.js"
+```
 
 Y el `.env`, que es el único con secretos. Se sube la plantilla y se rellena
 **en el servidor**, para que los valores reales no pasen nunca por un archivo
@@ -186,8 +260,8 @@ bash deploy/artisan.sh key:generate --force
 ### 6. Permisos de escritura
 
 ```bash
-ssh prosello 'chmod -R 775 ~/domains/prosello.com.mx/facturacion/storage \
-                          ~/domains/prosello.com.mx/facturacion/bootstrap/cache'
+ssh prosello 'chmod -R 775 ~/domains/app.prosello.com.mx/facturacion/storage \
+                          ~/domains/app.prosello.com.mx/facturacion/bootstrap/cache'
 ```
 
 ### 7. Primer despliegue del frontend
@@ -201,8 +275,13 @@ bash deploy/deploy-frontend.sh
 hPanel → *Avanzado → Trabajos Cron*. Una tarea, diaria a las 03:00:
 
 ```
-0 3 * * * /usr/bin/php /home/uXXXXXXXX/domains/prosello.com.mx/facturacion/artisan cotizaciones:purgar-vencidas
+0 3 * * * /usr/bin/php /home/uXXXXXXXX/domains/app.prosello.com.mx/facturacion/artisan cotizaciones:purgar-vencidas
 ```
+
+> **La ruta va al subdominio.** Es un paso manual: el servidor no tiene
+> `crontab` en la shell, así que esta línea solo se edita desde hPanel. Y tiene
+> que quedar **una sola**: dos líneas apuntando a dos copias del sistema
+> correrían la purga dos veces contra la misma base.
 
 > **Advertencia.** Se invoca el comando directamente, no `schedule:run` (ver
 > arriba por qué). La contrapartida es que **toda tarea programada que se
@@ -333,7 +412,7 @@ Para restaurar uno:
 
 ```bash
 ssh prosello
-cd ~/domains/prosello.com.mx/facturacion
+cd ~/domains/app.prosello.com.mx/facturacion
 gunzip -c ~/backups/facturacion-AAAAMMDD-HHMMSS.sql.gz | mysql -u USUARIO -p BASE
 ```
 
@@ -346,7 +425,9 @@ gunzip -c ~/backups/facturacion-AAAAMMDD-HHMMSS.sql.gz | mysql -u USUARIO -p BAS
 | "Cambié el `.env` y no pasó nada" | Configuración cacheada: `bash deploy/artisan.sh config:clear` y volver a desplegar. |
 | El login deja de funcionar después de un deploy de frontend | El `.htaccess` de `dist/` pisó al de producción. Vuelve a subir `deploy/hostinger/htaccess-public_html`. |
 | El API devuelve HTML donde se esperaba JSON | Igual que el anterior: las reglas de `/api` no se están aplicando. |
-| 500 sin explicación | `ssh prosello 'tail -50 ~/domains/prosello.com.mx/facturacion/storage/logs/laravel.log'` |
-| Las claves de producto/servicio o de unidad no devuelven resultados, o los `<select>` de régimen fiscal y forma de pago salen vacíos | La base de catálogos SAT del servidor falta, está vacía o está truncada. `bash deploy/deploy-backend.sh --sin-migrar` la vuelve a subir. Compruébalo con `ssh prosello 'ls -l ~/domains/prosello.com.mx/facturacion/storage/app/sat-catalogos.sqlite'`: si pesa 0, es esto. |
+| 500 sin explicación | `ssh prosello 'tail -50 ~/domains/app.prosello.com.mx/facturacion/storage/logs/laravel.log'` |
+| Las claves de producto/servicio o de unidad no devuelven resultados, o los `<select>` de régimen fiscal y forma de pago salen vacíos | La base de catálogos SAT del servidor falta, está vacía o está truncada. `bash deploy/deploy-backend.sh --sin-migrar` la vuelve a subir. Compruébalo con `ssh prosello 'ls -l ~/domains/app.prosello.com.mx/facturacion/storage/app/sat-catalogos.sqlite'`: si pesa 0, es esto. |
+| Un usuario dice que la aplicación instalada abre pero no carga datos | Tiene la PWA instalada del origen viejo (`prosello.com.mx`), sirviéndose de su caché. Se apaga sola al abrirla con red gracias al `sw.js` del dominio raíz; si no, que la desinstale y la reinstale desde `app.prosello.com.mx`. |
+| `verify.sh` falla en las comprobaciones del dominio raíz | O falta el `.htaccess` de `deploy/hostinger/htaccess-apex` en su docroot, o ya se publicó la página de clientes y hay que actualizar el verificador. |
 | El sitio quedó en mantenimiento | `bash deploy/artisan.sh up` |
 | `composer install` aborta | Falta `--no-scripts`; ver la restricción de `proc_open`. |

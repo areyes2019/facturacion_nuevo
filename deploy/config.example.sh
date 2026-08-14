@@ -13,13 +13,18 @@
 SSH_ALIAS="mi-servidor"
 
 # Carpeta del backend Laravel, FUERA del docroot.
-REMOTE_APP="/home/uXXXXXXXX/domains/ejemplo.com/facturacion"
+REMOTE_APP="/home/uXXXXXXXX/domains/app.ejemplo.com/facturacion"
 
-# Docroot del dominio: aquí conviven el SPA compilado y el front controller.
-REMOTE_DOCROOT="/home/uXXXXXXXX/domains/ejemplo.com/public_html"
+# Docroot del subdominio: aquí conviven el SPA compilado y el front controller.
+REMOTE_DOCROOT="/home/uXXXXXXXX/domains/app.ejemplo.com/public_html"
 
 # Ruta del binario de PHP en el servidor (`which php` por SSH).
 REMOTE_PHP="/usr/bin/php"
 
-# URL pública, sin barra final. La usa deploy/verify.sh.
-SITE_URL="https://ejemplo.com"
+# URL pública del sistema, sin barra final. La usa deploy/verify.sh.
+SITE_URL="https://app.ejemplo.com"
+
+# Dominio raíz, sin barra final. El sistema NO vive aquí: este dominio queda
+# libre para la página de clientes y, mientras esa página no exista, redirige al
+# sistema (ver specs/022-subdominio-app.md). verify.sh comprueba esa redirección.
+APEX_URL="https://ejemplo.com"

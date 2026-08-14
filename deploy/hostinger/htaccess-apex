@@ -1,0 +1,59 @@
+# =============================================================================
+# .htaccess del docroot del DOMINIO RAÍZ (prosello.com.mx)
+#
+# Se copia a <docroot del dominio raíz>/.htaccess (SIN el prefijo "htaccess-").
+#
+# El sistema ya no vive aquí: se mudó a app.prosello.com.mx (ver
+# specs/022-subdominio-app.md). Este docroot queda libre para la futura página
+# web de clientes, y mientras esa página no exista, todo lo que llegue aquí se
+# manda al sistema para que ningún marcador ni enlace viejo muera.
+#
+# CUANDO SE PUBLIQUE LA PÁGINA DE CLIENTES: este archivo se reemplaza por el que
+# necesite ese sitio, y las tres comprobaciones del dominio raíz de
+# deploy/verify.sh dejan de aplicar. El verificador avisará solo.
+# =============================================================================
+
+<IfModule mod_negotiation.c>
+    Options -MultiViews -Indexes
+</IfModule>
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # -------------------------------------------------------------------------
+    # 1. sw.js se sirve como archivo REAL, sin redirección
+    #
+    # Quien tenga la PWA instalada desde este origen conserva aquí un service
+    # worker registrado, y un service worker sirve la aplicación desde su propia
+    # caché: la redirección de abajo no lo alcanzaría nunca.
+    #
+    # Y no se apaga solo. El navegador comprueba si hay versión nueva pidiendo
+    # este mismo /sw.js, y una redirección en ESA petición se trata como error:
+    # la actualización falla, el service worker viejo sobrevive intacto y sigue
+    # sirviendo su caché indefinidamente, pidiendo /api/v1/... a un host donde ya
+    # no hay API.
+    #
+    # Por eso aquí hay un sw.js real (deploy/hostinger/sw-apex.js) que borra las
+    # cachés, se desregistra y recarga la ventana. Excluirlo de la redirección es
+    # lo único que hace que ese apagado llegue a ejecutarse.
+    # -------------------------------------------------------------------------
+    RewriteRule ^sw\.js$ - [L]
+
+    # -------------------------------------------------------------------------
+    # 2. Todo lo demás va al sistema
+    #
+    # 302 y no 301, a propósito. Un 301 es permanente: los navegadores lo cachean
+    # y dejan de preguntar durante meses. El día que exista la página de clientes
+    # y se quite esta regla, todo el que hubiera entrado antes seguiría siendo
+    # lanzado al sistema sin ver jamás la página nueva, y limpiarlo exigiría que
+    # cada usuario vaciara su caché.
+    #
+    # Con 302 el navegador vuelve a preguntar cada vez. Cuesta una petición por
+    # visita; a cambio, el día del cambio no hay nada que deshacer.
+    #
+    # Aquí sí se nombra el dominio de destino, al revés que en
+    # htaccess-public_html: el propósito de esta regla es apuntar a OTRO host, así
+    # que el nombre no es un dato del entorno sino el contenido de la regla.
+    # -------------------------------------------------------------------------
+    RewriteRule ^ https://app.prosello.com.mx%{REQUEST_URI} [L,R=302]
+</IfModule>

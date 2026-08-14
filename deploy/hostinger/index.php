@@ -8,12 +8,14 @@
  * rutas apuntan a '../facturacion' en vez de '../', porque en el servidor el
  * proyecto no está encima del docroot sino a su lado:
  *
- *     domains/prosello.com.mx/
+ *     domains/app.prosello.com.mx/
  *     ├── facturacion/     <- app/ bootstrap/ config/ storage/ vendor/ .env
  *     └── public_html/     <- este archivo + el SPA compilado
  *
- * La ruta es relativa a propósito: funciona igual si el dominio es el principal
- * de la cuenta o uno adicional, sin ninguna ruta absoluta que mantener.
+ * La ruta es relativa a propósito: funciona igual en cualquier dominio de la
+ * cuenta, sin ninguna ruta absoluta que mantener. Eso es lo que hizo que la
+ * mudanza del dominio raíz al subdominio (specs/022-subdominio-app.md) no
+ * obligara a tocar este archivo.
  *
  * Se versiona aparte en vez de editar backend/public/index.php porque ese otro
  * tiene que seguir funcionando en Laragon, donde el proyecto sí está en '../'.

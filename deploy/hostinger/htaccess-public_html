@@ -25,17 +25,28 @@ DirectoryIndex index.html
     # 1. Host canónico y HTTPS
     #
     # No es cosmético. La cookie de sesión es host-only, así que para el
-    # navegador www.prosello.com.mx y prosello.com.mx son dos sitios distintos:
+    # navegador www.app.ejemplo.com y app.ejemplo.com son dos sitios distintos:
     # un usuario que entra por uno después de haberse logueado en el otro
     # aparece como no autenticado, sin ninguna explicación visible.
     # HTTPS además es requisito del service worker: sin él no hay PWA.
+    #
+    # El dominio NO se escribe aquí: las dos reglas lo derivan de la petición
+    # (%{HTTP_HOST} en la primera, el grupo capturado %1 en la segunda). Con el
+    # nombre escrito a mano, mudar el sistema de dominio obliga a editar este
+    # archivo, y editarlo mal produce un fallo desorientador: el usuario entra al
+    # sistema y el servidor lo empuja al dominio viejo sin ningún error visible.
+    # Ver specs/022-subdominio-app.md.
+    #
+    # Contrapartida: una visita a http://www.<host> resuelve en dos saltos
+    # (primero a HTTPS conservando el www, después al host sin www) en vez de
+    # uno. Ocurre una sola vez por visitante y no se nota.
     # -------------------------------------------------------------------------
     RewriteCond %{HTTPS} !=on
     RewriteCond %{HTTP:X-Forwarded-Proto} !=https
-    RewriteRule ^ https://prosello.com.mx%{REQUEST_URI} [L,R=301]
+    RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
 
-    RewriteCond %{HTTP_HOST} ^www\. [NC]
-    RewriteRule ^ https://prosello.com.mx%{REQUEST_URI} [L,R=301]
+    RewriteCond %{HTTP_HOST} ^www\.(.+)$ [NC]
+    RewriteRule ^ https://%1%{REQUEST_URI} [L,R=301]
 
     # -------------------------------------------------------------------------
     # 2. Cabeceras que Apache no reexpone por su cuenta
