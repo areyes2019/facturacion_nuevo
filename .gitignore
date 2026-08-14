@@ -41,6 +41,12 @@ desktop.ini
 /deploy/config.sh
 /deploy/*.local.sh
 
+# --- Material de trabajo local -----------------------------------------------
+# Imagenes de articulos en bruto, a la espera de renombrarse con el modelo que
+# les toca (specs/renombrar.md). Son el insumo de la carga masiva, no codigo:
+# entran al sistema subiendolas, no versionandolas.
+/catalogo/
+
 # --- Respaldos y temporales --------------------------------------------------
 *.bak
 *.orig
