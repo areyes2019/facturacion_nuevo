@@ -93,8 +93,11 @@ class CatalogoProveedorController extends Controller
         $utilidad = (float) ($request->input('utilidad_porcentaje') ?? $catalogo->utilidad_porcentaje);
         $aumento = (float) ($request->input('aumento_porcentaje') ?? 0);
 
+        // `objeto_imp` entra en la selección porque el redondeo de 024 depende de él: sin esa columna
+        // la proyección aplicaría factor 1 y la vista previa dejaría de coincidir al centavo con el
+        // aumento real, que es justo lo que `proyectar` existe para evitar.
         $articulos = $catalogo->articulos()
-            ->get(['id', 'nombre', 'modelo', 'precio_proveedor', 'utilidad_porcentaje', 'costo_goma']);
+            ->get(['id', 'nombre', 'modelo', 'precio_proveedor', 'utilidad_porcentaje', 'costo_goma', 'objeto_imp']);
 
         $impacto = $articulos->map(fn (Articulo $articulo): array => [
             'id' => $articulo->id,
@@ -173,6 +176,7 @@ class CatalogoProveedorController extends Controller
             $descuento,
             (float) ($articulo->utilidad_porcentaje ?? $utilidad),
             (float) $articulo->costo_goma,
+            $articulo->objeto_imp,
         );
 
         return ['precio_proveedor' => $precioProveedor, ...$cadena];

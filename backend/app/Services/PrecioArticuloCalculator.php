@@ -2,20 +2,23 @@
 
 namespace App\Services;
 
+use App\Enums\ObjetoImpuesto;
 use App\Models\Articulo;
 use App\Models\Catalogo;
 
 /**
- * Cadena de cálculo de precios de un artículo (ver 011-precio-proveedor-utilidad.md y
- * 014-costo-elaboracion-goma.md).
+ * Cadena de cálculo de precios de un artículo (ver 011-precio-proveedor-utilidad.md,
+ * 014-costo-elaboracion-goma.md y 024-precios-sin-centavos.md).
  *
- *   precio_proveedor          (capturado)              $200.00
- *     ↓ × (1 − descuento / 100)                        descuento del catálogo
- *   costo_con_descuento       (calculado, persistido)  $200.00   ← costo del aparato
- *     ↓ + costo_goma                                   goma mediana
- *   costo_total               (calculado al leer)      $210.00
- *     ↓ × (1 + utilidad_efectiva / 100)                markup sobre el costo
- *   precio_unitario_sin_iva   (calculado, persistido)  $262.50
+ *   precio_proveedor           (capturado)               $120.00
+ *     ↓ × (1 − descuento / 100)                          descuento del catálogo
+ *   costo_con_descuento        (calculado, persistido)   $120.00   ← costo del aparato
+ *     ↓ + costo_goma                                     goma
+ *   costo_total                (calculado al leer)       $130.00
+ *     ↓ × (1 + utilidad_efectiva / 100) → techo2         markup sobre el costo (55%)
+ *   precio_venta_crudo_sin_iva (intermedio, no se guarda) $201.50  → con IVA $233.74
+ *     ↓ redondeo al peso entero del precio con IVA       024
+ *   precio_unitario_sin_iva    (calculado, persistido)   $201.72  → con IVA $234.00
  *
  * El porcentaje se interpreta como markup sobre el costo: un 25% significa "quiero ganar el 25% de
  * lo que me costó", de ahí la multiplicación.
@@ -24,6 +27,10 @@ use App\Models\Catalogo;
  * le pagas al proveedor; la goma la elaboras tú) y ANTES del markup (el precio de venta siempre es
  * calculado, así que un costo que no entrara al markup solo produciría un precio insuficiente).
  * Un artículo sin goma tiene costo_goma = 0 y la cadena queda idéntica a la de 011.
+ *
+ * El redondeo al peso entero es el ÚLTIMO eslabón y vive dentro de `calcularCadena`, no en cada
+ * llamador: así lo heredan sin lógica propia el alta, la edición, la importación CSV, el recálculo
+ * en bloque del catálogo (011) y el mantenimiento masivo (021).
  *
  * Los casos frontera de esta cadena viven en shared/fixtures/precios-articulos.json, compartidos
  * con la implementación espejo en TypeScript (frontend/src/lib/precioArticulo.ts).
@@ -96,11 +103,64 @@ class PrecioArticuloCalculator
     }
 
     /**
-     * Precio de venta sin IVA = techo2(costo_total × (1 + utilidad_efectiva / 100)).
+     * Precio de venta crudo sin IVA = techo2(costo_total × (1 + utilidad_efectiva / 100)).
+     *
+     * Es el precio que produce el markup, antes del redondeo al peso entero de 024. No se persiste:
+     * la columna guarda el valor que sale de `redondearAPesoEntero`.
      */
     public static function precioVentaSinIva(float $costoTotal, float $utilidadPorcentaje): float
     {
         return self::techo2($costoTotal * (1 + $utilidadPorcentaje / 100));
+    }
+
+    /**
+     * Factor por el que se multiplica el precio sin IVA para obtener el precio que ve el cliente
+     * (ver 024-precios-sin-centavos.md).
+     *
+     * Solo `SiObjeto` (02) causa un 16% que el cliente vea sumarse encima. En `NoObjeto` (01),
+     * `SiObjetoNoDesglose` (03) y `SiObjetoNoCausaImpuesto` (04) el número que él lee es el precio a
+     * secas, así que es ése el que debe quedar entero y el factor es 1.
+     */
+    public static function factorIva(?ObjetoImpuesto $objetoImp): float
+    {
+        return $objetoImp === ObjetoImpuesto::SiObjeto ? 1.16 : 1.0;
+    }
+
+    /**
+     * Ajusta el precio sin IVA para que el precio con IVA caiga en un peso entero, siempre hacia
+     * arriba (ver 024-precios-sin-centavos.md).
+     *
+     * Un centavo del precio sin IVA se convierte en 1.16 centavos del precio con IVA, más ancho que
+     * la ventana de un centavo del redondeo. De ahí las dos propiedades que gobiernan esta función:
+     *
+     *   - Para un objetivo dado existe **a lo más un** centavo válido, y está a menos de medio paso
+     *     del cociente `objetivo ÷ factor`, así que basta probar `floor` y `floor + 0.01`.
+     *   - Hay objetivos que **ningún** centavo alcanza (el 13.8% de los enteros: $7, $12, $17, $22,
+     *     $36...), y por eso el ciclo sube al siguiente peso. Nunca hay dos inalcanzables
+     *     consecutivos —verificado del $1 al $100,000—, de modo que un solo incremento basta
+     *     siempre y el ciclo termina.
+     *
+     * Con factor 1.0 la regla se degrada a un techo al peso: el objetivo siempre es alcanzable.
+     */
+    public static function redondearAPesoEntero(float $precioCrudoSinIva, float $factorIva): float
+    {
+        if ($precioCrudoSinIva <= 0.0) {
+            return 0.0;
+        }
+
+        $objetivo = ceil(round($precioCrudoSinIva * $factorIva, 6));
+
+        while (true) {
+            $base = floor(round($objetivo / $factorIva * 100, 6)) / 100;
+
+            foreach ([$base, self::redondeo2($base + 0.01)] as $candidato) {
+                if (self::redondeo2($candidato * $factorIva) === (float) $objetivo) {
+                    return $candidato;
+                }
+            }
+
+            $objetivo++;
+        }
     }
 
     /**
@@ -135,10 +195,12 @@ class PrecioArticuloCalculator
         float $descuento,
         float $utilidadPorcentaje,
         float $costoGoma = 0.0,
+        ?ObjetoImpuesto $objetoImp = null,
     ): array {
         $costo = self::costoConDescuento($precioProveedor, $descuento);
         $costoTotal = self::costoTotal($costo, $costoGoma);
-        $precioVenta = self::precioVentaSinIva($costoTotal, $utilidadPorcentaje);
+        $precioCrudo = self::precioVentaSinIva($costoTotal, $utilidadPorcentaje);
+        $precioVenta = self::redondearAPesoEntero($precioCrudo, self::factorIva($objetoImp));
 
         return [
             'costo_con_descuento' => $costo,

@@ -1,14 +1,16 @@
 /**
- * Cadena de cálculo de precios de un artículo (ver specs/011-precio-proveedor-utilidad.md y
- * specs/014-costo-elaboracion-goma.md).
+ * Cadena de cálculo de precios de un artículo (ver specs/011-precio-proveedor-utilidad.md,
+ * specs/014-costo-elaboracion-goma.md y specs/024-precios-sin-centavos.md).
  *
- *   precio_proveedor          (capturado)              $200.00
- *     ↓ × (1 − descuento / 100)                        descuento del catálogo
- *   costo_con_descuento       (calculado, persistido)  $200.00   ← costo del aparato
- *     ↓ + costo_goma                                   goma mediana
- *   costo_total               (calculado al leer)      $210.00
- *     ↓ × (1 + utilidad_efectiva / 100)                markup sobre el costo
- *   precio_unitario_sin_iva   (calculado, persistido)  $262.50
+ *   precio_proveedor           (capturado)               $120.00
+ *     ↓ × (1 − descuento / 100)                          descuento del catálogo
+ *   costo_con_descuento        (calculado, persistido)   $120.00   ← costo del aparato
+ *     ↓ + costo_goma                                     goma
+ *   costo_total                (calculado al leer)       $130.00
+ *     ↓ × (1 + utilidad_efectiva / 100) → techo2         markup sobre el costo (55%)
+ *   precio_venta_crudo_sin_iva (intermedio, no se guarda) $201.50  → con IVA $233.74
+ *     ↓ redondeo al peso entero del precio con IVA       024
+ *   precio_unitario_sin_iva    (calculado, persistido)   $201.72  → con IVA $234.00
  *
  * El costo de goma entra DESPUÉS del descuento (que solo aplica a lo que le pagas al proveedor) y
  * ANTES del markup. Un artículo sin goma tiene costo_goma = 0 y la cadena queda idéntica a la de 011.
@@ -80,14 +82,59 @@ export function utilidad(precioVenta: number, costo: number): number {
   return redondeo2(precioVenta - costo)
 }
 
+/**
+ * Factor por el que se multiplica el precio sin IVA para obtener el precio que ve el cliente
+ * (ver 024-precios-sin-centavos.md).
+ *
+ * Solo `02` (sí objeto de impuesto) causa un 16% que el cliente vea sumarse encima. En `01` (no
+ * objeto), `03` (no obligado al desglose) y `04` (no causa impuesto) el número que él lee es el
+ * precio a secas, así que es ése el que debe quedar entero y el factor es 1.
+ */
+export function factorIva(objetoImp: string | null | undefined): number {
+  return objetoImp === '02' ? TASA_IVA_GENERAL : 1
+}
+
+/**
+ * Ajusta el precio sin IVA para que el precio con IVA caiga en un peso entero, siempre hacia arriba
+ * (ver 024-precios-sin-centavos.md).
+ *
+ * Un centavo del precio sin IVA se convierte en 1.16 centavos del precio con IVA, más ancho que la
+ * ventana de un centavo del redondeo. De ahí las dos propiedades que gobiernan esta función:
+ *
+ *   - Para un objetivo dado existe a lo más UN centavo válido, y está a menos de medio paso del
+ *     cociente `objetivo / factor`, así que basta probar `floor` y `floor + 0.01`.
+ *   - Hay objetivos que NINGÚN centavo alcanza (el 13.8% de los enteros: $7, $12, $17, $22, $36...),
+ *     y por eso el ciclo sube al siguiente peso. Nunca hay dos inalcanzables consecutivos
+ *     —verificado del $1 al $100,000—, de modo que un solo incremento basta siempre.
+ *
+ * Con factor 1 la regla se degrada a un techo al peso: el objetivo siempre es alcanzable.
+ */
+export function redondearAPesoEntero(precioCrudoSinIva: number, factor: number): number {
+  if (precioCrudoSinIva <= 0) return 0
+
+  let objetivo = Math.ceil(Math.round(precioCrudoSinIva * factor * 1_000_000) / 1_000_000)
+
+  for (;;) {
+    const base = Math.floor(Math.round((objetivo / factor) * 100 * 1_000_000) / 1_000_000) / 100
+
+    for (const candidato of [base, redondeo2(base + 0.01)]) {
+      if (redondeo2(candidato * factor) === objetivo) return candidato
+    }
+
+    objetivo++
+  }
+}
+
 /** Precio con IVA, solo de referencia en pantalla (la columna persistida es la de sin IVA). */
-export function precioConIva(precioVentaSinIva: number): number {
-  return redondeo2(precioVentaSinIva * TASA_IVA_GENERAL)
+export function precioConIva(precioVentaSinIva: number, factor = TASA_IVA_GENERAL): number {
+  return redondeo2(precioVentaSinIva * factor)
 }
 
 export interface CadenaDePrecios {
   costo_con_descuento: number
   costo_total: number
+  /** Precio que produce el markup, antes del redondeo al peso entero. No se persiste. */
+  precio_venta_crudo_sin_iva: number
   precio_unitario_sin_iva: number
   utilidad: number
 }
@@ -98,14 +145,17 @@ export function calcularCadena(
   descuento: number,
   utilidadPorcentaje: number,
   costoGoma = 0,
+  objetoImp: string | null | undefined = '02',
 ): CadenaDePrecios {
   const costoAparato = costoConDescuento(precioProveedor, descuento)
   const costo = costoTotal(costoAparato, costoGoma)
-  const precioVenta = precioVentaSinIva(costo, utilidadPorcentaje)
+  const precioCrudo = precioVentaSinIva(costo, utilidadPorcentaje)
+  const precioVenta = redondearAPesoEntero(precioCrudo, factorIva(objetoImp))
 
   return {
     costo_con_descuento: costoAparato,
     costo_total: costo,
+    precio_venta_crudo_sin_iva: precioCrudo,
     precio_unitario_sin_iva: precioVenta,
     utilidad: utilidad(precioVenta, costo),
   }

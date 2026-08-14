@@ -37,16 +37,17 @@ test('un usuario autenticado puede crear un articulo ligado a uno de sus catalog
     $response->assertJsonPath('data.nombre', 'Laptop 14 pulgadas');
     $response->assertJsonPath('data.catalogo_id', $catalogo->id);
     $response->assertJsonPath('data.proveedor_id', $proveedor->id);
-    // Cadena: costo = 1500.50 * (1 - 0.10) = 1350.45; con 0% de utilidad, precio de venta = costo.
+    // Cadena: costo = 1500.50 * (1 - 0.10) = 1350.45; con 0% de utilidad el markup deja el precio en
+    // el costo, y el redondeo de 024 lo sube a 1350.86 para que el precio con IVA caiga en $1,567.00.
     $response->assertJsonPath('data.costo_con_descuento', 1350.45);
-    $response->assertJsonPath('data.precio_unitario_sin_iva', 1350.45);
-    $response->assertJsonPath('data.precio_unitario_con_iva', 1566.52);
+    $response->assertJsonPath('data.precio_unitario_sin_iva', 1350.86);
+    $response->assertJsonPath('data.precio_unitario_con_iva', 1567);
     $this->assertDatabaseHas('articulos', [
         'user_id' => $user->id,
         'catalogo_id' => $catalogo->id,
         'nombre' => 'Laptop 14 pulgadas',
         'costo_con_descuento' => 1350.45,
-        'precio_unitario_sin_iva' => 1350.45,
+        'precio_unitario_sin_iva' => 1350.86,
     ]);
 });
 
@@ -61,10 +62,12 @@ test('un articulo con porcentaje de utilidad propio calcula su precio de venta c
     ]));
 
     $response->assertCreated();
-    // costo = 210; precio = techo(210 * 1.30) = 273.00
+    // costo = 210; precio crudo = techo(210 * 1.30) = 273.00, que el redondeo de 024 sube a 273.28
+    // para dejar el precio con IVA en $317.00.
     $response->assertJsonPath('data.costo_con_descuento', 210);
-    $response->assertJsonPath('data.precio_unitario_sin_iva', 273);
-    $response->assertJsonPath('data.utilidad', 63);
+    $response->assertJsonPath('data.precio_unitario_sin_iva', 273.28);
+    $response->assertJsonPath('data.precio_unitario_con_iva', 317);
+    $response->assertJsonPath('data.utilidad', 63.28);
     $response->assertJsonPath('data.utilidad_porcentaje_efectivo', 30);
 });
 
@@ -541,17 +544,20 @@ test('importar un csv respeta el porcentaje de utilidad por fila y hereda cuando
     $response->assertOk();
     $response->assertJsonPath('importados', 2);
     $response->assertJsonPath('errores', []);
-    // Porcentaje propio: 100 * 1.25 = 125.
+    // Porcentaje propio: 100 * 1.25 = 125, que ya deja el precio con IVA en $145.00 y el redondeo de
+    // 024 no mueve.
     $this->assertDatabaseHas('articulos', [
         'nombre' => 'Con porcentaje propio',
         'utilidad_porcentaje' => 25,
         'precio_unitario_sin_iva' => 125,
     ]);
-    // Celda vacía: hereda el 10% del catálogo y queda con utilidad_porcentaje en NULL.
+    // Celda vacía: hereda el 10% del catálogo y queda con utilidad_porcentaje en NULL. El markup da
+    // 110.00 crudo; el redondeo sube a 111.21 porque el $128.00 intermedio es inalcanzable y el
+    // objetivo pasa a $129.00 (ver 024).
     $this->assertDatabaseHas('articulos', [
         'nombre' => 'Hereda del catalogo',
         'utilidad_porcentaje' => null,
-        'precio_unitario_sin_iva' => 110,
+        'precio_unitario_sin_iva' => 111.21,
     ]);
 });
 
@@ -589,7 +595,7 @@ test('un csv exportado conserva el porcentaje propio y la herencia al reimportar
         'precio_proveedor' => 100,
         'utilidad_porcentaje' => null,
         'costo_con_descuento' => 100,
-        'precio_unitario_sin_iva' => 110,
+        'precio_unitario_sin_iva' => 111.21,
     ]);
 
     $contenido = $this->actingAs($user)->get('/api/v1/articulos/exportar-csv')->streamedContent();
@@ -615,7 +621,7 @@ test('un csv exportado conserva el porcentaje propio y la herencia al reimportar
         'catalogo_id' => $destino->id,
         'nombre' => 'Hereda del catalogo',
         'utilidad_porcentaje' => null,
-        'precio_unitario_sin_iva' => 110,
+        'precio_unitario_sin_iva' => 111.21,
     ]);
 });
 
@@ -708,14 +714,16 @@ test('crear un articulo con goma suma el costo vigente antes del markup', functi
         'tamano_goma' => 'mediana',
     ]));
 
-    // Cadena de la historia: 200 + 10 = 210, al 25% da 262.50, utilidad 52.50.
+    // Cadena de la historia: 200 + 10 = 210, al 25% da 262.50 crudo, que el redondeo de 024 sube a
+    // 262.93 para dejar el precio con IVA en $305.00. La utilidad se mide contra el precio final.
     $response->assertCreated();
     $response->assertJsonPath('data.tamano_goma', 'mediana');
     $response->assertJsonPath('data.costo_goma', 10);
     $response->assertJsonPath('data.costo_con_descuento', 200);
     $response->assertJsonPath('data.costo_total', 210);
-    $response->assertJsonPath('data.precio_unitario_sin_iva', 262.5);
-    $response->assertJsonPath('data.utilidad', 52.5);
+    $response->assertJsonPath('data.precio_unitario_sin_iva', 262.93);
+    $response->assertJsonPath('data.precio_unitario_con_iva', 305);
+    $response->assertJsonPath('data.utilidad', 52.93);
 });
 
 test('el descuento del catalogo no se aplica sobre el costo de la goma', function () {
@@ -733,8 +741,9 @@ test('el descuento del catalogo no se aplica sobre el costo de la goma', functio
     $response->assertCreated();
     $response->assertJsonPath('data.costo_con_descuento', 156.27);
     $response->assertJsonPath('data.costo_total', 176.27);
-    $response->assertJsonPath('data.precio_unitario_sin_iva', 350.78);
-    $response->assertJsonPath('data.utilidad', 174.51);
+    $response->assertJsonPath('data.precio_unitario_sin_iva', 350.86);
+    $response->assertJsonPath('data.precio_unitario_con_iva', 407);
+    $response->assertJsonPath('data.utilidad', 174.59);
 });
 
 test('un articulo sin goma conserva la cadena de 011 sin cambios', function () {
@@ -796,7 +805,7 @@ test('costo_goma costo_total y utilidad enviados por el cliente se ignoran', fun
     $response->assertCreated();
     $response->assertJsonPath('data.costo_goma', 10);
     $response->assertJsonPath('data.costo_total', 210);
-    $response->assertJsonPath('data.utilidad', 52.5);
+    $response->assertJsonPath('data.utilidad', 52.93);
 });
 
 test('cambiar el tamano de goma al editar recalcula costo y precio', function () {
@@ -832,11 +841,14 @@ test('cambiar el descuento del catalogo respeta el costo de la goma', function (
         'utilidad_porcentaje' => 0,
     ])->assertOk();
 
-    // El descuento baja el aparato a 180; la goma sigue costando 10.
+    // El descuento baja el aparato a 180; la goma sigue costando 10. Con 0% de utilidad el markup
+    // deja el precio en el costo total (190.00) y el redondeo de 024 lo sube a 190.52, que da
+    // $221.00 con IVA.
     $articulo->refresh();
     expect((float) $articulo->costo_con_descuento)->toBe(180.0);
     expect((float) $articulo->costo_goma)->toBe(10.0);
-    expect((float) $articulo->precio_unitario_sin_iva)->toBe(190.0);
+    expect((float) $articulo->precio_unitario_sin_iva)->toBe(190.52);
+    expect($articulo->precio_unitario_con_iva)->toBe(221.0);
 });
 
 test('la importacion csv acepta el tamano de goma con mayusculas y espacios', function () {
@@ -858,7 +870,7 @@ test('la importacion csv acepta el tamano de goma con mayusculas y espacios', fu
     $response->assertJsonPath('errores.0.fila', 4);
 
     $this->assertDatabaseHas('articulos', [
-        'nombre' => 'Sello grande', 'tamano_goma' => 'grande', 'costo_goma' => 20, 'precio_unitario_sin_iva' => 120,
+        'nombre' => 'Sello grande', 'tamano_goma' => 'grande', 'costo_goma' => 20, 'precio_unitario_sin_iva' => 120.69,
     ]);
     $this->assertDatabaseHas('articulos', [
         'nombre' => 'Sello sin goma', 'tamano_goma' => null, 'costo_goma' => 0, 'precio_unitario_sin_iva' => 100,

@@ -39,9 +39,6 @@ class Articulo extends Model
     /** @use HasFactory<ArticuloFactory> */
     use HasFactory, SoftDeletes;
 
-    /** Tasa general de IVA en México; no se contempla tasa 0%, exento ni IVA fronterizo (ver 006-gestion-articulos.md). */
-    private const TASA_IVA_GENERAL = 1.16;
-
     /** Directorio de las imágenes dentro del disco privado (ver 020-imagenes-articulos.md). */
     public const DIRECTORIO_IMAGENES = 'articulos';
 
@@ -126,12 +123,19 @@ class Articulo extends Model
     }
 
     /**
-     * Precio con IVA a la tasa general (16%), calculado solo para mostrarse; no se persiste.
+     * Precio que ve el cliente, calculado solo para mostrarse; no se persiste.
+     *
+     * El factor sale del `objeto_imp` del artículo (ver 024-precios-sin-centavos.md): solo los que
+     * sí causan impuesto llevan el 16% encima. Para cualquier artículo guardado por la cadena, este
+     * valor es un peso entero exacto.
      */
     protected function precioUnitarioConIva(): Attribute
     {
         return Attribute::make(
-            get: fn (): float => round(((float) $this->precio_unitario_sin_iva) * self::TASA_IVA_GENERAL, 2),
+            get: fn (): float => round(
+                ((float) $this->precio_unitario_sin_iva) * PrecioArticuloCalculator::factorIva($this->objeto_imp),
+                2,
+            ),
         );
     }
 

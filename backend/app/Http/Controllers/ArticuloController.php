@@ -82,6 +82,7 @@ class ArticuloController extends Controller
             (float) $catalogo->descuento,
             (float) ($datos['utilidad_porcentaje'] ?? $catalogo->utilidad_porcentaje),
             $costoGoma,
+            ObjetoImpuesto::from($datos['objeto_imp']),
         );
 
         $articulo = $request->user()->articulos()->create([
@@ -120,6 +121,7 @@ class ArticuloController extends Controller
             (float) $catalogo->descuento,
             (float) ($datos['utilidad_porcentaje'] ?? $catalogo->utilidad_porcentaje),
             $costoGoma,
+            ObjetoImpuesto::from($datos['objeto_imp']),
         );
 
         $articulo->update([
@@ -264,6 +266,7 @@ class ArticuloController extends Controller
                 (float) $catalogo->descuento,
                 (float) ($filaValidada['utilidad_porcentaje'] ?? $catalogo->utilidad_porcentaje),
                 $costoGoma,
+                ObjetoImpuesto::from($filaValidada['objeto_imp']),
             );
 
             $request->user()->articulos()->create([

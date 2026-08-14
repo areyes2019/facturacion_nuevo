@@ -236,8 +236,9 @@ test('editar la utilidad de un catalogo recalcula el precio de venta de los arti
     ]);
 
     $response->assertOk();
-    // El que hereda pasa de 210 a techo(210 * 1.30) = 273.
-    $this->assertDatabaseHas('articulos', ['id' => $hereda->id, 'precio_unitario_sin_iva' => 273]);
+    // El que hereda pasa de 210 a techo(210 * 1.30) = 273 crudo, que el redondeo de 024 sube a
+    // 273.28 para dejar el precio con IVA en $317.00.
+    $this->assertDatabaseHas('articulos', ['id' => $hereda->id, 'precio_unitario_sin_iva' => 273.28]);
     // El que tiene porcentaje propio conserva su precio, calculado con su propio 20%.
     $this->assertDatabaseHas('articulos', ['id' => $propio->id, 'precio_unitario_sin_iva' => 252]);
 });
@@ -281,10 +282,10 @@ test('el impacto de precios acepta un aumento y cae al descuento y la utilidad g
     ]);
 
     $response->assertOk();
-    // 200 + 5% = 210 → −10% = 189 → +25% = 236.25
+    // 200 + 5% = 210 → −10% = 189 → +25% = 236.25 crudo → redondeo de 024 = 237.07 ($275.00 con IVA)
     $response->assertJsonPath('articulos.0.precio_proveedor', 210);
     $response->assertJsonPath('articulos.0.costo_con_descuento', 189);
-    $response->assertJsonPath('articulos.0.precio_unitario_sin_iva', 236.25);
+    $response->assertJsonPath('articulos.0.precio_unitario_sin_iva', 237.07);
     $this->assertDatabaseHas('articulos', ['id' => $articulo->id, 'precio_proveedor' => 200]);
 });
 
@@ -306,7 +307,8 @@ test('un aumento del cinco por ciento sube el precio de proveedor y recalcula la
     $articulo->refresh();
     expect((float) $articulo->precio_proveedor)->toBe(210.0)
         ->and((float) $articulo->costo_con_descuento)->toBe(189.0)
-        ->and((float) $articulo->precio_unitario_sin_iva)->toBe(236.25);
+        ->and((float) $articulo->precio_unitario_sin_iva)->toBe(237.07)
+        ->and($articulo->precio_unitario_con_iva)->toBe(275.0);
 });
 
 test('el aumento no toca el descuento del catalogo, la utilidad del articulo ni el costo de goma', function () {
@@ -331,16 +333,19 @@ test('el aumento no toca el descuento del catalogo, la utilidad del articulo ni 
         ->and((float) $catalogo->utilidad_porcentaje)->toBe(25.0);
 
     // El que tiene porcentaje propio lo conserva, y la goma no se aumenta:
-    // 110 → −10% = 99 → +10 de goma = 109 → +50% = 163.50
+    // 110 → −10% = 99 → +10 de goma = 109 → +50% = 163.50 crudo → redondeo de 024 = 163.79
     $propio->refresh();
     expect((float) $propio->utilidad_porcentaje)->toBe(50.0)
         ->and((float) $propio->costo_goma)->toBe(10.0)
-        ->and((float) $propio->precio_unitario_sin_iva)->toBe(163.50);
+        ->and((float) $propio->precio_unitario_sin_iva)->toBe(163.79)
+        ->and($propio->precio_unitario_con_iva)->toBe(190.0);
 
-    // El que hereda sigue heredando: 110 → −10% = 99 → +25% = 123.75
+    // El que hereda sigue heredando: 110 → −10% = 99 → +25% = 123.75 crudo ($143.55 con IVA), que el
+    // redondeo de 024 sube a 124.14 para aterrizar en $144.00.
     $heredado->refresh();
     expect($heredado->utilidad_porcentaje)->toBeNull()
-        ->and((float) $heredado->precio_unitario_sin_iva)->toBe(123.75);
+        ->and((float) $heredado->precio_unitario_sin_iva)->toBe(124.14)
+        ->and($heredado->precio_unitario_con_iva)->toBe(144.0);
 });
 
 test('el nuevo precio de proveedor se redondea a centavos', function () {

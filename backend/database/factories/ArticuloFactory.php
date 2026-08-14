@@ -23,8 +23,9 @@ class ArticuloFactory extends Factory
     public function definition(): array
     {
         // La cadena de precios asume el 0% de descuento y 0% de utilidad por defecto del catálogo
-        // del factory (CatalogoFactory), así que costo_con_descuento y precio_unitario_sin_iva
-        // coinciden con precio_proveedor. Si un test asocia el artículo a un catálogo con otro
+        // del factory (CatalogoFactory), así que costo_con_descuento coincide con precio_proveedor.
+        // El precio de venta NO coincide: pasa por el redondeo al peso entero del precio con IVA
+        // (ver 024-precios-sin-centavos.md). Si un test asocia el artículo a un catálogo con otro
         // descuento o utilidad debe sobreescribir estos campos explícitamente (ver 011).
         $precio = $this->faker->randomFloat(2, 10, 5000);
 
@@ -41,7 +42,10 @@ class ArticuloFactory extends Factory
             'tamano_goma' => null,
             'costo_goma' => 0,
             'costo_con_descuento' => $precio,
-            'precio_unitario_sin_iva' => $precio,
+            'precio_unitario_sin_iva' => PrecioArticuloCalculator::redondearAPesoEntero(
+                $precio,
+                PrecioArticuloCalculator::factorIva(ObjetoImpuesto::SiObjeto),
+            ),
         ];
     }
 
@@ -56,11 +60,15 @@ class ArticuloFactory extends Factory
     {
         return $this->state(function (array $atributos) use ($tamano, $costoGoma) {
             $costo = PrecioArticuloCalculator::costoTotal((float) $atributos['costo_con_descuento'], $costoGoma);
+            $precioCrudo = PrecioArticuloCalculator::precioVentaSinIva($costo, 0.0);
 
             return [
                 'tamano_goma' => $tamano,
                 'costo_goma' => $costoGoma,
-                'precio_unitario_sin_iva' => PrecioArticuloCalculator::precioVentaSinIva($costo, 0.0),
+                'precio_unitario_sin_iva' => PrecioArticuloCalculator::redondearAPesoEntero(
+                    $precioCrudo,
+                    PrecioArticuloCalculator::factorIva($atributos['objeto_imp'] ?? ObjetoImpuesto::SiObjeto),
+                ),
             ];
         });
     }

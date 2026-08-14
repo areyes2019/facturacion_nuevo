@@ -10,7 +10,7 @@ import {
 import { useCatalogosStore } from '../stores/catalogos'
 import { useConfiguracionStore } from '../stores/configuracion'
 import { extractErrorMessage, extractFieldErrors } from '../lib/errors'
-import { calcularCadena, precioConIva, redondeo2 } from '../lib/precioArticulo'
+import { calcularCadena, factorIva, precioConIva, redondeo2 } from '../lib/precioArticulo'
 import { etiquetaGoma, SIN_GOMA, TAMANOS_GOMA } from '../lib/tamanoGoma'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
@@ -116,14 +116,30 @@ const cadena = computed(() =>
     descuentoCatalogo.value,
     utilidadEfectiva.value,
     costoGoma.value,
+    form.objeto_imp,
   ),
 )
 
 const descuentoMonto = computed(() =>
   redondeo2(precioProveedor.value - cadena.value.costo_con_descuento),
 )
-const precioFinal = computed(() => precioConIva(cadena.value.precio_unitario_sin_iva))
-const ivaMonto = computed(() => redondeo2(precioFinal.value - cadena.value.precio_unitario_sin_iva))
+
+// El bloque narra la cadena en orden, así que los renglones intermedios (utilidad e IVA) se miden
+// sobre el precio CRUDO, y el redondeo aparece después como el ajuste que cierra la diferencia
+// (ver 024-precios-sin-centavos.md).
+const factor = computed(() => factorIva(form.objeto_imp))
+const causaIva = computed(() => factor.value !== 1)
+const utilidadCruda = computed(() =>
+  redondeo2(cadena.value.precio_venta_crudo_sin_iva - cadena.value.costo_total),
+)
+const precioCrudoConIva = computed(() =>
+  precioConIva(cadena.value.precio_venta_crudo_sin_iva, factor.value),
+)
+const precioFinal = computed(() => precioConIva(cadena.value.precio_unitario_sin_iva, factor.value))
+const ivaMonto = computed(() =>
+  redondeo2(precioCrudoConIva.value - cadena.value.precio_venta_crudo_sin_iva),
+)
+const ajusteRedondeo = computed(() => redondeo2(precioFinal.value - precioCrudoConIva.value))
 
 // Aviso no bloqueante: por encima de este porcentaje es mucho más probable un dedazo (1000 en vez
 // de 100) que un markup real, pero el markup alto es legítimo y no se impide guardar.
@@ -459,20 +475,44 @@ async function onSubmit() {
                 </template>
                 <div class="flex justify-between gap-4 py-0.5">
                   <dt class="text-muted-foreground">Utilidad ({{ utilidadEfectiva }}%)</dt>
-                  <dd class="tabular-nums">+${{ pesos(cadena.utilidad) }}</dd>
+                  <dd class="tabular-nums">+${{ pesos(utilidadCruda) }}</dd>
+                </div>
+                <!-- Los renglones de IVA solo aplican a los artículos que sí causan impuesto; en
+                     los demás el precio a secas ya es el que ve el cliente (ver 024). -->
+                <template v-if="causaIva">
+                  <div class="flex justify-between gap-4 border-t py-0.5 pt-1.5">
+                    <dt class="text-muted-foreground">Precio de venta sin IVA</dt>
+                    <dd class="tabular-nums">
+                      ${{ pesos(cadena.precio_venta_crudo_sin_iva) }}
+                    </dd>
+                  </div>
+                  <div class="flex justify-between gap-4 py-0.5">
+                    <dt class="text-muted-foreground">IVA (16%)</dt>
+                    <dd class="tabular-nums">+${{ pesos(ivaMonto) }}</dd>
+                  </div>
+                  <div class="flex justify-between gap-4 py-0.5">
+                    <dt class="text-muted-foreground">Precio con IVA</dt>
+                    <dd class="tabular-nums">${{ pesos(precioCrudoConIva) }}</dd>
+                  </div>
+                </template>
+                <template v-else>
+                  <div class="flex justify-between gap-4 border-t py-0.5 pt-1.5">
+                    <dt class="text-muted-foreground">Precio de venta</dt>
+                    <dd class="tabular-nums">
+                      ${{ pesos(cadena.precio_venta_crudo_sin_iva) }}
+                    </dd>
+                  </div>
+                </template>
+                <!-- El renglón del ajuste solo aparece cuando el redondeo movió algo, para no
+                     ensuciar el bloque con un "+$0.00" en los precios que ya caían en un entero. -->
+                <div v-if="ajusteRedondeo > 0" class="flex justify-between gap-4 py-0.5">
+                  <dt class="text-muted-foreground">Redondeo</dt>
+                  <dd class="tabular-nums">+${{ pesos(ajusteRedondeo) }}</dd>
                 </div>
                 <div class="flex justify-between gap-4 border-t py-0.5 pt-1.5">
-                  <dt class="text-foreground font-medium">Precio de venta sin IVA</dt>
-                  <dd class="tabular-nums font-medium">
-                    ${{ pesos(cadena.precio_unitario_sin_iva) }}
-                  </dd>
-                </div>
-                <div class="flex justify-between gap-4 py-0.5">
-                  <dt class="text-muted-foreground">IVA (16%)</dt>
-                  <dd class="tabular-nums">+${{ pesos(ivaMonto) }}</dd>
-                </div>
-                <div class="flex justify-between gap-4 border-t py-0.5 pt-1.5">
-                  <dt class="text-foreground font-medium">Precio de venta con IVA</dt>
+                  <dt class="text-foreground font-medium">
+                    {{ causaIva ? 'Precio final con IVA' : 'Precio final' }}
+                  </dt>
                   <dd class="tabular-nums font-medium">${{ pesos(precioFinal) }}</dd>
                 </div>
               </dl>

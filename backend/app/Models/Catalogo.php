@@ -79,6 +79,7 @@ class Catalogo extends Model
                         $descuento,
                         $utilidadEfectiva,
                         (float) $articulo->costo_goma,
+                        $articulo->objeto_imp,
                     );
 
                     $articulo->update([
@@ -93,10 +94,18 @@ class Catalogo extends Model
             // propio conservan su precio.
             if ($catalogo->wasChanged('utilidad_porcentaje')) {
                 foreach ($catalogo->articulos()->whereNull('utilidad_porcentaje')->get() as $articulo) {
+                    // El costo no se mueve, pero el precio sí pasa por el redondeo al peso entero
+                    // (ver 024-precios-sin-centavos.md): calcular solo el markup dejaría precios con
+                    // centavos por esta única vía.
+                    $precioCrudo = PrecioArticuloCalculator::precioVentaSinIva(
+                        $articulo->costo_total,
+                        $utilidad,
+                    );
+
                     $articulo->update([
-                        'precio_unitario_sin_iva' => PrecioArticuloCalculator::precioVentaSinIva(
-                            $articulo->costo_total,
-                            $utilidad,
+                        'precio_unitario_sin_iva' => PrecioArticuloCalculator::redondearAPesoEntero(
+                            $precioCrudo,
+                            PrecioArticuloCalculator::factorIva($articulo->objeto_imp),
                         ),
                     ]);
                 }

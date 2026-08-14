@@ -1,12 +1,13 @@
 <?php
 
+use App\Enums\ObjetoImpuesto;
 use App\Services\PrecioArticuloCalculator;
 
 /**
  * Casos frontera de la cadena de precios, leídos del fixture compartido con el frontend
- * (ver 011-precio-proveedor-utilidad.md). El mismo archivo lo consume Vitest sobre
- * frontend/src/lib/precioArticulo.ts, de modo que cambiar una implementación sin la otra rompe la
- * suite del lado no tocado.
+ * (ver 011-precio-proveedor-utilidad.md y 024-precios-sin-centavos.md). El mismo archivo lo consume
+ * Vitest sobre frontend/src/lib/precioArticulo.ts, de modo que cambiar una implementación sin la
+ * otra rompe la suite del lado no tocado.
  */
 function casosDelFixture(): array
 {
@@ -30,40 +31,102 @@ function casosDelFixture(): array
 }
 
 test('la cadena de precios coincide con el fixture compartido', function (array $caso) {
+    $objetoImp = ObjetoImpuesto::from($caso['objeto_imp']);
+
     $cadena = PrecioArticuloCalculator::calcularCadena(
         (float) $caso['precio_proveedor'],
         (float) $caso['descuento'],
         (float) $caso['utilidad_porcentaje'],
         (float) $caso['costo_goma'],
+        $objetoImp,
     );
 
     expect($cadena['costo_con_descuento'])->toBe((float) $caso['costo_con_descuento']);
     expect($cadena['costo_total'])->toBe((float) $caso['costo_total']);
+
+    // El crudo se verifica aparte del final para que un fallo distinga si se rompió el markup o el
+    // redondeo (ver 024).
+    expect(PrecioArticuloCalculator::precioVentaSinIva(
+        $cadena['costo_total'],
+        (float) $caso['utilidad_porcentaje'],
+    ))->toBe((float) $caso['precio_venta_crudo_sin_iva']);
+
     expect($cadena['precio_unitario_sin_iva'])->toBe((float) $caso['precio_unitario_sin_iva']);
+    expect(PrecioArticuloCalculator::redondeo2(
+        $cadena['precio_unitario_sin_iva'] * PrecioArticuloCalculator::factorIva($objetoImp),
+    ))->toBe((float) $caso['precio_unitario_con_iva']);
     expect(PrecioArticuloCalculator::utilidad(
         $cadena['precio_unitario_sin_iva'],
         $cadena['costo_total'],
     ))->toBe((float) $caso['utilidad']);
 })->with(casosDelFixture());
 
-test('un articulo sin goma produce la misma cadena que antes del eslabon nuevo', function () {
-    // Invariante de la migración: con costo_goma en 0 la fórmula nueva y la vieja son la misma
-    // operación (ver 014-costo-elaboracion-goma.md). El barrido cubre descuentos y porcentajes
-    // variados, no solo los casos frontera del fixture.
+test('un articulo sin goma produce el mismo costo que antes del eslabon de la goma', function () {
+    // Invariante de la migración de 014: con costo_goma en 0 el costo total es el costo del aparato.
+    // El precio de venta sí cambió al agregar el redondeo de 024, así que la invariante se verifica
+    // sobre el costo y sobre el precio CRUDO, que es lo que 014 dejó definido.
     foreach ([0.0, 10.0, 33.33, 55.0] as $descuento) {
         foreach ([0.0, 12.5, 25.0, 99.0, 300.0] as $porcentaje) {
             for ($precioCentavos = 1000; $precioCentavos <= 50000; $precioCentavos += 997) {
                 $precio = $precioCentavos / 100;
 
-                $conGoma = PrecioArticuloCalculator::calcularCadena($precio, $descuento, $porcentaje, 0.0);
+                $cadena = PrecioArticuloCalculator::calcularCadena($precio, $descuento, $porcentaje, 0.0);
                 $costo = PrecioArticuloCalculator::costoConDescuento($precio, $descuento);
 
-                expect($conGoma['costo_total'])->toBe($costo);
-                expect($conGoma['precio_unitario_sin_iva'])
+                expect($cadena['costo_total'])->toBe($costo);
+                expect(PrecioArticuloCalculator::precioVentaSinIva($costo, $porcentaje))
                     ->toBe(PrecioArticuloCalculator::techo2($costo * (1 + $porcentaje / 100)));
             }
         }
     }
+});
+
+test('el redondeo deja el precio con IVA en un peso entero sin bajar el markup', function () {
+    // Barrido de 024: es la prueba que detecta los enteros inalcanzables. Una batería de casos
+    // escogidos a mano no los habría encontrado, y de hecho fue así como aparecieron.
+    //
+    // Las fallas se acumulan y se afirman una sola vez al final: 400,000 aserciones dentro del ciclo
+    // tardan más que el barrido completo, y el listado de las primeras desviaciones es más útil que
+    // el mensaje de una aserción suelta.
+    $fallas = [];
+
+    foreach ([1.16, 1.0] as $factor) {
+        for ($crudoCentavos = 1; $crudoCentavos <= 200000; $crudoCentavos++) {
+            $crudo = $crudoCentavos / 100;
+            $final = PrecioArticuloCalculator::redondearAPesoEntero($crudo, $factor);
+            $conIva = PrecioArticuloCalculator::redondeo2($final * $factor);
+            $ajuste = $conIva - PrecioArticuloCalculator::redondeo2($crudo * $factor);
+
+            // 1. El precio que ve el cliente es un peso entero exacto.
+            // 2. El redondeo nunca baja el precio, así que nunca erosiona el markup.
+            // 3. El ajuste se mantiene por debajo de dos pesos: nunca hacen falta dos incrementos de
+            //    objetivo, porque no hay inalcanzables consecutivos.
+            if ($conIva !== floor($conIva) || $final < $crudo || $ajuste >= 2.0) {
+                $fallas[] = "crudo $crudo con factor $factor -> $final (con IVA $conIva)";
+            }
+        }
+    }
+
+    expect(array_slice($fallas, 0, 5))->toBe([]);
+});
+
+test('con factor 1 el redondeo es un techo al peso y siempre acierta al primer objetivo', function () {
+    expect(PrecioArticuloCalculator::redondearAPesoEntero(201.28, 1.0))->toBe(202.0);
+    expect(PrecioArticuloCalculator::redondearAPesoEntero(150.0, 1.0))->toBe(150.0);
+    expect(PrecioArticuloCalculator::redondearAPesoEntero(0.01, 1.0))->toBe(1.0);
+});
+
+test('el factor de IVA sale del objeto de impuesto del articulo', function () {
+    expect(PrecioArticuloCalculator::factorIva(ObjetoImpuesto::SiObjeto))->toBe(1.16);
+    expect(PrecioArticuloCalculator::factorIva(ObjetoImpuesto::NoObjeto))->toBe(1.0);
+    expect(PrecioArticuloCalculator::factorIva(ObjetoImpuesto::SiObjetoNoDesglose))->toBe(1.0);
+    expect(PrecioArticuloCalculator::factorIva(ObjetoImpuesto::SiObjetoNoCausaImpuesto))->toBe(1.0);
+    expect(PrecioArticuloCalculator::factorIva(null))->toBe(1.0);
+});
+
+test('un precio crudo de cero se queda en cero sin forzar un minimo', function () {
+    expect(PrecioArticuloCalculator::redondearAPesoEntero(0.0, 1.16))->toBe(0.0);
+    expect(PrecioArticuloCalculator::redondearAPesoEntero(0.0, 1.0))->toBe(0.0);
 });
 
 test('el techo a 2 decimales redondea despues de escalar a centavos', function () {

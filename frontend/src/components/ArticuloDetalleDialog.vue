@@ -26,6 +26,12 @@ const precioConIva = computed(() =>
   props.articulo ? `$${props.articulo.precio_unitario_con_iva.toFixed(2)}` : '',
 )
 
+// Rotular "con IVA" un artículo que no causa impuesto sería falso: ahí el precio a secas es el que
+// paga el cliente (ver 024-precios-sin-centavos.md).
+const etiquetaPrecio = computed(() =>
+  props.articulo?.objeto_imp === '02' ? 'Precio con IVA' : 'Precio',
+)
+
 const textoCompartible = computed(() =>
   props.articulo
     ? `${props.articulo.nombre} — Modelo ${props.articulo.modelo} — ${precioConIva.value}`
@@ -150,7 +156,7 @@ async function compartir() {
               <p class="font-medium break-words">{{ articulo.modelo }}</p>
             </div>
             <div>
-              <p class="text-muted-foreground text-xs uppercase">Precio con IVA</p>
+              <p class="text-muted-foreground text-xs uppercase">{{ etiquetaPrecio }}</p>
               <p class="text-2xl font-semibold tabular-nums">{{ precioConIva }}</p>
             </div>
           </div>
