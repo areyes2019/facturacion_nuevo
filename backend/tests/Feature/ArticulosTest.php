@@ -372,8 +372,33 @@ test('importar un csv con filas invalidas importa las validas y reporta las inva
     $response->assertJsonPath('importados', 1);
     expect($response->json('errores'))->toHaveCount(1);
     expect($response->json('errores.0.fila'))->toBe(3);
+    $response->assertJsonPath('errores.0.modelo', 'MOD-2');
     $this->assertDatabaseHas('articulos', ['catalogo_id' => $catalogo->id, 'nombre' => 'Laptop 14 pulgadas']);
     $this->assertDatabaseMissing('articulos', ['catalogo_id' => $catalogo->id, 'nombre' => 'Articulo con clave invalida']);
+});
+
+test('la fila rechazada del csv se reporta con el modelo, que es lo que la liga con su imagen', function () {
+    $user = User::factory()->create();
+    $catalogo = Catalogo::factory()->for($user)->create();
+
+    // Sin modelo se cae al nombre, y sin ninguno de los dos va `null`: el reporte queda como antes,
+    // solo con la fila (ver 023-carga-masiva-por-pasos.md).
+    $csv = "nombre,modelo,clave_prod_serv,clave_unidad,objeto_imp,precio_proveedor\n"
+        ."Sello con clave invalida,Printer 38,00000000,H87,02,100\n"
+        ."Sello sin modelo,,00000000,H87,02,100\n"
+        .",,00000000,H87,02,100\n";
+    $archivo = UploadedFile::fake()->createWithContent('articulos.csv', $csv);
+
+    $response = $this->actingAs($user)->postJson("/api/v1/catalogos-proveedor/{$catalogo->id}/articulos/importar-csv", [
+        'archivo' => $archivo,
+    ]);
+
+    $response->assertOk();
+    $response->assertJsonPath('importados', 0);
+    expect($response->json('errores'))->toHaveCount(3);
+    $response->assertJsonPath('errores.0.modelo', 'Printer 38');
+    $response->assertJsonPath('errores.1.modelo', 'Sello sin modelo');
+    $response->assertJsonPath('errores.2.modelo', null);
 });
 
 test('la importacion csv repone el cero inicial del objeto de impuesto que se come una hoja de calculo', function () {

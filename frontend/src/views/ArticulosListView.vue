@@ -9,7 +9,6 @@ import {
   ArrowDownTrayIcon,
   ChevronUpIcon,
   ChevronDownIcon,
-  PhotoIcon,
 } from '@heroicons/vue/24/outline'
 import {
   useArticulosStore,
@@ -18,6 +17,7 @@ import {
   type ImportarCsvReporte,
   type ImagenesReporte,
 } from '../stores/articulos'
+import type { Catalogo } from '../stores/catalogos'
 import { extractErrorMessage } from '../lib/errors'
 import AppLayout from '../layouts/AppLayout.vue'
 import CatalogoSelect from '../components/CatalogoSelect.vue'
@@ -83,22 +83,51 @@ function alternarTodos(event: Event) {
 const exportando = ref(false)
 const errorExportar = ref<string | null>(null)
 
-const mostrarImportar = ref(false)
-const catalogoImportar = ref<number | null>(null)
+const articuloDetalle = ref<Articulo | null>(null)
+
+/**
+ * Carga masiva en un solo modal por pasos (ver 023-carga-masiva-por-pasos.md).
+ *
+ * El catálogo se elige **una sola vez** y manda sobre los dos pasos: importar el CSV en un catálogo
+ * y las fotos en otro nunca es lo que se quiso hacer, y era el error que abría tener un selector
+ * dentro de cada modal.
+ */
+const mostrarCarga = ref(false)
+const catalogoCarga = ref<number | null>(null)
+const catalogoCargaInfo = ref<Catalogo | null>(null)
+const catalogoSelect = ref<{ recargar: () => Promise<void> } | null>(null)
+const paso2 = ref<HTMLElement | null>(null)
+
 const archivoImportar = ref<File | null>(null)
 const importando = ref(false)
 const errorImportar = ref<string | null>(null)
 const reporteImportar = ref<ImportarCsvReporte | null>(null)
 
-const articuloDetalle = ref<Articulo | null>(null)
-
-const mostrarImagenes = ref(false)
-const catalogoImagenes = ref<number | null>(null)
 const archivosImagenes = ref<File[]>([])
 const subiendoImagenes = ref(false)
 const progresoImagenes = ref({ enviados: 0, total: 0 })
 const errorImagenes = ref<string | null>(null)
 const reporteImagenes = ref<ImagenesReporte | null>(null)
+
+/**
+ * En un catálogo sin artículos **toda** imagen fallaría por definición, porque el emparejamiento es
+ * contra artículos que ya existen (ver 020). Por eso el paso 2 se bloquea en vez de advertir: no hay
+ * ningún caso legítimo del otro lado al que dejar pasar.
+ */
+const paso2Bloqueado = computed(
+  () => catalogoCargaInfo.value !== null && catalogoCargaInfo.value.articulos_count === 0,
+)
+
+/**
+ * Doscientos motivos idénticos describen doscientas veces el síntoma y ninguna la causa probable,
+ * que casi siempre es una sola: el catálogo equivocado o los nombres de archivo.
+ */
+const ningunaEmparejo = computed(
+  () =>
+    reporteImagenes.value !== null &&
+    reporteImagenes.value.asociadas === 0 &&
+    reporteImagenes.value.errores.length > 0,
+)
 
 onMounted(() => articulos.fetchList())
 
@@ -180,16 +209,39 @@ async function onExportar() {
   }
 }
 
-function abrirImportar() {
-  mostrarImportar.value = true
-  catalogoImportar.value = null
+function abrirCarga() {
+  mostrarCarga.value = true
+  catalogoCarga.value = null
+  catalogoCargaInfo.value = null
+  reiniciarPasos()
+}
+
+function cerrarCarga() {
+  mostrarCarga.value = false
+}
+
+/** Un reporte que sobrevive al cambio de catálogo afirma algo cierto sobre un catálogo que ya no
+ * está en pantalla, que es peor que no tener reporte. */
+function reiniciarPasos() {
   archivoImportar.value = null
   errorImportar.value = null
   reporteImportar.value = null
+  archivosImagenes.value = []
+  errorImagenes.value = null
+  reporteImagenes.value = null
+  progresoImagenes.value = { enviados: 0, total: 0 }
 }
 
-function cerrarImportar() {
-  mostrarImportar.value = false
+/**
+ * Solo reinicia cuando el catálogo **cambió**, no cada vez que llega el evento: releer el conteo
+ * tras importar el CSV vuelve a emitir el mismo catálogo, y borrar ahí el reporte recién producido
+ * dejaría al usuario sin saber qué acaba de pasar.
+ */
+function onCatalogoSeleccionado(catalogo: Catalogo | null) {
+  const cambio = (catalogo?.id ?? null) !== (catalogoCargaInfo.value?.id ?? null)
+  catalogoCargaInfo.value = catalogo
+
+  if (cambio) reiniciarPasos()
 }
 
 function onArchivoSeleccionado(event: Event) {
@@ -197,22 +249,75 @@ function onArchivoSeleccionado(event: Event) {
   archivoImportar.value = input.files?.[0] ?? null
 }
 
-function abrirImagenes() {
-  mostrarImagenes.value = true
-  catalogoImagenes.value = null
-  archivosImagenes.value = []
-  errorImagenes.value = null
-  reporteImagenes.value = null
-  progresoImagenes.value = { enviados: 0, total: 0 }
-}
-
 function onImagenesSeleccionadas(event: Event) {
   const input = event.target as HTMLInputElement
   archivosImagenes.value = Array.from(input.files ?? [])
 }
 
+/** Lleva la atención al paso 2 desde el reporte del paso 1, con el catálogo ya puesto porque nunca
+ * dejó de estarlo. */
+function irAPaso2() {
+  paso2.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+/** Cómo se nombra el catálogo dentro del texto copiado, que se va a leer lejos de esta pantalla. */
+const catalogoEnTexto = computed(() =>
+  catalogoCargaInfo.value
+    ? `${catalogoCargaInfo.value.proveedor_nombre_comercial ?? '—'} — ${catalogoCargaInfo.value.nombre}`
+    : '',
+)
+
+/**
+ * El reporte es lo único que dice qué quedó pendiente y se pierde al cerrar el modal, así que se
+ * puede copiar entero (ver 023-carga-masiva-por-pasos.md). El texto se explica solo: va a terminar
+ * pegado en una hoja de cálculo o en un mensaje, lejos de la pantalla que lo produjo.
+ */
+function textoReporteCsv(reporte: ImportarCsvReporte): string {
+  const lineas = [
+    `Importación de artículos — ${catalogoEnTexto.value}`,
+    `${reporte.importados} artículo(s) importado(s), ${reporte.errores.length} fila(s) con errores.`,
+  ]
+
+  for (const error of reporte.errores) {
+    lineas.push(`Fila ${error.fila}${error.modelo ? ` (${error.modelo})` : ''}: ${error.motivo}`)
+  }
+
+  return lineas.join('\n')
+}
+
+function textoReporteImagenes(reporte: ImagenesReporte): string {
+  const lineas = [
+    `Imágenes — ${catalogoEnTexto.value}`,
+    `${reporte.asociadas} imagen(es) asociada(s), ${reporte.errores.length} archivo(s) sin asociar.`,
+  ]
+
+  for (const error of reporte.errores) {
+    lineas.push(`${error.archivo}: ${error.motivo}`)
+  }
+
+  return lineas.join('\n')
+}
+
+const copiado = ref<'csv' | 'imagenes' | null>(null)
+let copiadoTimeout: ReturnType<typeof setTimeout>
+
+async function copiarReporte(cual: 'csv' | 'imagenes') {
+  const texto =
+    cual === 'csv'
+      ? reporteImportar.value && textoReporteCsv(reporteImportar.value)
+      : reporteImagenes.value && textoReporteImagenes(reporteImagenes.value)
+
+  if (!texto) return
+
+  await navigator.clipboard.writeText(texto)
+
+  copiado.value = cual
+  clearTimeout(copiadoTimeout)
+  copiadoTimeout = setTimeout(() => (copiado.value = null), 2000)
+}
+
 async function confirmarImagenes() {
-  if (!catalogoImagenes.value || archivosImagenes.value.length === 0) return
+  if (!catalogoCarga.value || archivosImagenes.value.length === 0) return
 
   subiendoImagenes.value = true
   errorImagenes.value = null
@@ -221,7 +326,7 @@ async function confirmarImagenes() {
 
   try {
     reporteImagenes.value = await articulos.cargarImagenes(
-      catalogoImagenes.value,
+      catalogoCarga.value,
       archivosImagenes.value,
       (enviados, total) => (progresoImagenes.value = { enviados, total }),
     )
@@ -234,17 +339,18 @@ async function confirmarImagenes() {
 }
 
 async function confirmarImportar() {
-  if (!catalogoImportar.value || !archivoImportar.value) return
+  if (!catalogoCarga.value || !archivoImportar.value) return
 
   importando.value = true
   errorImportar.value = null
   reporteImportar.value = null
   try {
-    reporteImportar.value = await articulos.importarCsv(
-      catalogoImportar.value,
-      archivoImportar.value,
-    )
+    reporteImportar.value = await articulos.importarCsv(catalogoCarga.value, archivoImportar.value)
     await articulos.fetchList(1)
+
+    // El catálogo que estaba vacío deja de estarlo aquí mismo: sin releer el conteo, quien acaba de
+    // importar se encontraría el paso 2 bloqueado por un dato de hace treinta segundos.
+    await catalogoSelect.value?.recargar()
   } catch (err) {
     errorImportar.value = extractErrorMessage(err)
   } finally {
@@ -263,13 +369,9 @@ async function confirmarImportar() {
             <ArrowDownTrayIcon class="size-4" />
             {{ exportando ? 'Exportando...' : 'Exportar CSV' }}
           </Button>
-          <Button variant="outline" @click="abrirImportar">
+          <Button variant="outline" @click="abrirCarga">
             <ArrowUpTrayIcon class="size-4" />
-            Importar CSV
-          </Button>
-          <Button variant="outline" @click="abrirImagenes">
-            <PhotoIcon class="size-4" />
-            Subir imágenes
+            Carga masiva
           </Button>
           <Button as-child>
             <RouterLink :to="{ name: 'articulos-crear' }">
@@ -485,172 +587,241 @@ async function confirmarImportar() {
         </DialogContent>
       </Dialog>
 
-      <Dialog :open="mostrarImportar" @update:open="(v) => !v && cerrarImportar()">
-        <DialogContent>
+      <Dialog :open="mostrarCarga" @update:open="(v) => !v && cerrarCarga()">
+        <DialogContent class="max-h-[90dvh] grid-rows-[auto_auto_minmax(0,1fr)_auto]">
           <DialogHeader>
-            <DialogTitle>Importar artículos desde CSV</DialogTitle>
+            <DialogTitle>Carga masiva</DialogTitle>
             <DialogDescription>
-              Todas las filas del archivo se importarán asociadas al catálogo seleccionado (y por lo
-              tanto a su proveedor). El CSV debe tener las columnas:
+              Elige el catálogo y sigue los dos pasos en orden: primero los artículos, después sus
+              fotos.
             </DialogDescription>
           </DialogHeader>
 
-          <div class="min-w-0 space-y-4">
-            <code
-              class="bg-muted block w-full min-w-0 overflow-x-auto rounded-md px-3 py-2 text-xs whitespace-nowrap"
-            >
-              nombre,modelo,clave_prod_serv,clave_unidad,objeto_imp,precio_proveedor,utilidad_porcentaje,tamano_goma
-            </code>
-
+          <!-- Fuera de los pasos y siempre a la vista: el catálogo manda sobre los dos (ver 023). -->
+          <div class="min-w-0 space-y-1.5">
+            <Label>Catálogo</Label>
+            <CatalogoSelect
+              ref="catalogoSelect"
+              v-model="catalogoCarga"
+              @seleccionado="onCatalogoSeleccionado"
+            />
             <p class="text-muted-foreground text-sm">
-              La columna <code>utilidad_porcentaje</code> es opcional: si la celda va vacía, el
-              artículo hereda el porcentaje de utilidad del catálogo seleccionado.
+              <template v-if="catalogoCargaInfo">
+                {{ catalogoCargaInfo.articulos_count }} artículo(s) en este catálogo.
+              </template>
+              <template v-else>Los dos pasos trabajan sobre el catálogo que elijas aquí.</template>
             </p>
-
-            <p class="text-muted-foreground text-sm">
-              La columna <code>tamano_goma</code> también es opcional: acepta <code>chica</code>,
-              <code>mediana</code> o <code>grande</code>, y si la celda va vacía el artículo no
-              lleva goma.
-            </p>
-
-            <div class="space-y-1.5">
-              <Label>Catálogo</Label>
-              <CatalogoSelect v-model="catalogoImportar" />
-            </div>
-            <div class="min-w-0 space-y-1.5">
-              <Label for="archivo_csv">Archivo CSV</Label>
-              <input
-                id="archivo_csv"
-                type="file"
-                accept=".csv,text/csv"
-                class="border-input text-sm w-full min-w-0 rounded-md border px-3 py-1.5"
-                @change="onArchivoSeleccionado"
-              />
-            </div>
-
-            <Alert v-if="errorImportar" variant="destructive">
-              <AlertDescription>{{ errorImportar }}</AlertDescription>
-            </Alert>
-
-            <Alert v-if="reporteImportar">
-              <AlertDescription>
-                {{ reporteImportar.importados }} artículo(s) importado(s).
-                <template v-if="reporteImportar.errores.length > 0">
-                  {{ reporteImportar.errores.length }} fila(s) con errores:
-                  <ul class="mt-1 list-disc pl-5">
-                    <li v-for="error in reporteImportar.errores" :key="error.fila">
-                      Fila {{ error.fila }}: {{ error.motivo }}
-                    </li>
-                  </ul>
-                </template>
-              </AlertDescription>
-            </Alert>
           </div>
 
-          <DialogFooter>
-            <Button variant="outline" :disabled="importando" @click="cerrarImportar">
-              Cerrar
-            </Button>
-            <Button
-              :disabled="importando || !catalogoImportar || !archivoImportar"
-              @click="confirmarImportar"
-            >
-              {{ importando ? 'Importando...' : 'Importar' }}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          <!-- Cuerpo con scroll propio: dos reportes largos a la vez empujarían el pie del modal
+               fuera de la pantalla (ver 023). -->
+          <div class="min-w-0 space-y-6 overflow-y-auto pr-1">
+            <section class="min-w-0 space-y-4" :class="{ 'opacity-60': !catalogoCarga }">
+              <h3 class="text-foreground text-sm font-semibold">Paso 1 — Artículos (CSV)</h3>
 
-      <Dialog :open="mostrarImagenes" @update:open="(v) => !v && (mostrarImagenes = false)">
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Subir imágenes de productos</DialogTitle>
-            <DialogDescription>
-              Cada imagen se asocia sola al artículo cuyo modelo coincida con el nombre del archivo.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div class="min-w-0 space-y-4">
-            <p class="text-muted-foreground text-sm">
-              Se ignoran mayúsculas, acentos y la diferencia entre espacios, guiones y guiones
-              bajos:
-              <code>a 1234.jpg</code>, <code>A-1234.jpg</code> y <code>A_1234.webp</code> encuentran
-              al mismo artículo. Formatos: JPG, PNG y WEBP.
-            </p>
-
-            <p class="text-muted-foreground text-sm">
-              También puedes subir un <code>.zip</code>, pero debe venir <strong>plano</strong>: si
-              trae carpetas dentro se rechaza completo. Comprime la selección de archivos, no la
-              carpeta que los contiene.
-            </p>
-
-            <div class="space-y-1.5">
-              <Label>Catálogo</Label>
-              <CatalogoSelect v-model="catalogoImagenes" />
-            </div>
-
-            <div class="min-w-0 space-y-1.5">
-              <Label for="archivos_imagenes">Imágenes o archivo ZIP</Label>
-              <input
-                id="archivos_imagenes"
-                type="file"
-                multiple
-                accept="image/jpeg,image/png,image/webp,.zip"
-                class="border-input w-full min-w-0 rounded-md border px-3 py-1.5 text-sm"
-                @change="onImagenesSeleccionadas"
-              />
-              <p v-if="archivosImagenes.length > 0" class="text-muted-foreground text-sm">
-                {{ archivosImagenes.length }} archivo(s) seleccionado(s).
+              <p class="text-muted-foreground text-sm">
+                Todas las filas se dan de alta en el catálogo elegido (y por lo tanto en su
+                proveedor). El CSV debe tener las columnas:
               </p>
-            </div>
 
-            <!-- Una carga de 300 fotos son 15 peticiones seguidas; sin barra no habría forma de
-                 distinguirla de un cuelgue. -->
-            <div v-if="subiendoImagenes && progresoImagenes.total > 0" class="space-y-1.5">
-              <div class="bg-muted h-2 w-full overflow-hidden rounded-full">
-                <div
-                  class="bg-primary h-full transition-all"
-                  :style="{
-                    width: `${Math.round((progresoImagenes.enviados / progresoImagenes.total) * 100)}%`,
-                  }"
+              <code
+                class="bg-muted block w-full min-w-0 overflow-x-auto rounded-md px-3 py-2 text-xs whitespace-nowrap"
+              >
+                nombre,modelo,clave_prod_serv,clave_unidad,objeto_imp,precio_proveedor,utilidad_porcentaje,tamano_goma
+              </code>
+
+              <p class="text-muted-foreground text-sm">
+                La columna <code>utilidad_porcentaje</code> es opcional: si la celda va vacía, el
+                artículo hereda el porcentaje de utilidad del catálogo seleccionado.
+              </p>
+
+              <p class="text-muted-foreground text-sm">
+                La columna <code>tamano_goma</code> también es opcional: acepta <code>chica</code>,
+                <code>mediana</code> o <code>grande</code>, y si la celda va vacía el artículo no
+                lleva goma.
+              </p>
+
+              <div class="min-w-0 space-y-1.5">
+                <Label for="archivo_csv">Archivo CSV</Label>
+                <input
+                  id="archivo_csv"
+                  :key="`csv-${catalogoCarga ?? 0}`"
+                  type="file"
+                  accept=".csv,text/csv"
+                  :disabled="!catalogoCarga || importando"
+                  class="border-input text-sm w-full min-w-0 rounded-md border px-3 py-1.5"
+                  @change="onArchivoSeleccionado"
                 />
               </div>
-              <p class="text-muted-foreground text-sm">
-                {{ progresoImagenes.enviados }} de {{ progresoImagenes.total }} archivos enviados.
-              </p>
-            </div>
 
-            <Alert v-if="errorImagenes" variant="destructive">
-              <AlertDescription>{{ errorImagenes }}</AlertDescription>
-            </Alert>
+              <div class="flex justify-end">
+                <Button
+                  :disabled="importando || !catalogoCarga || !archivoImportar"
+                  @click="confirmarImportar"
+                >
+                  {{ importando ? 'Importando...' : 'Importar artículos' }}
+                </Button>
+              </div>
 
-            <Alert v-if="reporteImagenes">
-              <AlertDescription>
-                {{ reporteImagenes.asociadas }} imagen(es) asociada(s).
-                <template v-if="reporteImagenes.errores.length > 0">
-                  {{ reporteImagenes.errores.length }} archivo(s) sin asociar:
-                  <ul class="mt-1 max-h-48 list-disc overflow-y-auto pl-5">
-                    <li
-                      v-for="(error, i) in reporteImagenes.errores"
-                      :key="`${error.archivo}-${i}`"
+              <Alert v-if="errorImportar" variant="destructive">
+                <AlertDescription>{{ errorImportar }}</AlertDescription>
+              </Alert>
+
+              <Alert v-if="reporteImportar">
+                <AlertDescription>
+                  {{ reporteImportar.importados }} artículo(s) importado(s).
+                  <template v-if="reporteImportar.errores.length > 0">
+                    {{ reporteImportar.errores.length }} fila(s) con errores:
+                    <ul class="mt-1 max-h-48 list-disc overflow-y-auto pl-5">
+                      <!-- El modelo es lo que conecta la fila rechazada con la foto que se va a
+                           quedar sin artículo (ver 023). -->
+                      <li v-for="error in reporteImportar.errores" :key="error.fila">
+                        Fila {{ error.fila
+                        }}<template v-if="error.modelo"> ({{ error.modelo }})</template>:
+                        {{ error.motivo }}
+                      </li>
+                    </ul>
+                  </template>
+
+                  <div class="mt-3 flex flex-wrap gap-2">
+                    <!-- Un ofrecimiento, no un paso pendiente: hay artículos que no llevan foto
+                         (servicios como "Maquila de sellos") y catálogos que son solo de esos. -->
+                    <Button
+                      v-if="reporteImportar.importados > 0"
+                      variant="outline"
+                      size="sm"
+                      @click="irAPaso2"
                     >
-                      {{ error.archivo }}: {{ error.motivo }}
-                    </li>
-                  </ul>
-                </template>
-              </AlertDescription>
-            </Alert>
+                      Continuar con las imágenes →
+                    </Button>
+                    <Button variant="outline" size="sm" @click="copiarReporte('csv')">
+                      {{ copiado === 'csv' ? 'Copiado' : 'Copiar reporte' }}
+                    </Button>
+                  </div>
+                </AlertDescription>
+              </Alert>
+            </section>
+
+            <section
+              ref="paso2"
+              class="min-w-0 space-y-4"
+              :class="{ 'opacity-60': !catalogoCarga || paso2Bloqueado }"
+            >
+              <h3 class="text-foreground text-sm font-semibold">Paso 2 — Imágenes</h3>
+
+              <!-- En un catálogo vacío toda imagen fallaría por definición, así que se bloquea en
+                   vez de advertir (ver 023). -->
+              <Alert v-if="paso2Bloqueado" variant="warning">
+                <AlertDescription>
+                  Este catálogo todavía no tiene artículos. Empieza por el paso 1.
+                </AlertDescription>
+              </Alert>
+
+              <p class="text-muted-foreground text-sm">
+                Cada imagen se asocia sola al artículo cuyo modelo coincida con el nombre del
+                archivo. Se ignoran mayúsculas, acentos y la diferencia entre espacios, guiones y
+                guiones bajos:
+                <code>a 1234.jpg</code>, <code>A-1234.jpg</code> y <code>A_1234.webp</code>
+                encuentran al mismo artículo. Formatos: JPG, PNG y WEBP.
+              </p>
+
+              <p class="text-muted-foreground text-sm">
+                También puedes subir un <code>.zip</code>, pero debe venir <strong>plano</strong>:
+                si trae carpetas dentro se rechaza completo. Comprime la selección de archivos, no
+                la carpeta que los contiene.
+              </p>
+
+              <div class="min-w-0 space-y-1.5">
+                <Label for="archivos_imagenes">Imágenes o archivo ZIP</Label>
+                <input
+                  id="archivos_imagenes"
+                  :key="`img-${catalogoCarga ?? 0}`"
+                  type="file"
+                  multiple
+                  accept="image/jpeg,image/png,image/webp,.zip"
+                  :disabled="!catalogoCarga || paso2Bloqueado || subiendoImagenes"
+                  class="border-input w-full min-w-0 rounded-md border px-3 py-1.5 text-sm"
+                  @change="onImagenesSeleccionadas"
+                />
+                <p v-if="archivosImagenes.length > 0" class="text-muted-foreground text-sm">
+                  {{ archivosImagenes.length }} archivo(s) seleccionado(s).
+                </p>
+              </div>
+
+              <!-- Una carga de 300 fotos son 15 peticiones seguidas; sin barra no habría forma de
+                   distinguirla de un cuelgue. -->
+              <div v-if="subiendoImagenes && progresoImagenes.total > 0" class="space-y-1.5">
+                <div class="bg-muted h-2 w-full overflow-hidden rounded-full">
+                  <div
+                    class="bg-primary h-full transition-all"
+                    :style="{
+                      width: `${Math.round((progresoImagenes.enviados / progresoImagenes.total) * 100)}%`,
+                    }"
+                  />
+                </div>
+                <p class="text-muted-foreground text-sm">
+                  {{ progresoImagenes.enviados }} de {{ progresoImagenes.total }} archivos enviados.
+                </p>
+              </div>
+
+              <div class="flex justify-end">
+                <Button
+                  :disabled="
+                    subiendoImagenes ||
+                    !catalogoCarga ||
+                    paso2Bloqueado ||
+                    archivosImagenes.length === 0
+                  "
+                  @click="confirmarImagenes"
+                >
+                  {{ subiendoImagenes ? 'Subiendo...' : 'Subir imágenes' }}
+                </Button>
+              </div>
+
+              <Alert v-if="errorImagenes" variant="destructive">
+                <AlertDescription>{{ errorImagenes }}</AlertDescription>
+              </Alert>
+
+              <Alert v-if="reporteImagenes">
+                <AlertDescription>
+                  <!-- Doscientos motivos idénticos describen el síntoma doscientas veces y la causa
+                       probable ninguna (ver 023). -->
+                  <p v-if="ningunaEmparejo" class="mb-2 font-medium">
+                    Ninguna de las {{ reporteImagenes.errores.length }} imágenes encontró artículo.
+                    Revisa que el catálogo sea el correcto y que el nombre de cada archivo coincida
+                    con el modelo del artículo.
+                  </p>
+
+                  {{ reporteImagenes.asociadas }} imagen(es) asociada(s).
+                  <template v-if="reporteImagenes.errores.length > 0">
+                    {{ reporteImagenes.errores.length }} archivo(s) sin asociar:
+                    <ul class="mt-1 max-h-48 list-disc overflow-y-auto pl-5">
+                      <li
+                        v-for="(error, i) in reporteImagenes.errores"
+                        :key="`${error.archivo}-${i}`"
+                      >
+                        {{ error.archivo }}: {{ error.motivo }}
+                      </li>
+                    </ul>
+                  </template>
+
+                  <div class="mt-3">
+                    <Button variant="outline" size="sm" @click="copiarReporte('imagenes')">
+                      {{ copiado === 'imagenes' ? 'Copiado' : 'Copiar reporte' }}
+                    </Button>
+                  </div>
+                </AlertDescription>
+              </Alert>
+            </section>
           </div>
 
           <DialogFooter>
-            <Button variant="outline" :disabled="subiendoImagenes" @click="mostrarImagenes = false">
-              Cerrar
-            </Button>
             <Button
-              :disabled="subiendoImagenes || !catalogoImagenes || archivosImagenes.length === 0"
-              @click="confirmarImagenes"
+              variant="outline"
+              :disabled="importando || subiendoImagenes"
+              @click="cerrarCarga"
             >
-              {{ subiendoImagenes ? 'Subiendo...' : 'Subir' }}
+              Cerrar
             </Button>
           </DialogFooter>
         </DialogContent>

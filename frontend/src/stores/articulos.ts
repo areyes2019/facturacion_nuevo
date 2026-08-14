@@ -43,7 +43,12 @@ export interface ArticuloPayload {
 
 export interface ImportarCsvReporte {
   importados: number
-  errores: { fila: number; motivo: string }[]
+  /**
+   * `modelo` es con lo que se emparejan las imágenes (ver 020), así que es el dato que conecta una
+   * fila rechazada con la foto que se quedará sin artículo. Va `null` cuando la fila no traía ni
+   * modelo ni nombre (ver 023-carga-masiva-por-pasos.md).
+   */
+  errores: { fila: number; modelo: string | null; motivo: string }[]
 }
 
 /**

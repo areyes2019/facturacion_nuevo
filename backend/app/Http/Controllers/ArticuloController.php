@@ -247,7 +247,11 @@ class ArticuloController extends Controller
             );
 
             if ($validator->fails()) {
-                $errores[] = ['fila' => $fila, 'motivo' => $validator->errors()->first()];
+                $errores[] = [
+                    'fila' => $fila,
+                    'modelo' => $this->identidadDeLaFila($datos),
+                    'motivo' => $validator->errors()->first(),
+                ];
 
                 continue;
             }
@@ -275,6 +279,32 @@ class ArticuloController extends Controller
         fclose($handle);
 
         return response()->json(['importados' => $importados, 'errores' => $errores]);
+    }
+
+    /**
+     * Con qué nombre se identifica en el reporte una fila que no se pudo importar.
+     *
+     * Se prefiere `modelo` porque es el campo con el que se emparejan las imágenes (ver 020): es el
+     * dato que conecta el renglón rechazado con la foto que se va a quedar sin artículo, y sin él el
+     * usuario tiene que abrir el CSV y contar renglones para saber cuál es cuál
+     * (ver 023-carga-masiva-por-pasos.md).
+     *
+     * Va tal como venía en la celda, sin normalizar: si el modelo estaba mal escrito, verlo mal
+     * escrito es justamente lo que permite corregirlo.
+     *
+     * @param  array<string, mixed>  $datos
+     */
+    private function identidadDeLaFila(array $datos): ?string
+    {
+        foreach (['modelo', 'nombre'] as $columna) {
+            $valor = trim((string) ($datos[$columna] ?? ''));
+
+            if ($valor !== '') {
+                return $valor;
+            }
+        }
+
+        return null;
     }
 
     /**

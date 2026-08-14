@@ -215,11 +215,17 @@ mitad del verificador.
 
 ### `deploy/verify.sh`
 
-Gana un bloque de tres comprobaciones sobre el dominio raíz:
+Gana un bloque de cuatro comprobaciones sobre el dominio raíz:
 
 1. `https://prosello.com.mx/` responde **302** (no 301: un 301 aquí sería el error descrito arriba).
 2. Su `Location` es `https://app.prosello.com.mx/`.
 3. `https://www.prosello.com.mx/` también termina en `https://app.prosello.com.mx/`.
+4. `https://prosello.com.mx/sw.js` responde **200**, sin redirección. Si esa exclusión se pierde en
+   un `.htaccess` futuro, el service worker de apagado deja de ejecutarse y nadie se entera.
+
+Mientras `APEX_URL` valga lo mismo que `SITE_URL` —es decir, mientras la mudanza no se haya
+completado— el bloque entero se **omite con un aviso** en vez de reportar cuatro fallos por algo que
+todavía no debería funcionar.
 
 Y **pierde** una: la que hoy comprueba que `www.<host>` redirige. Con `SITE_URL` apuntando al
 subdominio, esa comprobación pasaría a interrogar a `www.app.prosello.com.mx`, un nombre con doble
@@ -273,17 +279,42 @@ todavía **apuntando al dominio raíz**.
 
 ```bash
 cp -a ~/domains/prosello.com.mx/facturacion  ~/domains/app.prosello.com.mx/facturacion
-rm -f ~/domains/app.prosello.com.mx/public_html/default.php
 cp -a ~/domains/prosello.com.mx/public_html/. ~/domains/app.prosello.com.mx/public_html/
+rm -f ~/domains/app.prosello.com.mx/public_html/default.php
 ```
 
 `cp -a` conserva permisos, fechas y archivos ocultos, que aquí incluyen el `.env` y el `.htaccess`.
-El `/.` del tercer comando no es adorno: sin él, `cp` copiaría el directorio *dentro* del destino en
+El `/.` del segundo comando no es adorno: sin él, `cp` copiaría el directorio *dentro* del destino en
 vez de su contenido.
 
-**3. Ajustar el `.env` nuevo.** Las tres variables de la tabla de arriba, con `nano` en el servidor.
+El `rm` va **después** de la copia, no antes. Hostinger deja su `default.php` de bienvenida en todo
+docroot nuevo, pero también lo había dejado en el del dominio raíz, así que borrarlo primero no sirve
+de nada: la copia lo vuelve a traer.
 
-**4. Vaciar la configuración cacheada de la copia.** Es el paso que más silenciosamente se olvida.
+**3. Subir el `.htaccess` nuevo al docroot del subdominio.**
+
+```bash
+scp deploy/hostinger/htaccess-public_html \
+    prosello:/home/<cuenta>/domains/app.prosello.com.mx/public_html/.htaccess
+```
+
+Este paso no es opcional ni cosmético. El `.htaccess` que acaba de llegar con la copia es el
+**anterior**, el que todavía nombra el dominio a mano:
+
+```apache
+RewriteRule ^ https://prosello.com.mx%{REQUEST_URI} [L,R=301]
+```
+
+Esa regla, sirviendo bajo el subdominio, rebota **todas** las visitas de vuelta al dominio raíz. El
+sistema nuevo sería inalcanzable desde el primer segundo, y el síntoma —«entro al subdominio y
+aparezco en el viejo»— es exactamente el que la versión sin dominio escrito a mano viene a evitar.
+
+De los cuatro archivos de `deploy/hostinger/` que viven en el docroot, este es el único cuyo
+contenido cambió: `index.php` solo cambió un comentario y `robots.txt` no cambió.
+
+**4. Ajustar el `.env` nuevo.** Las tres variables de la tabla de arriba, con `nano` en el servidor.
+
+**5. Vaciar la configuración cacheada de la copia.** Es el paso que más silenciosamente se olvida.
 `bootstrap/cache/config.php` guarda **rutas absolutas resueltas en el momento de cachear**: la copia
 recién hecha traería dentro las rutas de `domains/prosello.com.mx/…`, y la instalación nueva
 escribiría sus logs y su caché en la carpeta vieja mientras aparenta funcionar con normalidad.
@@ -299,21 +330,30 @@ bash deploy/artisan.sh route:cache
 bash deploy/artisan.sh event:cache
 ```
 
-**5. Verificar la copia nueva.**
+**6. Verificar la copia nueva.**
 
 ```bash
 bash deploy/verify.sh
 ```
 
-En esta fase **las tres comprobaciones del dominio raíz fallan**, y es lo esperado: el dominio raíz
-todavía sirve el sistema, no una redirección. Todo lo demás tiene que pasar. Además, a mano: iniciar
-sesión, recargar para confirmar que la sesión persiste, y generar un PDF.
+En esta fase **fallan las tres comprobaciones de la redirección del dominio raíz**, y es lo esperado:
+el dominio raíz todavía sirve el sistema, así que responde 200 en vez de 302. (La cuarta, la de
+`sw.js`, pasa por casualidad: ahí sigue el service worker real de la PWA vieja.) Todo lo demás tiene
+que pasar.
 
-**6. Mover el cron.** hPanel → *Avanzado → Trabajos Cron*. La línea de
+El bloque se omitiría por completo sólo antes del paso 5, cuando `SITE_URL` y `APEX_URL` todavía
+valen lo mismo.
+
+Y a mano, en el navegador, lo que ningún `curl` puede comprobar: iniciar sesión, recargar para
+confirmar que la sesión persiste, y generar un PDF. Este es el punto de no retorno del
+procedimiento — todo lo anterior es reversible borrando la copia; a partir del paso 7 se desarma la
+instalación vieja.
+
+**7. Mover el cron.** hPanel → *Avanzado → Trabajos Cron*. La línea de
 `cotizaciones:purgar-vencidas` pasa a la ruta nueva. Debe quedar **una sola**: dos líneas apuntando
 a las dos copias ejecutarían la purga dos veces contra la misma base.
 
-**7. Liberar el dominio raíz.** Borrar del docroot raíz todo lo del sistema y dejar solo los dos
+**8. Liberar el dominio raíz.** Borrar del docroot raíz todo lo del sistema y dejar solo los dos
 archivos nuevos:
 
 ```bash
@@ -321,11 +361,11 @@ scp deploy/hostinger/htaccess-apex prosello:<docroot-raiz>/.htaccess
 scp deploy/hostinger/sw-apex.js    prosello:<docroot-raiz>/sw.js
 ```
 
-**8. Verificación final.** `bash deploy/verify.sh` completo, ahora sí con las tres comprobaciones del
+**9. Verificación final.** `bash deploy/verify.sh` completo, ahora sí con las tres comprobaciones del
 dominio raíz en verde. Y un despliegue de prueba —`bash deploy/deploy-frontend.sh`— para confirmar
 que los scripts operan correctamente contra las rutas nuevas.
 
-**9. Retirar la copia vieja.** Solo cuando todo lo anterior pasó:
+**10. Retirar la copia vieja.** Solo cuando todo lo anterior pasó:
 `rm -rf ~/domains/prosello.com.mx/facturacion`. El `~/backups/` de la cuenta no se toca: es común a
 las dos y sigue sirviendo.
 
@@ -379,13 +419,15 @@ Ni un script puede hacerlos ni conviene que lo intente:
 
 ## Estado de implementación
 
-**Repositorio: implementado.** Los doce archivos de la sección «Cambios en el repositorio» están
-hechos, con `deploy/config.sh` todavía apuntando al dominio raíz (paso 1 del procedimiento).
-`verify.sh` detecta esa situación —`APEX_URL` igual a `SITE_URL`— y omite las comprobaciones del
-dominio raíz con un aviso, en vez de reportar fallos por una mudanza que aún no ocurrió.
+**Repositorio: implementado** (commit `d69583c`). `verify.sh` omite las comprobaciones del dominio
+raíz mientras `APEX_URL` valga lo mismo que `SITE_URL`, en vez de reportar fallos por una mudanza que
+aún no ocurrió.
 
-**Servidor: pendiente.** Faltan los pasos 2 a 9 del procedimiento de mudanza. Ya están hechos, de los
-manuales de hPanel, la creación del subdominio como sitio web independiente y su certificado SSL.
+**Servidor: en curso.** Hechos los pasos 1 a 3 —repositorio, copia de `facturacion/` y del docroot
+verificada por `md5sum`, y `.htaccess` nuevo en el subdominio—. Faltan los pasos 4 a 10.
+
+De los manuales de hPanel ya están hechos la creación del subdominio como sitio web independiente y
+su certificado SSL; falta mover la línea del cron.
 
 ## Supuestos asumidos (registro completo)
 
