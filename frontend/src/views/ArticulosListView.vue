@@ -7,26 +7,34 @@ import {
   TrashIcon,
   ArrowUpTrayIcon,
   ArrowDownTrayIcon,
-  ChevronUpIcon,
-  ChevronDownIcon,
 } from '@heroicons/vue/24/outline'
 import {
   useArticulosStore,
   type Articulo,
+  type ArticuloFiltroTexto,
   type ArticuloSort,
   type ImportarCsvReporte,
   type ImagenesReporte,
 } from '../stores/articulos'
 import type { Catalogo } from '../stores/catalogos'
+import http from '../lib/http'
 import { extractErrorMessage } from '../lib/errors'
 import AppLayout from '../layouts/AppLayout.vue'
 import CatalogoSelect from '../components/CatalogoSelect.vue'
+import ColumnaOrdenable from '../components/ColumnaOrdenable.vue'
 import ArticuloDetalleDialog from '../components/ArticuloDetalleDialog.vue'
 import { Button } from '../components/ui/button'
 import { Card, CardContent } from '../components/ui/card'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
 import { Alert, AlertDescription } from '../components/ui/alert'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select'
 import {
   Table,
   TableBody,
@@ -131,24 +139,72 @@ const ningunaEmparejo = computed(
 
 onMounted(() => articulos.fetchList())
 
-let buscarTimeout: ReturnType<typeof setTimeout>
-function onBuscar() {
-  clearTimeout(buscarTimeout)
-  buscarTimeout = setTimeout(() => articulos.fetchList(1), 300)
+/**
+ * Vuelve a pedir el listado tras una pausa, para no lanzar una petición por tecla.
+ *
+ * El buscador global y los filtros de columna comparten el mismo temporizador a propósito: escribir
+ * en dos de ellos seguidos es una sola intención y merece una sola consulta
+ * (ver 025-filtros-columna-listado-articulos.md).
+ */
+let recargarTimeout: ReturnType<typeof setTimeout>
+function recargarConRebote() {
+  clearTimeout(recargarTimeout)
+  recargarTimeout = setTimeout(() => articulos.fetchList(1), 300)
 }
 
 /**
- * Columnas numéricas ordenables del listado (ver 011-precio-proveedor-utilidad.md).
+ * Columnas numéricas del listado: ordenables (ver 011-precio-proveedor-utilidad.md) y filtrables por
+ * rango desde–hasta (ver 025-filtros-columna-listado-articulos.md).
  *
  * "Costo" es el costo total: aparato con descuento + goma. No se agrega columna para el tamaño ni
  * para el desglose, que viven en el formulario, para no revivir el desborde de tabla corregido en
  * 006 (ver 014-costo-elaboracion-goma.md).
+ *
+ * La misma lista dibuja la fila de cabeceras y la de filtros, para que no puedan quedar con distinto
+ * número de celdas.
  */
-const columnasOrdenables: { clave: ArticuloSort; etiqueta: string }[] = [
-  { clave: 'costo_total', etiqueta: 'Costo' },
-  { clave: 'precio_unitario_sin_iva', etiqueta: 'Precio de venta' },
-  { clave: 'utilidad', etiqueta: 'Utilidad' },
+const columnasNumericas: {
+  clave: ArticuloSort
+  etiqueta: string
+  min: ArticuloFiltroTexto
+  max: ArticuloFiltroTexto
+}[] = [
+  { clave: 'costo_total', etiqueta: 'Costo', min: 'costoMin', max: 'costoMax' },
+  {
+    clave: 'precio_unitario_sin_iva',
+    etiqueta: 'Precio de venta',
+    min: 'precioMin',
+    max: 'precioMax',
+  },
+  { clave: 'utilidad', etiqueta: 'Utilidad', min: 'utilidadMin', max: 'utilidadMax' },
 ]
+
+/** Un filtro tecleado cambia el estado y recarga con rebote. */
+function onFiltro(clave: ArticuloFiltroTexto, valor: string | number) {
+  articulos.filtros[clave] = String(valor)
+  recargarConRebote()
+}
+
+/**
+ * Opciones del filtro de catálogo. Se piden aquí y no al store de catálogos para no pisarle el
+ * estado a su propio listado, que está paginado de 15 en 15.
+ */
+const catalogosFiltro = ref<Catalogo[]>([])
+
+onMounted(async () => {
+  const { data } = await http.get('/catalogos-proveedor', { params: { per_page: 100 } })
+  catalogosFiltro.value = data.data
+})
+
+const TODOS_LOS_CATALOGOS = 'todos'
+
+/** El selector consulta de inmediato: es una elección, no algo que se escribe. */
+function onFiltroCatalogo(valor: string) {
+  articulos.filtros.catalogoId = valor === TODOS_LOS_CATALOGOS ? null : Number(valor)
+  articulos.fetchList(1)
+}
+
+const totalFiltrado = computed(() => articulos.meta?.total ?? 0)
 
 function pesos(valor: number): string {
   return valor.toFixed(2)
@@ -386,8 +442,23 @@ async function confirmarImportar() {
         v-model="articulos.search"
         placeholder="Buscar por nombre, modelo o proveedor..."
         class="max-w-sm"
-        @update:model-value="onBuscar"
+        @update:model-value="recargarConRebote"
       />
+
+      <!-- Solo con filtros de columna puestos: sin ellos sería una línea permanente que no dice
+           nada. El buscador global no cuenta ni se limpia aquí, porque tiene su propia caja
+           (ver 025-filtros-columna-listado-articulos.md). -->
+      <div
+        v-if="articulos.hayFiltros"
+        class="bg-muted flex flex-wrap items-center justify-between gap-2 rounded-md px-3 py-2"
+      >
+        <span class="text-muted-foreground text-sm">
+          {{ totalFiltrado }} artículo{{ totalFiltrado === 1 ? '' : 's' }} con los filtros aplicados
+        </span>
+        <Button variant="outline" size="sm" @click="articulos.limpiarFiltros()">
+          Limpiar filtros
+        </Button>
+      </div>
 
       <!-- Sin nada marcado no aparece, para no dejar en pantalla un botón permanentemente
            deshabilitado (ver 021-mantenimiento-articulos-catalogos.md). -->
@@ -430,40 +501,133 @@ async function confirmarImportar() {
                     @change="alternarTodos"
                   />
                 </TableHead>
+                <!-- El id es el orden de captura: ordenado ascendente devuelve los artículos en el
+                     orden del archivo importado (ver 025-filtros-columna-listado-articulos.md). -->
+                <TableHead class="w-20">
+                  <ColumnaOrdenable
+                    etiqueta="id"
+                    class="w-full justify-end"
+                    :activa="articulos.sort === 'id'"
+                    :direccion="articulos.direction"
+                    @ordenar="articulos.toggleSort('id')"
+                  />
+                </TableHead>
                 <TableHead>Nombre</TableHead>
                 <TableHead>Modelo</TableHead>
                 <TableHead>Catálogo</TableHead>
-                <TableHead v-for="columna in columnasOrdenables" :key="columna.clave">
-                  <button
-                    type="button"
-                    class="hover:text-foreground -mx-1 flex items-center gap-1 rounded px-1 py-0.5"
-                    :aria-sort="
-                      articulos.sort === columna.clave
-                        ? articulos.direction === 'asc'
-                          ? 'ascending'
-                          : 'descending'
-                        : 'none'
-                    "
-                    @click="articulos.toggleSort(columna.clave)"
-                  >
-                    {{ columna.etiqueta }}
-                    <ChevronUpIcon
-                      v-if="articulos.sort === columna.clave && articulos.direction === 'asc'"
-                      class="size-3.5"
-                    />
-                    <ChevronDownIcon
-                      v-else-if="articulos.sort === columna.clave"
-                      class="size-3.5"
-                    />
-                  </button>
+                <TableHead v-for="columna in columnasNumericas" :key="columna.clave">
+                  <ColumnaOrdenable
+                    :etiqueta="columna.etiqueta"
+                    :activa="articulos.sort === columna.clave"
+                    :direccion="articulos.direction"
+                    @ordenar="articulos.toggleSort(columna.clave)"
+                  />
                 </TableHead>
                 <TableHead class="text-right">Acciones</TableHead>
+              </TableRow>
+
+              <!-- Fila de filtros. Siempre visibles y no detrás de un menú por columna: escondidos
+                   habría que abrir seis menús para saber por qué la tabla muestra menos renglones de
+                   los esperados (ver 025-filtros-columna-listado-articulos.md). -->
+              <TableRow class="hover:bg-transparent">
+                <TableHead class="h-auto py-2"></TableHead>
+                <TableHead class="h-auto py-2">
+                  <Input
+                    :model-value="articulos.filtros.id"
+                    type="number"
+                    min="1"
+                    inputmode="numeric"
+                    placeholder="="
+                    aria-label="Filtrar por id"
+                    class="h-8 px-2 text-xs"
+                    @update:model-value="(v) => onFiltro('id', v)"
+                  />
+                </TableHead>
+                <TableHead class="h-auto py-2">
+                  <Input
+                    :model-value="articulos.filtros.nombre"
+                    placeholder="Contiene..."
+                    aria-label="Filtrar por nombre"
+                    class="h-8 px-2 text-xs"
+                    @update:model-value="(v) => onFiltro('nombre', v)"
+                  />
+                </TableHead>
+                <TableHead class="h-auto py-2">
+                  <Input
+                    :model-value="articulos.filtros.modelo"
+                    placeholder="Contiene..."
+                    aria-label="Filtrar por modelo"
+                    class="h-8 px-2 text-xs"
+                    @update:model-value="(v) => onFiltro('modelo', v)"
+                  />
+                </TableHead>
+                <TableHead class="h-auto py-2">
+                  <!-- Selector y no texto libre: los catálogos son un conjunto cerrado y corto, y
+                       escribir el nombre a mano solo abre la puerta a no encontrar nada por una
+                       tilde. -->
+                  <Select
+                    :model-value="articulos.filtros.catalogoId?.toString() ?? TODOS_LOS_CATALOGOS"
+                    @update:model-value="(v) => onFiltroCatalogo(String(v))"
+                  >
+                    <SelectTrigger class="h-8 w-full text-xs" aria-label="Filtrar por catálogo">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem :value="TODOS_LOS_CATALOGOS">Todos los catálogos</SelectItem>
+                      <SelectItem
+                        v-for="opcion in catalogosFiltro"
+                        :key="opcion.id"
+                        :value="opcion.id.toString()"
+                      >
+                        {{ opcion.proveedor_nombre_comercial ?? '—' }} — {{ opcion.nombre }}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </TableHead>
+                <!-- Rango desde–hasta, con cada extremo independiente: en dinero nadie busca un
+                     valor exacto, busca un tramo, y la mitad de las veces con un solo número. -->
+                <TableHead
+                  v-for="columna in columnasNumericas"
+                  :key="columna.clave"
+                  class="h-auto py-2"
+                >
+                  <div class="flex items-center gap-1">
+                    <Input
+                      :model-value="articulos.filtros[columna.min]"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      inputmode="decimal"
+                      placeholder="min"
+                      :aria-label="`${columna.etiqueta} mínimo`"
+                      class="h-8 px-2 text-xs"
+                      @update:model-value="(v) => onFiltro(columna.min, v)"
+                    />
+                    <span class="text-muted-foreground text-xs">–</span>
+                    <Input
+                      :model-value="articulos.filtros[columna.max]"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      inputmode="decimal"
+                      placeholder="max"
+                      :aria-label="`${columna.etiqueta} máximo`"
+                      class="h-8 px-2 text-xs"
+                      @update:model-value="(v) => onFiltro(columna.max, v)"
+                    />
+                  </div>
+                </TableHead>
+                <TableHead class="h-auto py-2"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               <TableRow v-if="!articulos.loading && articulos.items.length === 0">
-                <TableCell colspan="8" class="text-muted-foreground py-10 text-center">
-                  No hay artículos registrados todavía.
+                <TableCell colspan="9" class="text-muted-foreground py-10 text-center">
+                  {{
+                    articulos.hayFiltros || articulos.search
+                      ? 'Ningún artículo coincide con los filtros aplicados.'
+                      : 'No hay artículos registrados todavía.'
+                  }}
                 </TableCell>
               </TableRow>
               <TableRow v-for="articulo in articulos.items" :key="articulo.id">
@@ -475,6 +639,9 @@ async function confirmarImportar() {
                     :value="articulo.id"
                     :aria-label="`Seleccionar ${articulo.nombre}`"
                   />
+                </TableCell>
+                <TableCell class="text-muted-foreground text-right tabular-nums">
+                  {{ articulo.id }}
                 </TableCell>
                 <TableCell>
                   <!-- El nombre es el enlace a la ficha. No hay miniatura en la tabla: las fotos

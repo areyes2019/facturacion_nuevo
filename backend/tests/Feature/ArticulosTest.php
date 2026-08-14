@@ -1002,3 +1002,234 @@ test('los articulos eliminados en lote conservan su archivo de imagen', function
     $this->assertSoftDeleted('articulos', ['id' => $articulo->id]);
     Storage::disk('local')->assertExists('articulos/foto.webp');
 });
+
+// Orden de captura y filtros por columna (ver 025-filtros-columna-listado-articulos.md).
+
+/**
+ * Los tres artículos del banco de rangos, con los valores que el listado muestra:
+ *
+ * - Barato: costo 100, precio 110, utilidad 10.
+ * - Medio: costo 200, precio 260, utilidad 60.
+ * - Caro: costo 300, precio 450, utilidad 150.
+ */
+function articulosParaRangos(User $user): void
+{
+    $catalogo = Catalogo::factory()->for($user)->create(['descuento' => 0, 'utilidad_porcentaje' => 0]);
+
+    Articulo::factory()->for($user)->for($catalogo)->create([
+        'nombre' => 'Barato', 'costo_con_descuento' => 100, 'costo_goma' => 0, 'precio_unitario_sin_iva' => 110,
+    ]);
+    Articulo::factory()->for($user)->for($catalogo)->create([
+        'nombre' => 'Medio', 'costo_con_descuento' => 200, 'costo_goma' => 0, 'precio_unitario_sin_iva' => 260,
+    ]);
+    Articulo::factory()->for($user)->for($catalogo)->create([
+        'nombre' => 'Caro', 'costo_con_descuento' => 300, 'costo_goma' => 0, 'precio_unitario_sin_iva' => 450,
+    ]);
+}
+
+test('el listado ordena por id, que es el orden de captura', function () {
+    $user = User::factory()->create();
+    $catalogo = Catalogo::factory()->for($user)->create();
+
+    // Se crean en el orden de las filas de un archivo importado, que no es el alfabético.
+    $nombres = ['Zeta', 'Alfa', 'Mu'];
+    foreach ($nombres as $nombre) {
+        Articulo::factory()->for($user)->for($catalogo)->create(['nombre' => $nombre]);
+    }
+
+    $asc = $this->actingAs($user)->getJson('/api/v1/articulos?sort=id&direction=asc');
+    $asc->assertOk();
+    expect(collect($asc->json('data'))->pluck('nombre')->all())->toBe($nombres);
+
+    $desc = $this->actingAs($user)->getJson('/api/v1/articulos?sort=id&direction=desc');
+    $desc->assertOk();
+    expect(collect($desc->json('data'))->pluck('nombre')->all())->toBe(array_reverse($nombres));
+});
+
+test('sin sort el listado sigue saliendo alfabetico por nombre', function () {
+    $user = User::factory()->create();
+    $catalogo = Catalogo::factory()->for($user)->create();
+    foreach (['Zeta', 'Alfa', 'Mu'] as $nombre) {
+        Articulo::factory()->for($user)->for($catalogo)->create(['nombre' => $nombre]);
+    }
+
+    $response = $this->actingAs($user)->getJson('/api/v1/articulos');
+
+    $response->assertOk();
+    expect(collect($response->json('data'))->pluck('nombre')->all())->toBe(['Alfa', 'Mu', 'Zeta']);
+});
+
+test('el filtro de id devuelve a lo sumo un articulo', function () {
+    $user = User::factory()->create();
+    $catalogo = Catalogo::factory()->for($user)->create();
+    $buscado = Articulo::factory()->for($user)->for($catalogo)->create(['nombre' => 'Buscado']);
+    Articulo::factory()->for($user)->for($catalogo)->create(['nombre' => 'Otro']);
+
+    $response = $this->actingAs($user)->getJson("/api/v1/articulos?filtro_id={$buscado->id}");
+
+    $response->assertOk();
+    expect(collect($response->json('data'))->pluck('nombre')->all())->toBe(['Buscado']);
+});
+
+test('los filtros de texto buscan por contenido sin distinguir mayusculas', function (string $parametro, string $valor, array $esperados) {
+    $user = User::factory()->create();
+    $catalogo = Catalogo::factory()->for($user)->create();
+    Articulo::factory()->for($user)->for($catalogo)->create(['nombre' => 'Sello Printer 38', 'modelo' => 'P-38']);
+    Articulo::factory()->for($user)->for($catalogo)->create(['nombre' => 'Sello Printer 10', 'modelo' => 'P-10']);
+    Articulo::factory()->for($user)->for($catalogo)->create(['nombre' => 'Almohadilla', 'modelo' => 'A-01']);
+
+    $response = $this->actingAs($user)->getJson("/api/v1/articulos?$parametro=$valor");
+
+    $response->assertOk();
+    expect(collect($response->json('data'))->pluck('nombre')->all())->toBe($esperados);
+})->with([
+    'nombre a media palabra' => ['filtro_nombre', 'printer', ['Sello Printer 10', 'Sello Printer 38']],
+    'nombre completo' => ['filtro_nombre', 'Almohadilla', ['Almohadilla']],
+    'modelo parcial' => ['filtro_modelo', 'p-', ['Sello Printer 10', 'Sello Printer 38']],
+    'modelo exacto' => ['filtro_modelo', 'A-01', ['Almohadilla']],
+]);
+
+test('el filtro de catalogo deja solo los articulos de ese catalogo', function () {
+    $user = User::factory()->create();
+    $uno = Catalogo::factory()->for($user)->create();
+    $otro = Catalogo::factory()->for($user)->create();
+    Articulo::factory()->for($user)->for($uno)->create(['nombre' => 'Del catalogo uno']);
+    Articulo::factory()->for($user)->for($otro)->create(['nombre' => 'Del catalogo otro']);
+
+    $filtrado = $this->actingAs($user)->getJson("/api/v1/articulos?filtro_catalogo_id={$uno->id}");
+    $filtrado->assertOk();
+    expect(collect($filtrado->json('data'))->pluck('nombre')->all())->toBe(['Del catalogo uno']);
+
+    // Sin el parámetro vuelven los dos: es el estado "Todos los catálogos" del selector.
+    $todos = $this->actingAs($user)->getJson('/api/v1/articulos');
+    expect(collect($todos->json('data'))->pluck('nombre')->all())
+        ->toBe(['Del catalogo otro', 'Del catalogo uno']);
+});
+
+test('los rangos filtran por el valor que muestra la columna, con cada extremo independiente', function (string $query, array $esperados) {
+    $user = User::factory()->create();
+    articulosParaRangos($user);
+
+    $response = $this->actingAs($user)->getJson("/api/v1/articulos?$query");
+
+    $response->assertOk();
+    expect(collect($response->json('data'))->pluck('nombre')->all())->toBe($esperados);
+})->with([
+    'costo con los dos extremos' => ['costo_min=150&costo_max=250', ['Medio']],
+    'costo solo minimo' => ['costo_min=200', ['Caro', 'Medio']],
+    'costo solo maximo' => ['costo_max=200', ['Barato', 'Medio']],
+    'costo con extremos inclusivos' => ['costo_min=100&costo_max=100', ['Barato']],
+    'precio con los dos extremos' => ['precio_min=200&precio_max=300', ['Medio']],
+    'precio solo minimo' => ['precio_min=260', ['Caro', 'Medio']],
+    'utilidad con los dos extremos' => ['utilidad_min=50&utilidad_max=100', ['Medio']],
+    'utilidad solo maximo' => ['utilidad_max=60', ['Barato', 'Medio']],
+]);
+
+test('un rango invertido devuelve cero resultados sin error', function () {
+    $user = User::factory()->create();
+    articulosParaRangos($user);
+
+    $response = $this->actingAs($user)->getJson('/api/v1/articulos?precio_min=400&precio_max=200');
+
+    $response->assertOk();
+    expect($response->json('data'))->toBe([]);
+});
+
+test('un filtro vacio, no numerico o negativo se ignora en silencio', function (string $query) {
+    $user = User::factory()->create();
+    articulosParaRangos($user);
+
+    $response = $this->actingAs($user)->getJson("/api/v1/articulos?$query");
+
+    $response->assertOk();
+    expect(collect($response->json('data'))->pluck('nombre')->all())->toBe(['Barato', 'Caro', 'Medio']);
+})->with([
+    'rango vacio' => ['costo_min=&costo_max='],
+    'rango no numerico' => ['costo_min=abc&precio_max=mucho'],
+    'rango negativo' => ['costo_min=-50'],
+    'id vacio' => ['filtro_id='],
+    'id no numerico' => ['filtro_id=abc'],
+    'texto vacio' => ['filtro_nombre=&filtro_modelo='],
+    'catalogo vacio' => ['filtro_catalogo_id='],
+]);
+
+test('los filtros de columna se combinan entre si y con el buscador global', function () {
+    $user = User::factory()->create();
+    $catalogo = Catalogo::factory()->for($user)->create(['descuento' => 0, 'utilidad_porcentaje' => 0]);
+
+    Articulo::factory()->for($user)->for($catalogo)->create([
+        'nombre' => 'Printer barato', 'modelo' => 'P-10',
+        'costo_con_descuento' => 100, 'costo_goma' => 0, 'precio_unitario_sin_iva' => 600,
+    ]);
+    Articulo::factory()->for($user)->for($catalogo)->create([
+        'nombre' => 'Printer caro', 'modelo' => 'P-38',
+        'costo_con_descuento' => 100, 'costo_goma' => 0, 'precio_unitario_sin_iva' => 900,
+    ]);
+    Articulo::factory()->for($user)->for($catalogo)->create([
+        'nombre' => 'Almohadilla', 'modelo' => 'A-01',
+        'costo_con_descuento' => 100, 'costo_goma' => 0, 'precio_unitario_sin_iva' => 600,
+    ]);
+
+    $response = $this->actingAs($user)
+        ->getJson('/api/v1/articulos?search=Printer&filtro_modelo=P-&precio_min=500&precio_max=800');
+
+    $response->assertOk();
+    expect(collect($response->json('data'))->pluck('nombre')->all())->toBe(['Printer barato']);
+});
+
+test('el filtro de costo usa el costo total y no el del aparato', function () {
+    $user = User::factory()->create();
+    $catalogo = Catalogo::factory()->for($user)->create(['descuento' => 0, 'utilidad_porcentaje' => 0]);
+
+    // El aparato cuesta 100 pero la goma lo sube a 120: el rango 100–150 tiene que alcanzarlo, que es
+    // el costo total con el que la tabla lo muestra (ver 014-costo-elaboracion-goma.md).
+    Articulo::factory()->for($user)->for($catalogo)->conGoma(TamanoGoma::Grande, 20.0)->create([
+        'nombre' => 'Con goma', 'costo_con_descuento' => 100,
+    ]);
+
+    $dentro = $this->actingAs($user)->getJson('/api/v1/articulos?costo_min=100&costo_max=150');
+    expect(collect($dentro->json('data'))->pluck('nombre')->all())->toBe(['Con goma']);
+
+    $fuera = $this->actingAs($user)->getJson('/api/v1/articulos?costo_min=0&costo_max=100');
+    expect($fuera->json('data'))->toBe([]);
+});
+
+test('los filtros se combinan con la ordenacion', function () {
+    $user = User::factory()->create();
+    articulosParaRangos($user);
+
+    $response = $this->actingAs($user)->getJson('/api/v1/articulos?costo_min=150&sort=id&direction=desc');
+
+    $response->assertOk();
+    expect(collect($response->json('data'))->pluck('nombre')->all())->toBe(['Caro', 'Medio']);
+});
+
+test('exportar csv descarga exactamente lo que el listado filtrado muestra', function () {
+    $user = User::factory()->create();
+    articulosParaRangos($user);
+
+    $contenido = $this->actingAs($user)
+        ->get('/api/v1/articulos/exportar-csv?costo_min=150&costo_max=250')
+        ->streamedContent();
+
+    expect($contenido)->toContain('Medio');
+    expect($contenido)->not->toContain('Barato');
+    expect($contenido)->not->toContain('Caro');
+});
+
+test('una peticion sin los filtros nuevos responde lo mismo y proveedor_id sigue acotando', function () {
+    $user = User::factory()->create();
+    $proveedor = Proveedor::factory()->for($user)->create();
+    $suyo = Catalogo::factory()->for($user)->for($proveedor)->create();
+    $ajeno = Catalogo::factory()->for($user)->create();
+    Articulo::factory()->for($user)->for($suyo)->create(['nombre' => 'Del proveedor']);
+    Articulo::factory()->for($user)->for($ajeno)->create(['nombre' => 'De otro proveedor']);
+
+    $todos = $this->actingAs($user)->getJson('/api/v1/articulos');
+    expect(collect($todos->json('data'))->pluck('nombre')->all())
+        ->toBe(['De otro proveedor', 'Del proveedor']);
+
+    $acotado = $this->actingAs($user)->getJson("/api/v1/articulos?proveedor_id={$proveedor->id}");
+    $acotado->assertOk();
+    expect(collect($acotado->json('data'))->pluck('nombre')->all())->toBe(['Del proveedor']);
+});

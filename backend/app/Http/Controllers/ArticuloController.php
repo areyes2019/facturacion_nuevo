@@ -48,11 +48,40 @@ class ArticuloController extends Controller
      * Columnas numéricas ordenables del listado (ver 011-precio-proveedor-utilidad.md). Ni el costo
      * total ni la utilidad están persistidos, así que se ordena por la expresión que los define
      * (ver 014-costo-elaboracion-goma.md).
+     *
+     * `id` es el orden de captura: ascendente reproduce el orden del archivo de una importación
+     * masiva, que es lo único que permite revisar lo recién cargado sin recorrer el catálogo entero
+     * (ver 025-filtros-columna-listado-articulos.md).
      */
     private const ORDENACIONES = [
+        'id' => 'id',
         'costo_total' => 'costo_con_descuento + costo_goma',
         'precio_unitario_sin_iva' => 'precio_unitario_sin_iva',
         'utilidad' => 'precio_unitario_sin_iva - (costo_con_descuento + costo_goma)',
+    ];
+
+    /**
+     * Filtros de rango del listado: prefijo del parámetro => clave de `ORDENACIONES`
+     * (ver 025-filtros-columna-listado-articulos.md).
+     *
+     * Apuntan a `ORDENACIONES` en vez de repetir la fórmula para que **filtrar y ordenar no puedan
+     * entender cosas distintas**: una tabla donde el rango 100–150 dejara fuera un artículo que ella
+     * misma muestra con costo de $120 sería un error invisible.
+     */
+    private const RANGOS = [
+        'costo' => 'costo_total',
+        'precio' => 'precio_unitario_sin_iva',
+        'utilidad' => 'utilidad',
+    ];
+
+    /**
+     * Filtros de texto del listado: parámetro => columna. Van con prefijo `filtro_` para no chocar
+     * con el `search` global, con el que se combinan con Y
+     * (ver 025-filtros-columna-listado-articulos.md).
+     */
+    private const FILTROS_TEXTO = [
+        'filtro_nombre' => 'nombre',
+        'filtro_modelo' => 'modelo',
     ];
 
     /**
@@ -446,7 +475,7 @@ class ArticuloController extends Controller
      */
     private function filtrarBusqueda(Builder $query, Request $request): Builder
     {
-        return $query
+        $query
             ->when($request->string('search')->trim()->isNotEmpty(), function ($query) use ($request) {
                 $search = '%'.$request->string('search')->trim().'%';
                 $query->where(function ($query) use ($search) {
@@ -460,5 +489,75 @@ class ArticuloController extends Controller
             ->when($request->integer('proveedor_id') > 0, function ($query) use ($request) {
                 $query->whereHas('catalogo', fn ($q) => $q->where('proveedor_id', $request->integer('proveedor_id')));
             });
+
+        return $this->filtrarPorColumna($query, $request);
+    }
+
+    /**
+     * Filtros de la fila de cabeceras del listado (ver 025-filtros-columna-listado-articulos.md).
+     *
+     * Todos se combinan con Y entre sí, con el `search` global y con `proveedor_id`. Son aditivos:
+     * una petición que no los manda responde exactamente lo que respondía antes de la historia 025,
+     * así que nada de lo que ya consume el endpoint se ve afectado.
+     *
+     * @param  Builder<Articulo>  $query
+     * @return Builder<Articulo>
+     */
+    private function filtrarPorColumna(Builder $query, Request $request): Builder
+    {
+        // Un id es un id, no un prefijo: igualdad exacta.
+        $query->when($request->integer('filtro_id') > 0, fn ($query) => $query->where('id', $request->integer('filtro_id')));
+
+        foreach (self::FILTROS_TEXTO as $parametro => $columna) {
+            $valor = $request->string($parametro)->trim()->toString();
+
+            $query->when($valor !== '', fn ($query) => $query->where($columna, 'like', '%'.$valor.'%'));
+        }
+
+        $query->when(
+            $request->integer('filtro_catalogo_id') > 0,
+            fn ($query) => $query->where('catalogo_id', $request->integer('filtro_catalogo_id')),
+        );
+
+        foreach (self::RANGOS as $prefijo => $ordenacion) {
+            $expresion = self::ORDENACIONES[$ordenacion];
+
+            // Cada extremo es independiente: solo el mínimo es "de ahí para arriba", solo el máximo
+            // es "de ahí para abajo", y los dos juntos delimitan. Escribir un solo número es como se
+            // usa la mitad de las veces.
+            foreach (['min' => '>=', 'max' => '<='] as $extremo => $operador) {
+                $valor = $this->numeroDeFiltro($request, $prefijo.'_'.$extremo);
+
+                if ($valor !== null) {
+                    // El `CAST` no es adorno: el extremo viaja al motor como texto —PDO no tiene
+                    // parámetro de punto flotante— y una suma como `costo_con_descuento + costo_goma`
+                    // no arrastra la afinidad numérica de sus columnas. Comparada contra texto,
+                    // SQLite da el número por menor **siempre**, así que sin el CAST todo mínimo no
+                    // filtraría nada y todo máximo dejaría pasar el catálogo entero.
+                    $query->whereRaw("($expresion) $operador CAST(? AS DECIMAL(10,2))", [$valor]);
+                }
+            }
+        }
+
+        return $query;
+    }
+
+    /**
+     * Extremo de un filtro de rango, o `null` si no hay nada que filtrar.
+     *
+     * Un valor vacío, no numérico o negativo **se ignora en silencio**, igual que un `sort` que no se
+     * reconoce: mientras se teclea "1", "12", "125" los tres estados son legítimos, y un filtro a
+     * medio escribir no puede vaciar la tabla ni sacar un error en pantalla
+     * (ver 025-filtros-columna-listado-articulos.md).
+     */
+    private function numeroDeFiltro(Request $request, string $parametro): ?float
+    {
+        $valor = $request->string($parametro)->trim()->toString();
+
+        if ($valor === '' || ! is_numeric($valor) || (float) $valor < 0) {
+            return null;
+        }
+
+        return (float) $valor;
     }
 }

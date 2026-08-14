@@ -120,34 +120,118 @@ interface PaginationMeta {
 /**
  * Columnas numéricas ordenables del listado (ver 011-precio-proveedor-utilidad.md). El costo que se
  * muestra y por el que se ordena es el total, aparato + goma (ver 014-costo-elaboracion-goma.md).
+ *
+ * `id` es el orden de captura: ascendente devuelve los artículos en el orden en que se crearon, que
+ * para una importación masiva es el orden de las filas del archivo
+ * (ver 025-filtros-columna-listado-articulos.md).
  */
-export type ArticuloSort = 'costo_total' | 'precio_unitario_sin_iva' | 'utilidad'
+export type ArticuloSort = 'id' | 'costo_total' | 'precio_unitario_sin_iva' | 'utilidad'
 export type SortDirection = 'asc' | 'desc'
+
+/**
+ * Filtros de la fila de cabeceras del listado (ver 025-filtros-columna-listado-articulos.md).
+ *
+ * Van como texto y no como número porque vienen de campos donde la cadena vacía es un estado
+ * legítimo —"este filtro no está puesto"— y `0` es un valor que sí se puede querer filtrar. El
+ * catálogo es la excepción: sale de un selector, no de un campo.
+ */
+export interface ArticuloFiltros {
+  id: string
+  nombre: string
+  modelo: string
+  catalogoId: number | null
+  costoMin: string
+  costoMax: string
+  precioMin: string
+  precioMax: string
+  utilidadMin: string
+  utilidadMax: string
+}
+
+/** Los filtros que se teclean, que son todos menos el catálogo: los de texto y los de rango. */
+export type ArticuloFiltroTexto = Exclude<keyof ArticuloFiltros, 'catalogoId'>
+
+export function filtrosVacios(): ArticuloFiltros {
+  return {
+    id: '',
+    nombre: '',
+    modelo: '',
+    catalogoId: null,
+    costoMin: '',
+    costoMax: '',
+    precioMin: '',
+    precioMax: '',
+    utilidadMin: '',
+    utilidadMax: '',
+  }
+}
 
 export const useArticulosStore = defineStore('articulos', {
   state: () => ({
     items: [] as Articulo[],
     meta: null as PaginationMeta | null,
     search: '',
+    filtros: filtrosVacios(),
     sort: null as ArticuloSort | null,
     direction: 'asc' as SortDirection,
     loading: false,
     error: null as string | null,
   }),
 
+  getters: {
+    /**
+     * Si hay algún filtro de columna puesto. El buscador global no cuenta: tiene su propia caja y su
+     * propia forma de vaciarse (ver 025-filtros-columna-listado-articulos.md).
+     */
+    hayFiltros(state): boolean {
+      return (
+        state.filtros.catalogoId !== null ||
+        (Object.entries(state.filtros) as [keyof ArticuloFiltros, unknown][]).some(
+          ([clave, valor]) => clave !== 'catalogoId' && valor !== '',
+        )
+      )
+    },
+  },
+
   actions: {
+    /**
+     * Los parámetros con los que se pide el listado. Los comparte con la exportación CSV para que
+     * exportar baje exactamente lo que la tabla está mostrando
+     * (ver 025-filtros-columna-listado-articulos.md).
+     */
+    paramsListado(): Record<string, string | number | undefined> {
+      const { filtros } = this
+
+      return {
+        search: this.search || undefined,
+        sort: this.sort ?? undefined,
+        direction: this.sort ? this.direction : undefined,
+        filtro_id: filtros.id || undefined,
+        filtro_nombre: filtros.nombre || undefined,
+        filtro_modelo: filtros.modelo || undefined,
+        filtro_catalogo_id: filtros.catalogoId ?? undefined,
+        costo_min: filtros.costoMin || undefined,
+        costo_max: filtros.costoMax || undefined,
+        precio_min: filtros.precioMin || undefined,
+        precio_max: filtros.precioMax || undefined,
+        utilidad_min: filtros.utilidadMin || undefined,
+        utilidad_max: filtros.utilidadMax || undefined,
+      }
+    },
+
+    /** Borra los filtros de columna y recarga. El buscador global se queda como está. */
+    async limpiarFiltros() {
+      this.filtros = filtrosVacios()
+      await this.fetchList(1)
+    },
+
     async fetchList(page = 1) {
       this.loading = true
       this.error = null
 
       try {
         const { data } = await http.get('/articulos', {
-          params: {
-            page,
-            search: this.search || undefined,
-            sort: this.sort ?? undefined,
-            direction: this.sort ? this.direction : undefined,
-          },
+          params: { page, ...this.paramsListado() },
         })
         this.items = data.data
         this.meta = data.meta
@@ -288,11 +372,7 @@ export const useArticulosStore = defineStore('articulos', {
 
     async exportarCsv() {
       const { data } = await http.get('/articulos/exportar-csv', {
-        params: {
-          search: this.search || undefined,
-          sort: this.sort ?? undefined,
-          direction: this.sort ? this.direction : undefined,
-        },
+        params: this.paramsListado(),
         responseType: 'blob',
       })
 
