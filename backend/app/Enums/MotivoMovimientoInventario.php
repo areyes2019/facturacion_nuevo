@@ -16,6 +16,8 @@ enum MotivoMovimientoInventario: string
     case RecepcionOrden = 'recepcion_orden';
     case VentaFactura = 'venta_factura';
     case VentaCotizacion = 'venta_cotizacion';
+    case VentaPedido = 'venta_pedido';
+    case CorreccionPedido = 'correccion_pedido';
     case CancelacionFactura = 'cancelacion_factura';
 
     // Manuales.
@@ -31,6 +33,11 @@ enum MotivoMovimientoInventario: string
             self::RecepcionOrden => 'Recepción de orden de compra',
             self::VentaFactura => 'Venta facturada',
             self::VentaCotizacion => 'Entrega de cotización',
+            self::VentaPedido => 'Venta de mostrador',
+            // Devuelve lo que descontó una VentaPedido cuando el pedido se corrige o se tira. Es un
+            // motivo aparte y no una VentaPedido en sentido contrario para que el historial diga en
+            // qué dirección se movió la mercancía sin tener que leer el tipo del movimiento.
+            self::CorreccionPedido => 'Corrección de pedido de mostrador',
             self::CancelacionFactura => 'Cancelación de factura',
             self::ConteoFisico => 'Conteo físico',
             self::Merma => 'Merma o daño',

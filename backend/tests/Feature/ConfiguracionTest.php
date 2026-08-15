@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\ClaveConfiguracion;
 use App\Enums\TamanoGoma;
 use App\Models\Articulo;
 use App\Models\Catalogo;
@@ -15,7 +16,7 @@ test('un invitado no puede acceder a la configuracion', function () {
     $this->putJson('/api/v1/configuracion', ['costo_goma_chica' => 7])->assertUnauthorized();
 });
 
-test('la configuracion devuelve las tres claves con sus valores de fabrica sin haber guardado nunca', function () {
+test('la configuracion devuelve todas las claves con sus valores de fabrica sin haber guardado nunca', function () {
     $user = User::factory()->create();
 
     // Ninguna fila en la tabla: el valor efectivo lo aporta el enum.
@@ -28,7 +29,22 @@ test('la configuracion devuelve las tres claves con sus valores de fabrica sin h
         'costo_goma_chica' => '6.00',
         'costo_goma_mediana' => '10.00',
         'costo_goma_grande' => '20.00',
+        'mensaje_ticket' => ClaveConfiguracion::MensajeTicket->valorPorDefecto(),
     ]);
+});
+
+test('el mensaje del ticket se puede guardar y tambien vaciar', function () {
+    $user = User::factory()->create();
+
+    $this->actingAs($user)->putJson('/api/v1/configuracion', [
+        'mensaje_ticket' => 'Gracias {nombre}, tu ticket es el {folio}.',
+    ])->assertOk()->assertJsonPath('mensaje_ticket', 'Gracias {nombre}, tu ticket es el {folio}.');
+
+    // A diferencia de los costos, el mensaje admite quedar vacío: el usuario puede no querer mandar
+    // nada junto con la imagen del ticket.
+    $this->actingAs($user)->putJson('/api/v1/configuracion', ['mensaje_ticket' => ''])
+        ->assertOk()
+        ->assertJsonPath('mensaje_ticket', '');
 });
 
 test('guardar una clave deja intactas las ausentes', function () {

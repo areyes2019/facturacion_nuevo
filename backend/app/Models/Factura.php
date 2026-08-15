@@ -88,16 +88,29 @@ class Factura extends Model
     }
 
     /**
+     * El pedido de mostrador que se autofacturó con esta factura, si lo hay. Igual que con la
+     * cotización, el vínculo vive en `pedidos.factura_id` (ver 027-venta-mostrador-ticket.md).
+     */
+    public function pedido(): HasOne
+    {
+        return $this->hasOne(Pedido::class);
+    }
+
+    /**
      * Una factura mueve inventario solo cuando representa la venta por sí sola (ver
      * 017-inventario.md).
      *
      * Con cotización vinculada manda la cotización: la salida ocurre al marcarla como entregada,
      * porque la mercancía sale cuando sale físicamente, no cuando se emite el papel fiscal. Esa
      * factura no descuenta al timbrarse ni devuelve al cancelarse.
+     *
+     * Con pedido vinculado manda el pedido por la misma razón, solo que ahí la mercancía salió
+     * todavía antes: en el mostrador, al levantar la venta (ver 027-venta-mostrador-ticket.md). Sin
+     * esta condición, autofacturar descontaría por segunda vez lo que ya se entregó en mano.
      */
     public function mueveInventario(): bool
     {
-        return ! $this->cotizacion()->exists();
+        return ! $this->cotizacion()->exists() && ! $this->pedido()->exists();
     }
 
     /**

@@ -72,7 +72,11 @@ export interface Cotizacion {
 }
 
 export interface CotizacionLineaPayload {
-  articulo_id: number
+  /**
+   * Nullable solo por el tipo compartido de `DocumentoLineas`, que desde 027 admite líneas sin
+   * artículo. Aquí el buscador siempre pone un id y el backend lo exige (`required`).
+   */
+  articulo_id: number | null
   cantidad: number
   descripcion: string
   modelo: string

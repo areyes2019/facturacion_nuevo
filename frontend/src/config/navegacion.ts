@@ -14,6 +14,7 @@ import {
   ScaleIcon,
   ShoppingCartIcon,
   TagIcon,
+  TicketIcon,
   TruckIcon,
   UserCircleIcon,
   UsersIcon,
@@ -57,6 +58,21 @@ export const gruposNavegacion: GrupoNavegacion[] = [
     etiqueta: 'Ventas',
     icono: BanknotesIcon,
     opciones: [
+      {
+        // Primero en el grupo porque es la venta que entra por la puerta (ver 027). La etiqueta y
+        // la pantalla de entrega no aparecen en el menú: a una se llega desde el detalle y a la
+        // otra desde el QR impreso.
+        name: 'pedidos',
+        etiqueta: 'Pedidos',
+        icono: TicketIcon,
+        rutasRelacionadas: [
+          'pedidos-crear',
+          'pedidos-editar',
+          'pedidos-detalle',
+          'pedidos-etiqueta',
+          'pedidos-entregar',
+        ],
+      },
       {
         name: 'facturas',
         etiqueta: 'Facturas',

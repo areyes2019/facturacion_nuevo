@@ -19,6 +19,7 @@ import {
 import AppLayout from '../layouts/AppLayout.vue'
 import EmisorForm from '../components/EmisorForm.vue'
 import DatosBancariosForm from '../components/DatosBancariosForm.vue'
+import MensajeTicketForm from '../components/MensajeTicketForm.vue'
 
 /**
  * Ajustes globales del sistema (ver specs/014-costo-elaboracion-goma.md).
@@ -141,6 +142,9 @@ async function guardar() {
 
       <!-- Otra sección hermana, con su propio guardado por la misma razón (ver specs/026). -->
       <DatosBancariosForm />
+
+      <!-- Y otra más, del mismo modo (ver specs/027). -->
+      <MensajeTicketForm />
 
       <form v-if="!cargando" class="space-y-6" @submit.prevent="onSubmit">
         <Card>

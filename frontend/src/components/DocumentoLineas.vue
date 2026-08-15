@@ -20,7 +20,12 @@ import TasaIvaSelect from './TasaIvaSelect.vue'
 import ArticuloBuscador, { type ArticuloResultado } from './ArticuloBuscador.vue'
 
 export interface LineaEditable {
-  articulo_id: number
+  /**
+   * Null es la **línea libre**: algo que se vendió y no está en el catálogo. Solo la venta de
+   * mostrador la habilita (ver 027-venta-mostrador-ticket.md); en factura, cotización y orden de
+   * compra el buscador siempre pone un id y el backend la exige.
+   */
+  articulo_id: number | null
   cantidad: number
   descripcion: string
   modelo: string
@@ -53,6 +58,11 @@ const props = withDefaults(
      * línea nace sin descuento, exactamente como antes.
      */
     descuentoPorDefectoPorcentaje?: number
+    /**
+     * Habilita el botón de línea libre: una fila sin artículo del catálogo, con descripción y
+     * precio escritos a mano. Solo la venta de mostrador la usa (ver 027).
+     */
+    permiteLineaLibre?: boolean
   }>(),
   {
     origenPrecio: 'venta',
@@ -60,6 +70,7 @@ const props = withDefaults(
     soloLectura: false,
     errorLineas: null,
     descuentoPorDefectoPorcentaje: 0,
+    permiteLineaLibre: false,
   },
 )
 
@@ -133,6 +144,23 @@ function sumarADuplicada() {
   indiceDuplicado.value = null
 }
 
+/**
+ * Agrega una fila vacía sin artículo. No pasa por la detección de duplicados: dos servicios
+ * distintos escritos a mano son dos líneas legítimas, no un error de captura.
+ */
+function agregarLineaLibre() {
+  lineas.value.push({
+    articulo_id: null,
+    cantidad: 1,
+    descripcion: '',
+    modelo: '',
+    precio_unitario: 0,
+    descuento_tipo: null,
+    descuento_valor: null,
+    tasa_iva: '16',
+  })
+}
+
 function quitarLinea(indice: number) {
   lineas.value.splice(indice, 1)
 }
@@ -145,12 +173,24 @@ function quitarLinea(indice: number) {
         <CardTitle class="text-base">Artículos</CardTitle>
       </CardHeader>
       <CardContent class="space-y-4">
-        <ArticuloBuscador
-          v-if="!soloLectura"
-          :proveedor-id="proveedorId"
-          :origen-precio="origenPrecio"
-          @seleccionar="onArticuloSeleccionado"
-        />
+        <div v-if="!soloLectura" class="flex flex-col gap-2 sm:flex-row sm:items-start">
+          <div class="min-w-0 flex-1">
+            <ArticuloBuscador
+              :proveedor-id="proveedorId"
+              :origen-precio="origenPrecio"
+              @seleccionar="onArticuloSeleccionado"
+            />
+          </div>
+          <Button
+            v-if="permiteLineaLibre"
+            type="button"
+            variant="outline"
+            class="shrink-0"
+            @click="agregarLineaLibre"
+          >
+            Agregar línea libre
+          </Button>
+        </div>
         <p v-if="errorLineas" class="text-destructive text-sm">{{ errorLineas }}</p>
 
         <div class="overflow-x-auto">

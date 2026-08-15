@@ -20,6 +20,14 @@ use Facturapi\InvoiceType;
  */
 class FacturapiService
 {
+    /**
+     * Claves del catálogo del SAT para una línea que no viene de un artículo: "no existe en el
+     * catálogo" y "pieza". Es lo que el propio SAT prevé para la venta suelta.
+     */
+    private const CLAVE_PROD_SERV_GENERICA = '01010101';
+
+    private const CLAVE_UNIDAD_GENERICA = 'H87';
+
     private Facturapi $client;
 
     public function __construct()
@@ -111,8 +119,11 @@ class FacturapiService
                 'discount' => $discount,
                 'product' => [
                     'description' => $linea->descripcion,
-                    'product_key' => $articulo?->clave_prod_serv,
-                    'unit_key' => $articulo?->clave_unidad,
+                    // Las claves salen del artículo, pero una línea puede no tenerlo: el texto
+                    // libre existe desde 012 y la venta de mostrador de 027 lo usa de lleno. Sin
+                    // este respaldo, facturapi.io rechazaría el timbrado por producto sin clave.
+                    'product_key' => $articulo?->clave_prod_serv ?? self::CLAVE_PROD_SERV_GENERICA,
+                    'unit_key' => $articulo?->clave_unidad ?? self::CLAVE_UNIDAD_GENERICA,
                     'price' => (float) $linea->precio_unitario,
                     // Sin esto, facturapi.io asume por defecto que `price` ya incluye el IVA y
                     // lo extrae del precio en vez de sumarlo encima (verificado en vivo: sin

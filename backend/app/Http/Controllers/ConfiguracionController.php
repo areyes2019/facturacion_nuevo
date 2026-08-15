@@ -117,7 +117,9 @@ class ConfiguracionController extends Controller
 
             abort_if($caso === null, 422, "Ajuste desconocido: {$clave}");
 
-            $reglas[$clave] = ['required', ...$caso->reglas()];
+            // La obligatoriedad la declara cada clave: los costos son `required`, el mensaje del
+            // ticket es `present` porque puede quedar vacío a propósito.
+            $reglas[$clave] = $caso->reglas();
         }
 
         return Validator::make($entrada, $reglas)->validate();

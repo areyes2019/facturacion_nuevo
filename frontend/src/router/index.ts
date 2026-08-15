@@ -170,6 +170,54 @@ const router = createRouter({
       component: () => import('../views/CotizacionDetalleView.vue'),
       meta: { requiresAuth: true },
     },
+    // Venta de mostrador (ver 027-venta-mostrador-ticket.md).
+    {
+      path: '/pedidos',
+      name: 'pedidos',
+      component: () => import('../views/PedidosListView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/pedidos/crear',
+      name: 'pedidos-crear',
+      component: () => import('../views/PedidoFormView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/pedidos/:id/editar',
+      name: 'pedidos-editar',
+      component: () => import('../views/PedidoFormView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      // Vista de impresión de la etiqueta adhesiva: sin layout de la aplicación, porque lo que se
+      // manda a la impresora son 5 × 2.5 cm y nada más.
+      path: '/pedidos/:id/etiqueta',
+      name: 'pedidos-etiqueta',
+      component: () => import('../views/PedidoEtiquetaView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      // Destino del QR de la etiqueta. Requiere sesión: es una acción que mueve dinero, y quien
+      // encuentre una etiqueta tirada no debe poder cerrarla.
+      path: '/pedidos/:id/entregar',
+      name: 'pedidos-entregar',
+      component: () => import('../views/PedidoEntregaView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/pedidos/:id',
+      name: 'pedidos-detalle',
+      component: () => import('../views/PedidoDetalleView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      // Portal público de autofacturación: lo abre el cliente, que no tiene cuenta en el sistema.
+      // Fuera del guard de sesión y sin el layout de la aplicación.
+      path: '/autofactura/:token',
+      name: 'autofactura',
+      component: () => import('../views/AutofacturaView.vue'),
+    },
     {
       path: '/ordenes-compra',
       name: 'ordenes-compra',
@@ -255,7 +303,10 @@ router.beforeEach(async (to) => {
   }
 
   if (to.meta.requiresAuth && !auth.isAuthenticated) {
-    return { name: 'login' }
+    // Se recuerda a dónde iba para volver ahí al autenticarse. Sin esto, escanear el QR de una
+    // etiqueta desde un celular sin sesión abierta dejaría al usuario en el dashboard, teniendo que
+    // buscar a mano el pedido que acababa de escanear (ver 027-venta-mostrador-ticket.md).
+    return { name: 'login', query: { redirect: to.fullPath } }
   }
 
   if (to.meta.guestOnly && auth.isAuthenticated) {

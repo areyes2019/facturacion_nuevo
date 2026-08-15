@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import {
   Card,
@@ -15,6 +15,7 @@ import { Button } from '../components/ui/button'
 import { Alert, AlertDescription } from '../components/ui/alert'
 
 const router = useRouter()
+const route = useRoute()
 const auth = useAuthStore()
 
 const email = ref('')
@@ -24,7 +25,14 @@ const remember = ref(false)
 async function onSubmit() {
   try {
     await auth.login({ email: email.value, password: password.value, remember: remember.value })
-    await router.push({ name: 'dashboard' })
+
+    // Solo se acepta una ruta interna: un `redirect` con dominio ajeno convertiría el login en un
+    // trampolín hacia otro sitio.
+    const destino = route.query.redirect
+    const esInterna =
+      typeof destino === 'string' && destino.startsWith('/') && !destino.startsWith('//')
+
+    await router.push(esInterna ? destino : { name: 'dashboard' })
   } catch {
     // El mensaje de error ya queda expuesto en auth.error.
   }

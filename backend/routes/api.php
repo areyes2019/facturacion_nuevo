@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\ArticuloController;
 use App\Http\Controllers\ArticuloImagenController;
+use App\Http\Controllers\AutofacturaController;
 use App\Http\Controllers\CatalogoController;
 use App\Http\Controllers\CatalogoProveedorController;
 use App\Http\Controllers\ClienteController;
@@ -15,6 +16,7 @@ use App\Http\Controllers\FacturaController;
 use App\Http\Controllers\InventarioController;
 use App\Http\Controllers\MovimientoController;
 use App\Http\Controllers\OrdenCompraController;
+use App\Http\Controllers\PedidoController;
 use App\Http\Controllers\ProveedorController;
 use App\Http\Controllers\TransferenciaController;
 use Illuminate\Http\Request;
@@ -31,6 +33,29 @@ Route::get('cotizaciones/{cotizacion}/pdf-publico', [CotizacionController::class
 Route::get('ordenes-compra/{ordenCompra}/pdf-publico', [OrdenCompraController::class, 'pdfPublico'])
     ->name('ordenes-compra.pdf-publico')
     ->middleware('signed');
+
+// Sin auth:sanctum: portal de autofacturación del cliente de mostrador, que no tiene cuenta en el
+// sistema (ver 027-venta-mostrador-ticket.md). Lo protege el token de 64 caracteres del pedido, no
+// una firma temporal: el enlace tiene que sobrevivir hasta el cierre del mes.
+//
+// Son las únicas rutas que cualquiera en internet puede llamar, y por eso las únicas con límite de
+// peticiones explícito.
+Route::middleware('throttle:20,1')->group(function () {
+    Route::get('autofactura/{token}', [AutofacturaController::class, 'show']);
+    Route::post('autofactura/{token}', [AutofacturaController::class, 'store']);
+});
+
+// Los dos catálogos que el cliente necesita para llenar sus datos fiscales en el portal público.
+// Salen del grupo autenticado porque los llama una página abierta, y no revelan nada del negocio:
+// son las mismas listas que el SAT publica (`phpcfdi/sat-catalogos`), sin una sola consulta a la
+// base de datos. Los demás catálogos sí se quedan detrás del login.
+//
+// Con un límite más holgado que el de autofactura: el buscador de uso de CFDI hace una petición por
+// búsqueda mientras el cliente escribe, y 20 por minuto se agotarían tecleando.
+Route::middleware('throttle:60,1')->prefix('catalogos')->group(function () {
+    Route::get('regimenes-fiscales', [CatalogoController::class, 'regimenesFiscales']);
+    Route::get('usos-cfdi', [CatalogoController::class, 'usosCfdi']);
+});
 
 Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/user', function (Request $request) {
@@ -134,6 +159,16 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('cotizaciones/{cotizacion}/duplicar', [CotizacionController::class, 'duplicar']);
     Route::get('cotizaciones/{cotizacion}/pdf', [CotizacionController::class, 'pdf']);
 
+    // Venta de mostrador (ver 027-venta-mostrador-ticket.md). La búsqueda por teléfono va antes
+    // del apiResource para que `pedidos/por-telefono` no se lea como `pedidos/{pedido}`.
+    Route::get('pedidos/por-telefono', [PedidoController::class, 'porTelefono']);
+    Route::apiResource('pedidos', PedidoController::class);
+    Route::get('pedidos/{pedido}/ticket', [PedidoController::class, 'ticket']);
+    Route::post('pedidos/{pedido}/pagos', [PedidoController::class, 'pagos']);
+    Route::delete('pedidos/{pedido}/pagos/{pago}', [PedidoController::class, 'eliminarPago']);
+    Route::post('pedidos/{pedido}/entregar', [PedidoController::class, 'entregar']);
+    Route::post('pedidos/{pedido}/deshacer-entrega', [PedidoController::class, 'deshacerEntrega']);
+
     // Órdenes de compra (ver 012-ordenes-compra.md). El `->parameters()` es obligatorio: sin él,
     // Laravel singulariza "ordenes-compra" en inglés y genera un parámetro de ruta que rompe el
     // binding implícito de modelo (misma lección de 005 y 008).
@@ -154,12 +189,10 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('transferencias', [TransferenciaController::class, 'store']);
 
     Route::prefix('catalogos')->group(function () {
-        Route::get('regimenes-fiscales', [CatalogoController::class, 'regimenesFiscales']);
         Route::get('codigos-postales', [CatalogoController::class, 'codigosPostales']);
         Route::get('claves-prod-serv', [CatalogoController::class, 'clavesProdServ']);
         Route::get('claves-unidad', [CatalogoController::class, 'clavesUnidad']);
         Route::get('objetos-impuesto', [CatalogoController::class, 'objetosImpuesto']);
-        Route::get('usos-cfdi', [CatalogoController::class, 'usosCfdi']);
         Route::get('formas-pago', [CatalogoController::class, 'formasPago']);
         Route::get('motivos-cancelacion', [CatalogoController::class, 'motivosCancelacion']);
         Route::get('metodos-pago', [CatalogoController::class, 'metodosPago']);

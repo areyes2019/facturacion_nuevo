@@ -12,6 +12,8 @@ export interface Configuracion {
   costo_goma_chica: string
   costo_goma_mediana: string
   costo_goma_grande: string
+  /** Mensaje que acompaña al ticket de mostrador al compartirlo (ver specs/027). */
+  mensaje_ticket: string
 }
 
 export type ConfiguracionPayload = Partial<Record<keyof Configuracion, string | number>>
