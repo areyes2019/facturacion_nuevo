@@ -12,6 +12,7 @@ use App\Http\Requests\Cotizaciones\UpdateCotizacionRequest;
 use App\Http\Resources\CotizacionResource;
 use App\Models\Cotizacion;
 use App\Models\CotizacionPago;
+use App\Models\DatoBancario;
 use App\Services\EnvioDocumentoService;
 use App\Services\FacturaTotalesCalculator;
 use App\Services\InventarioService;
@@ -90,6 +91,8 @@ class CotizacionController extends Controller
                 'total_exento' => $calculo['total_exento'],
                 'total' => $calculo['total'],
             ]);
+
+            $this->congelarDatosBancarios($cotizacion);
 
             $this->guardarLineas($cotizacion, $datos['lineas'], $calculo['lineas']);
 
@@ -361,6 +364,12 @@ class CotizacionController extends Controller
                 'total' => $cotizacion->total,
             ]);
 
+            // Foto nueva, no la del original: una copia es una cotización que sale hoy, con el
+            // folio de hoy, y debe llevar los datos con los que hoy se cobra. Es distinto del
+            // descuento del cliente de arriba, que sí se copia congelado porque tiene que cuadrar
+            // con las líneas que se copiaron junto a él.
+            $this->congelarDatosBancarios($copia);
+
             foreach ($cotizacion->lineas as $linea) {
                 $copia->lineas()->create([
                     'articulo_id' => $linea->articulo_id,
@@ -380,6 +389,23 @@ class CotizacionController extends Controller
         });
 
         return new CotizacionResource($copia->load(['cliente', 'lineas.articulo']));
+    }
+
+    /**
+     * Guarda dentro de la cotización la foto de los datos bancarios vigentes
+     * (ver 026-datos-bancarios-cotizacion.md).
+     *
+     * Se toma una sola vez, al crear, y nunca se vuelve a tomar: ni al editar el borrador, ni al
+     * enviar, ni al reimprimir. El PDF se regenera cada vez que se abre, y sin esta copia cambiar
+     * de banco reescribiría en silencio documentos que el cliente ya tiene en su correo.
+     *
+     * Es asignación directa y no parte del `create()` porque `datos_bancarios` está fuera de
+     * `#[Fillable]`: no es un dato que mande el cliente HTTP.
+     */
+    private function congelarDatosBancarios(Cotizacion $cotizacion): void
+    {
+        $cotizacion->datos_bancarios = DatoBancario::fotoParaCotizacion();
+        $cotizacion->save();
     }
 
     /**

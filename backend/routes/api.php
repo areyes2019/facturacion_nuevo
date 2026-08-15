@@ -9,6 +9,7 @@ use App\Http\Controllers\ConfiguracionController;
 use App\Http\Controllers\ConstanciaFiscalController;
 use App\Http\Controllers\CotizacionController;
 use App\Http\Controllers\CuentaController;
+use App\Http\Controllers\DatoBancarioController;
 use App\Http\Controllers\EmisorController;
 use App\Http\Controllers\FacturaController;
 use App\Http\Controllers\InventarioController;
@@ -88,6 +89,19 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('emisor/logo/{tipo}', [EmisorController::class, 'verLogo']);
     Route::post('emisor/logo', [EmisorController::class, 'subirLogo']);
     Route::delete('emisor/logo/{tipo}', [EmisorController::class, 'eliminarLogo']);
+
+    // Cuentas bancarias que se imprimen en la cotización (ver 026-datos-bancarios-cotizacion.md).
+    // Tampoco se scopean por usuario, por lo mismo que el emisor de arriba: son del negocio que
+    // emite. "orden" va antes del {dato} para que el binding no la tome por un identificador,
+    // igual que cuentas/saldos más abajo.
+    Route::put('datos-bancarios/orden', [DatoBancarioController::class, 'reordenar']);
+    Route::get('datos-bancarios', [DatoBancarioController::class, 'index']);
+    Route::post('datos-bancarios', [DatoBancarioController::class, 'store']);
+    Route::put('datos-bancarios/{dato}', [DatoBancarioController::class, 'update']);
+    Route::delete('datos-bancarios/{dato}', [DatoBancarioController::class, 'destroy']);
+    Route::get('datos-bancarios/{dato}/logo', [DatoBancarioController::class, 'verLogo']);
+    Route::post('datos-bancarios/{dato}/logo', [DatoBancarioController::class, 'subirLogo']);
+    Route::delete('datos-bancarios/{dato}/logo', [DatoBancarioController::class, 'eliminarLogo']);
 
     // Prefijo "catalogos-proveedor" (no "catalogos") para no chocar con el grupo de catálogos SAT
     // de referencia registrado más abajo bajo /catalogos (ver 009-catalogos.md).

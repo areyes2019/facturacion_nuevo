@@ -16,6 +16,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Mail\Mailable;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\URL;
 
 #[Fillable([
@@ -168,6 +169,38 @@ class Cotizacion extends Model implements DocumentoEnviable
         return "Cotización {$this->folio} por un total de $".number_format((float) $this->total, 2).' MXN.';
     }
 
+    /**
+     * La foto congelada de datos bancarios, con el icono de cada banco ya listo para incrustarse en
+     * el HTML del PDF (ver 026-datos-bancarios-cotizacion.md).
+     *
+     * Resuelve el archivo aquí y no dentro de la plantilla por la misma razón por la que el logo
+     * del emisor tiene `logoBase64()`: una vista que lee del disco esconde un acceso a
+     * almacenamiento donde nadie lo busca, y hace imposible probar el bloque sin renderizar.
+     *
+     * Un logo que ya no está en disco deja `logo_base64` en `null` y la plantilla imprime el nombre
+     * del banco sin icono: un PDF nunca falla por una imagen.
+     *
+     * @return array<int, array<string, string|null>>
+     */
+    public function datosBancariosParaPdf(): array
+    {
+        return array_map(function (array $banco) {
+            $contenido = DatoBancario::contenidoLogoDe($banco['logo_ruta'] ?? null);
+
+            if ($contenido === null && filled($banco['logo_ruta'] ?? null)) {
+                // Hay logo capturado pero el archivo ya no está. Es distinto de "no hay logo" y no
+                // puede pasar en silencio: el usuario vería el hueco sin saber por qué.
+                Log::warning('Falta en disco el logo de un banco.', ['ruta' => $banco['logo_ruta']]);
+            }
+
+            $banco['logo_base64'] = $contenido === null
+                ? null
+                : 'data:image/webp;base64,'.base64_encode($contenido);
+
+            return $banco;
+        }, $this->datos_bancarios ?? []);
+    }
+
     public function urlPdfPublico(): string
     {
         return URL::temporarySignedRoute(
@@ -193,6 +226,10 @@ class Cotizacion extends Model implements DocumentoEnviable
             'total_iva_0' => 'decimal:2',
             'total_exento' => 'decimal:2',
             'total' => 'decimal:2',
+            // Foto de los datos bancarios con los que salió esta cotización, tomada al crearla
+            // (ver 026-datos-bancarios-cotizacion.md). Fuera de #[Fillable] a propósito: no es un
+            // dato que el cliente mande en el POST, lo pone el controlador.
+            'datos_bancarios' => 'array',
         ];
     }
 }

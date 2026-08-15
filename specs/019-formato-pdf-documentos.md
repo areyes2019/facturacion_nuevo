@@ -142,6 +142,13 @@ raíz la trampa de producción que documenta [018](018-despliegue-hostinger.md).
   acumula todos los logos que el usuario haya probado.
 - Si el archivo referenciado por `logo_ruta` no existe en disco, la plantilla imprime el hueco vacío
   y **registra un warning**. El PDF nunca falla por un logo.
+- Los dos se imprimen dentro de una caja de **40 mm de alto por 55 mm de ancho**, con la proporción
+  del archivo intacta: un logo cuadrado sale de 4 × 4 cm y uno alargado se detiene en los 55 mm de
+  ancho. La medida se escribe en **milímetros, no en píxeles**, para que el tamaño impreso sea el
+  que dice y no dependa del `dpi` con el que dompdf traduzca los píxeles. Los 55 mm son el techo que
+  impone la celda del encabezado: 30 % de los 193 mm de área útil de una A4 con los márgenes de esta
+  plantilla. Ambos logos comparten la misma caja porque van lado a lado y uno más grande que el otro
+  descuadra el encabezado.
 
 ### Qué pasa si el emisor está vacío
 
@@ -223,9 +230,9 @@ orden de compra siguen siendo MXN fijo, como hoy.
 
 ### Encabezado, emisor y contraparte
 
-- **Encabezado**: los dos logos a la izquierda (el de la empresa y el de marca), y a la derecha el
-  nombre del documento en 18pt sobre `#2c3e50` con el folio debajo en 13pt. Si no hay logos, la
-  celda queda vacía y el resto no se recorre.
+- **Encabezado**: los dos logos a la izquierda (el de la empresa y el de marca), cada uno hasta
+  4 × 4 cm, y a la derecha el nombre del documento en 18pt sobre `#2c3e50` con el folio debajo en
+  13pt. Si no hay logos, la celda queda vacía y el resto no se recorre.
 - **Emisor** (izquierda): nombre, RFC, domicilio, régimen con su descripción, correo y teléfono.
   Debajo, la fecha del documento y su estado **en color**: verde `#27ae60` cuando está vigente,
   rojo `#c0392b` cuando está cancelado.
@@ -487,8 +494,9 @@ los botones de PDF siguen exactamente como están.
 
 1. Los tres documentos comparten encabezado, bloque de emisor, tabla de conceptos, bloque de totales
    y pie, con la paleta gris azulada del formato de referencia.
-2. El encabezado muestra los dos logos a la izquierda y el nombre del documento con su folio a la
-   derecha; sin logos cargados, el resto del encabezado conserva su posición.
+2. El encabezado muestra los dos logos a la izquierda —cada uno hasta 4 × 4 cm, con su proporción
+   intacta— y el nombre del documento con su folio a la derecha; sin logos cargados, el resto del
+   encabezado conserva su posición.
 3. El bloque del emisor imprime nombre, RFC, domicilio y régimen con su descripción, tomados de
    Configuración, en los tres documentos.
 4. Factura y cotización muestran al cliente; la orden de compra muestra al proveedor. La factura

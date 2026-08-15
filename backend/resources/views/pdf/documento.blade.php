@@ -28,8 +28,12 @@
 
         .encabezado { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
         .encabezado td { vertical-align: top; }
-        .logo { max-width: 200px; max-height: 70px; }
-        .logo-marca { max-width: 150px; max-height: 70px; }
+        /*
+         * En milímetros y no en píxeles: así la caja mide lo que dice sobre el papel (4 cm de alto)
+         * sin depender del dpi con el que dompdf traduzca los píxeles. Los 55 mm de ancho son lo que
+         * cabe en la celda del encabezado: 30% de los 193 mm útiles de una A4 con estos márgenes.
+         */
+        .logo, .logo-marca { max-width: 55mm; max-height: 40mm; }
         .doc-titulo { font-size: 18pt; font-weight: bold; color: #2c3e50; }
         .doc-folio { font-size: 13pt; }
         .derecha { text-align: right; }
@@ -67,6 +71,29 @@
         .mono-sm { font-family: 'DejaVu Sans Mono', monospace; font-size: 6.5pt; word-wrap: break-word; white-space: normal; }
 
         .nota { text-align: center; margin-top: 8px; font-size: 7.5pt; color: #666; font-style: italic; border-top: 1px solid #eee; padding-top: 5px; }
+
+        /*
+         * Cuentas de cobro del encabezado (ver 026-datos-bancarios-cotizacion.md). A 7.5pt los 18
+         * dígitos de una CLABE con su etiqueta caben en el 40% de ancho de la celda —unos 77 mm—
+         * sin partirse en dos renglones.
+         *
+         * El texto de este comentario evita la frase que imprime el bloque: los comentarios CSS
+         * viajan literales dentro del <style> de los tres documentos, y una prueba que verifica
+         * que la factura NO dice esa frase la encontraría aquí.
+         */
+        .bancos { margin-top: 10px; font-size: 7.5pt; }
+        .bancos-titulo { font-weight: bold; font-size: 7.5pt; text-transform: uppercase; color: #2c3e50; border-bottom: 1px solid #2c3e50; padding-bottom: 2px; margin-bottom: 4px; }
+        .banco { margin-bottom: 5px; }
+        .banco-nombre { font-weight: bold; }
+        /*
+         * La tabla del nombre se pega a la derecha con margin-left:auto, no con float, para que el
+         * renglón siguiente (el beneficiario, la cuenta) no se le suba al lado.
+         */
+        .banco-encabezado { border-collapse: collapse; margin-left: auto; }
+        .banco-encabezado td { padding: 0; vertical-align: middle; }
+        .banco-icono { padding-right: 4px; }
+        /* En milímetros: así mide lo que dice sobre el papel, sin depender del dpi de dompdf. */
+        .icono { height: 5mm; }
     </style>
 </head>
 <body>
@@ -89,6 +116,9 @@
         <td width="40%" class="derecha">
             <p class="doc-titulo">{{ $titulo }}</p>
             <p class="doc-folio">{{ $folio }}</p>
+            {{-- Solo la cotización lo llena (ver 026-datos-bancarios-cotizacion.md); factura y
+                 orden de compra heredan el hueco vacío y salen idénticas. --}}
+            @yield('encabezado-extra')
         </td>
     </tr>
 </table>
