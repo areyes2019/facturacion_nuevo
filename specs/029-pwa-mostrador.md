@@ -280,10 +280,20 @@ diez segundos, exactamente como manda 027. Esta spec cambia cómo se llega, no l
   aparato se va a segundo plano.
 - **Vibración**: un zumbido corto (`navigator.vibrate(60)`) al reconocer un código válido. Es la
   confirmación que no obliga a mirar la pantalla.
-- **Respaldo por foto**: si el navegador no trae el detector —`leerQr()` devuelve `null`—, en vez de
-  un botón muerto la pantalla ofrece **tomarle una foto a la etiqueta** y lee el código de la
-  imagen. Con Android no hace falta hoy; entra como seguro para el día en que se sume un aparato con
-  Safari, donde el escáner simplemente no existiría.
+- **Respaldo por foto**: cuando la cámara en vivo no se puede abrir —permiso denegado, o un
+  navegador que no da `getUserMedia`—, en vez de una pantalla muerta se ofrece **tomarle una foto a
+  la etiqueta**, que se lee con el mismo detector. Es el camino para el aparato que sí trae detector
+  pero no deja mirar por la cámara.
+
+**Lo que el respaldo por foto no puede cubrir**: un navegador que no trae el detector tampoco puede
+leer la foto, porque quien la leería es el detector que falta. Decodificar un QR sin él exigiría una
+librería de terceros en el navegador —o una en PHP, porque el backend tampoco decodifica imágenes:
+el `qr_url` de la constancia siempre lo lee el navegador (ver
+[016](016-constancia-situacion-fiscal-qr.md))—, y ninguna de las dos entra en el alcance de esta
+spec. Ahí la pantalla lo dice con todas sus letras y manda a abrir la etiqueta con la app de cámara
+del teléfono, que es lo que se hacía antes de esta spec. Se acepta porque el aparato del mostrador
+es Android, donde el detector existe (supuesto 25); el día que se sume un aparato con Safari, sumar
+la librería es el cambio que toca, y es una spec nueva.
 
 Los cuatro son opcionales por naturaleza: cada uno se ofrece solo si el aparato lo soporta y su
 ausencia nunca rompe el escaneo.
@@ -361,6 +371,9 @@ Ninguna ruta existente cambia de dirección ni de nombre.
 - **Cobrar con terminal bancaria** o cualquier medio de pago que no sea registrar el monto.
 - **Leer códigos de barras de artículos** para agregarlos a la venta. El catálogo no tiene códigos
   de barras capturados; el escáner solo lee el QR de las etiquetas del sistema.
+- **Decodificar códigos QR sin el detector del navegador**, con una librería de terceros en el
+  frontend o en PHP. El escáner descansa en el detector nativo, y donde no lo hay lo dice en vez de
+  fingir que puede (ver "Las cuatro ayudas de la cámara").
 - **Un quinto acceso**, de cualquier clase, y cualquier resumen, cifra o gráfica en la pantalla de
   inicio.
 - **Notificaciones al celular** (push).
@@ -396,7 +409,9 @@ Ninguna ruta existente cambia de dirección ni de nombre.
     segundos, y al terminar se puede escanear la siguiente sin volver al inicio.
 13. La linterna, la pantalla despierta y la vibración funcionan donde el aparato las soporta, y su
     ausencia no impide escanear.
-14. En un navegador sin detector de códigos, el escáner ofrece tomar una foto de la etiqueta y la lee.
+14. Con el detector disponible pero la cámara en vivo cerrada, el escáner ofrece tomar una foto de la
+    etiqueta y la lee. Sin detector, dice que ese navegador no puede leer códigos y manda a abrir la
+    etiqueta con la app de cámara, en vez de fallar sin explicación.
 15. Existe un botón visible para instalar la aplicación, que desaparece una vez instalada.
 16. La aplicación instalada abre siempre en los cuatro accesos.
 17. Con una versión nueva desplegada, la aplicación abierta muestra un aviso con un botón de recargar.
@@ -465,13 +480,14 @@ Aprobados uno por uno con el usuario antes de redactar. Los que el usuario cambi
 23. **La factura llega hasta el timbrado**, con un paso de revisión antes.
 24. **Al cliente que no está en el catálogo se le escanea la constancia fiscal.**
 25. **El aparato del mostrador es Android**, así que el detector de códigos del navegador está
-    disponible y el respaldo por foto es un seguro, no una necesidad.
+    disponible. Sobre eso descansa que el respaldo por foto no tenga que cubrir la ausencia del
+    detector.
 26. **La venta al público termina cobrando y compartiendo el ticket**; la etiqueta se imprime desde la
     computadora.
 
 **Adiciones técnicas aceptadas**
 
-27. Respaldo por foto cuando el navegador no trae el detector de códigos.
+27. Respaldo por foto cuando la cámara en vivo no se puede abrir.
 28. Linterna dentro del escáner.
 29. La pantalla no se apaga mientras el escáner está abierto.
 30. Vibración corta al leer un código válido.
