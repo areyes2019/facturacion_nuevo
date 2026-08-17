@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { extraerCamposDeTexto, extraerPares, leerQr, normalizarEtiqueta } from './constanciaFiscal'
+import { extraerCamposDeTexto, extraerPares, normalizarEtiqueta } from './constanciaFiscal'
 
 /**
  * Lectura de la constancia en el navegador (ver specs/016-constancia-situacion-fiscal-qr.md).
@@ -106,14 +106,5 @@ describe('extraerCamposDeTexto', () => {
 
   it('descarta un rfc demasiado corto para serlo', () => {
     expect(extraerCamposDeTexto('RFC: PME12').rfc).toBe(null)
-  })
-})
-
-describe('leerQr', () => {
-  it('devuelve null sin lanzar cuando el navegador no trae lector de códigos', async () => {
-    // Safari y Firefox todavía no traen BarcodeDetector. Es un camino previsto —la imagen se sube
-    // y el QR lo lee el backend—, no un error que deba romper el flujo.
-    expect('BarcodeDetector' in globalThis).toBe(false)
-    await expect(leerQr(new Blob([]))).resolves.toBe(null)
   })
 })

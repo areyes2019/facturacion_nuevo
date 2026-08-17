@@ -1,31 +1,51 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
-import { CheckCircleIcon, ArrowUturnLeftIcon } from '@heroicons/vue/24/outline'
+import { CheckCircleIcon, ArrowUturnLeftIcon, BanknotesIcon } from '@heroicons/vue/24/outline'
 import { usePedidosStore, type Pedido, type ResultadoEntrega } from '../stores/pedidos'
 import { extractErrorMessage } from '../lib/errors'
+import { enModoMostrador } from '../lib/modoMostrador'
 import AppLayout from '../layouts/AppLayout.vue'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Alert, AlertDescription } from '../components/ui/alert'
-import { Badge } from '../components/ui/badge'
+import { Label } from '../components/ui/label'
+import CuentaSelect from '../components/CuentaSelect.vue'
 
 /**
- * Destino del QR de la etiqueta (ver 027-venta-mostrador-ticket.md).
+ * Destino del QR, el de la etiqueta y el del ticket (ver 027-venta-mostrador-ticket.md).
  *
- * Al abrirse **cobra el saldo y marca entregado, sin pedir confirmación**. El cliente está enfrente
- * esperando su sello y detener el mostrador para pulsar un botón no aporta nada. Lo que sí aporta
- * es el "Deshacer" de 10 segundos, por si se escaneó la etiqueta equivocada.
+ * **Se resuelve sola según el saldo**, en tres caminos:
+ *
+ * - **Ya entregado**: solo informa de quién era y cuándo. No ofrece nada.
+ * - **Saldo en cero**: cierra el pedido al montarse, sin preguntar — no hay nada que decidir, y
+ *   preguntar sería pedir permiso para lo único que se puede hacer. Es el único camino donde el
+ *   sistema actúa por su cuenta, y por eso el único con "Deshacer".
+ * - **Saldo pendiente**: no toca nada hasta que el usuario confirma. Ver a quién se le está
+ *   cobrando antes de cobrarle atrapa la etiqueta equivocada cuando corregirlo todavía es gratis.
+ *
+ * Está pensada para el pulgar y para leerse de lejos: es la única pantalla del sistema que se usa
+ * de pie, con el cliente enfrente y una caja en la otra mano.
  */
 const SEGUNDOS_PARA_DESHACER = 10
 
 const route = useRoute()
 const pedidos = usePedidosStore()
 
-const procesando = ref(true)
+/**
+ * En el mostrador se entregan varios trabajos seguidos: el pie cambia a "Escanear otra" e "Inicio",
+ * porque volver al inicio entre uno y otro son dos toques por paquete, y el detalle del pedido es
+ * una pantalla que el candado de 029 no permite.
+ */
+const mostrador = enModoMostrador()
+
+const cargando = ref(true)
+const confirmando = ref(false)
 const resultado = ref<ResultadoEntrega | null>(null)
 const pedido = ref<Pedido | null>(null)
 const error = ref<string | null>(null)
+
+const cuenta = ref<number | null>(null)
 
 const segundosRestantes = ref(0)
 const deshaciendo = ref(false)
@@ -33,25 +53,65 @@ const deshecho = ref(false)
 
 let cuentaRegresiva: ReturnType<typeof setInterval> | undefined
 
+/**
+ * Mientras no haya resultado y quede saldo por cobrar en un pedido abierto, lo que toca es
+ * confirmar. Se comprueba también el estado porque un pedido ya entregado nunca pide nada, aunque
+ * arrastre saldo: ahí lo único que queda es informar cuándo se entregó.
+ */
+const pideConfirmacion = computed(
+  () =>
+    resultado.value === null &&
+    pedido.value !== null &&
+    pedido.value.estado !== 'entregado' &&
+    pedido.value.saldo_pendiente > 0,
+)
+
+const saldo = computed(() => pedido.value?.saldo_pendiente ?? 0)
+
 onMounted(async () => {
   try {
-    const respuesta = await pedidos.entregar(Number(route.params.id))
+    pedido.value = await pedidos.fetchOne(Number(route.params.id))
+
+    // El pedido ya pagado no tiene nada que preguntar: se cierra al llegar. El ya entregado
+    // tampoco, y el backend responde que no tocó nada y con qué fecha se cerró.
+    if (pedido.value.estado === 'entregado' || pedido.value.saldo_pendiente <= 0) {
+      await cerrar()
+    }
+  } catch (err) {
+    error.value = extractErrorMessage(err)
+  } finally {
+    cargando.value = false
+  }
+})
+
+onBeforeUnmount(() => clearInterval(cuentaRegresiva))
+
+/**
+ * Cierra el pedido. Con saldo manda la cuenta elegida; sin saldo, ninguna — el backend rechaza la
+ * cuenta en ese caso, porque recibirla solo podría significar que alguien entendió mal.
+ */
+async function cerrar() {
+  if (!pedido.value) return
+
+  confirmando.value = true
+  error.value = null
+
+  try {
+    const respuesta = await pedidos.entregar(pedido.value.id, cuenta.value ?? undefined)
     resultado.value = respuesta
     pedido.value = respuesta.pedido
 
-    // El segundo escaneo no cobró nada y no hay nada que deshacer: ofrecer el botón invitaría a
-    // revertir una entrega hecha hace horas.
-    if (!respuesta.ya_estaba_entregado) {
+    // "Deshacer" solo donde el sistema actuó sin preguntar. Tras una confirmación no hace falta, y
+    // el backend además rechaza deshacer una entrega que cobró.
+    if (!respuesta.ya_estaba_entregado && respuesta.cobrado === 0) {
       iniciarCuentaRegresiva()
     }
   } catch (err) {
     error.value = extractErrorMessage(err)
   } finally {
-    procesando.value = false
+    confirmando.value = false
   }
-})
-
-onBeforeUnmount(() => clearInterval(cuentaRegresiva))
+}
 
 function iniciarCuentaRegresiva() {
   segundosRestantes.value = SEGUNDOS_PARA_DESHACER
@@ -81,14 +141,59 @@ async function deshacer() {
 </script>
 
 <template>
-  <AppLayout>
+  <AppLayout :mostrador="mostrador">
     <div class="mx-auto max-w-md space-y-4">
-      <p v-if="procesando" class="text-muted-foreground text-center">Registrando la entrega...</p>
+      <p v-if="cargando" class="text-muted-foreground text-center">Buscando el pedido...</p>
 
       <Alert v-if="error" variant="destructive">
         <AlertDescription>{{ error }}</AlertDescription>
       </Alert>
 
+      <!-- Camino 3: hay saldo y nada se toca hasta confirmar. -->
+      <Card v-if="pideConfirmacion && pedido">
+        <CardHeader class="items-center text-center">
+          <BanknotesIcon class="text-primary size-12" />
+          <CardTitle>Cobrar y entregar</CardTitle>
+        </CardHeader>
+
+        <CardContent class="space-y-5">
+          <div class="text-center">
+            <p class="font-mono text-2xl font-semibold">{{ pedido.numero_ticket }}</p>
+            <p class="text-lg">{{ pedido.cliente_nombre }}</p>
+            <p class="text-muted-foreground text-sm">{{ pedido.cliente_telefono }}</p>
+          </div>
+
+          <div class="flex flex-col gap-1">
+            <div class="flex justify-between text-sm">
+              <span class="text-muted-foreground">Total</span>
+              <span>${{ pedido.total.toFixed(2) }}</span>
+            </div>
+            <div class="flex justify-between text-sm">
+              <span class="text-muted-foreground">Pagado</span>
+              <span>${{ pedido.total_pagado.toFixed(2) }}</span>
+            </div>
+            <div class="flex items-baseline justify-between border-t pt-2 text-2xl font-semibold">
+              <span>Saldo</span>
+              <span>${{ saldo.toFixed(2) }}</span>
+            </div>
+          </div>
+
+          <div class="space-y-1.5">
+            <Label>¿A qué cuenta entra el dinero?</Label>
+            <CuentaSelect v-model="cuenta" />
+          </div>
+
+          <Button class="h-14 w-full text-base" :disabled="confirmando || !cuenta" @click="cerrar">
+            {{ confirmando ? 'Registrando...' : `Cobrar $${saldo.toFixed(2)} y entregar` }}
+          </Button>
+
+          <p class="text-muted-foreground text-center text-xs">
+            Se cobra el saldo completo y el pedido queda cerrado.
+          </p>
+        </CardContent>
+      </Card>
+
+      <!-- Caminos 1 y 2, y el acuse de los tres. -->
       <Card v-if="resultado && pedido">
         <CardHeader class="items-center text-center">
           <CheckCircleIcon v-if="!deshecho" class="text-primary size-12" />
@@ -107,8 +212,7 @@ async function deshacer() {
 
           <template v-if="deshecho">
             <p class="text-muted-foreground text-sm">
-              Se borró el cobro automático y se devolvió el saldo de la cuenta. El pedido quedó como
-              estaba.
+              El pedido quedó como estaba. No se movió ningún pago.
             </p>
           </template>
 
@@ -126,13 +230,9 @@ async function deshacer() {
                 Registrado en <strong>{{ resultado.cuenta_nombre }}</strong>
               </p>
             </div>
-            <p v-else-if="!resultado.aviso" class="text-muted-foreground text-sm">
+            <p v-else class="text-muted-foreground text-sm">
               El pedido ya estaba pagado por completo.
             </p>
-
-            <Alert v-if="resultado.aviso" variant="destructive">
-              <AlertDescription>{{ resultado.aviso }}</AlertDescription>
-            </Alert>
 
             <Button
               v-if="segundosRestantes > 0"
@@ -161,11 +261,16 @@ async function deshacer() {
             </div>
           </div>
 
-          <Badge v-if="pedido.saldo_pendiente > 0" variant="destructive">
-            Queda saldo por cobrar
-          </Badge>
+          <div v-if="mostrador" class="flex gap-2">
+            <Button as-child variant="outline" class="h-12 flex-1">
+              <RouterLink :to="{ name: 'mostrador-escanear' }">Escanear otra</RouterLink>
+            </Button>
+            <Button as-child variant="ghost" class="h-12 flex-1">
+              <RouterLink :to="{ name: 'dashboard' }">Inicio</RouterLink>
+            </Button>
+          </div>
 
-          <Button as-child variant="ghost" class="w-full">
+          <Button v-else as-child variant="ghost" class="w-full">
             <RouterLink :to="{ name: 'pedidos-detalle', params: { id: pedido.id } }">
               Ver el pedido completo
             </RouterLink>

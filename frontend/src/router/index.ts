@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { rutaBloqueadaEnMostrador } from '../lib/modoMostrador'
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -211,6 +212,34 @@ const router = createRouter({
       component: () => import('../views/PedidoDetalleView.vue'),
       meta: { requiresAuth: true },
     },
+    // Captura por pasos del modo mostrador (ver 029-pwa-mostrador.md). Van bajo un prefijo común
+    // para que el candado del guard sea una sola regla y no una lista que haya que recordar
+    // ampliar. **No son una puerta de entrada**: nadie las escribe ni las guarda; se llega a ellas
+    // tocando los cuatro accesos.
+    {
+      path: '/mostrador/venta',
+      name: 'mostrador-venta',
+      component: () => import('../views/mostrador/MostradorVentaView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/mostrador/factura',
+      name: 'mostrador-factura',
+      component: () => import('../views/mostrador/MostradorFacturaView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/mostrador/cotizacion',
+      name: 'mostrador-cotizacion',
+      component: () => import('../views/mostrador/MostradorCotizacionView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/mostrador/escanear',
+      name: 'mostrador-escanear',
+      component: () => import('../views/mostrador/MostradorEscanearView.vue'),
+      meta: { requiresAuth: true },
+    },
     {
       // Portal público de autofacturación: lo abre el cliente, que no tiene cuenta en el sistema.
       // Fuera del guard de sesión y sin el layout de la aplicación.
@@ -310,6 +339,14 @@ router.beforeEach(async (to) => {
   }
 
   if (to.meta.guestOnly && auth.isAuthenticated) {
+    return { name: 'dashboard' }
+  }
+
+  // El candado del modo mostrador (ver 029-pwa-mostrador.md). "No se llega por ningún medio" no se
+  // cumple escondiendo el menú: una dirección vieja guardada en el navegador, un enlace pegado o un
+  // botón que quedó apuntando a una pantalla de escritorio terminan en los cuatro accesos, en vez
+  // de mostrar media aplicación que ahí no se puede usar.
+  if (rutaBloqueadaEnMostrador(String(to.name ?? ''))) {
     return { name: 'dashboard' }
   }
 

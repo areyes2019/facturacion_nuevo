@@ -8,6 +8,13 @@
  * reconocimiento de caracteres.
  */
 
+/**
+ * La lectura del QR vive en `lectorQr.ts` desde que el escáner de etiquetas del modo mostrador la
+ * necesita también (ver 029-pwa-mostrador.md). Se reexporta para que quien lee constancias siga
+ * pidiéndosela a este módulo, que es el que conoce el flujo completo.
+ */
+export { leerQr } from './lectorQr'
+
 /** Etiquetas de la constancia, con las mismas variantes que reconoce el backend. */
 const ALIAS: Record<string, string[]> = {
   rfc: ['rfc', 'elrfc'],
@@ -212,41 +219,6 @@ export async function renderizarPrimeraPagina(archivo: File): Promise<Blob> {
       'image/png',
     )
   })
-}
-
-interface DetectorCodigos {
-  detect(fuente: ImageBitmapSource): Promise<{ rawValue: string }[]>
-}
-
-/**
- * Lee el código QR con el detector nativo del dispositivo: el mismo que usa la cámara del celular
- * al apuntar a un código, y muy superior a cualquier librería con fotos inclinadas, con sombra o
- * movidas.
- *
- * Devuelve `null` sin lanzar cuando el navegador no lo trae (Safari y Firefox todavía no) o cuando
- * no encuentra ningún código: en ambos casos el flujo sigue subiendo la imagen para que el QR lo
- * lea el backend. Un lector ausente es un camino previsto, no un error.
- */
-export async function leerQr(imagen: Blob): Promise<string | null> {
-  const constructor = (
-    globalThis as unknown as {
-      BarcodeDetector?: new (opciones: { formats: string[] }) => DetectorCodigos
-    }
-  ).BarcodeDetector
-
-  if (!constructor) {
-    return null
-  }
-
-  try {
-    const bitmap = await createImageBitmap(imagen)
-    const codigos = await new constructor({ formats: ['qr_code'] }).detect(bitmap)
-    bitmap.close()
-
-    return codigos[0]?.rawValue?.trim() || null
-  } catch {
-    return null
-  }
 }
 
 /** Reconocimiento de caracteres, el último recurso: puede equivocarse y por eso se avisa. */

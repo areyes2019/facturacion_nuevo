@@ -13,17 +13,26 @@ export default defineConfig({
     // direcciones). Requiere HTTPS en el servidor: fuera de localhost el navegador no registra
     // el service worker ni ofrece la instalación.
     VitePWA({
-      // El service worker se actualiza solo cuando cambia el build. La alternativa ('prompt')
-      // obliga a construir UI para avisar al usuario; acá no hace falta.
-      registerType: 'autoUpdate',
+      // 'prompt' y no 'autoUpdate': la actualización silenciosa deja a una pestaña abierta desde
+      // ayer con la versión vieja sin que nadie lo sepa, y un aparato de mostrador se queda abierto
+      // días enteros. `AvisoActualizacion.vue` es la barra que lo dice (ver 029-pwa-mostrador.md).
+      registerType: 'prompt',
       injectRegister: 'auto',
       manifest: {
         name: 'Facturación',
         short_name: 'Facturación',
         description: 'Sistema de facturación: ventas, compras, inventario y contabilidad.',
         lang: 'es',
-        start_url: '/',
+        // La aplicación instalada **siempre abre en los cuatro accesos**, no en la última pantalla
+        // que se estaba viendo: abrir el punto de venta y encontrarse a medio capturar la venta de
+        // ayer es peor que empezar de cero.
+        start_url: '/dashboard',
         scope: '/',
+        // Con el dedo apretado sobre el icono se entra directo, sin pasar por los cuatro accesos.
+        shortcuts: [
+          { name: 'Nueva venta', short_name: 'Venta', url: '/mostrador/venta' },
+          { name: 'Escanear etiquetas', short_name: 'Escanear', url: '/mostrador/escanear' },
+        ],
         display: 'standalone',
         theme_color: '#863bff',
         background_color: '#ffffff',

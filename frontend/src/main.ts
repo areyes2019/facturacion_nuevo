@@ -3,6 +3,11 @@ import { createPinia } from 'pinia'
 import './style.css'
 import App from './App.vue'
 import router from './router'
+import { escucharInstalacion } from './lib/instalacion'
+
+// El navegador dispara `beforeinstallprompt` muy pronto; hay que estar escuchando antes de montar
+// nada o el aviso se pierde para el resto de la sesión (ver 029-pwa-mostrador.md).
+escucharInstalacion()
 
 // Recarga ante chunk faltante (ver 011-precio-proveedor-utilidad.md). Los assets salen con hash de
 // contenido y `dist/` se vacía en cada build, así que una pestaña abierta durante un despliegue

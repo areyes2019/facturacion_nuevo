@@ -41,7 +41,16 @@ import {
  * La clase se aplica a la barra superior, al menú móvil y al `<main>` a la vez: si solo se ensanchara
  * el contenido, la tabla saldría descuadrada respecto del encabezado que tiene encima.
  */
-const props = withDefaults(defineProps<{ ancho?: 'normal' | 'amplio' }>(), { ancho: 'normal' })
+/**
+ * `mostrador` deja la barra en lo mínimo (ver 029-pwa-mostrador.md): desaparecen el menú de grupos
+ * y el menú de usuario, que son puertas a lo que el candado del router ya cierra, y dejarlas a la
+ * vista sería ofrecer lo que no se puede dar. Queda el nombre del sistema, que en las pantallas
+ * interiores funciona como botón de regreso a los cuatro accesos.
+ */
+const props = withDefaults(defineProps<{ ancho?: 'normal' | 'amplio'; mostrador?: boolean }>(), {
+  ancho: 'normal',
+  mostrador: false,
+})
 
 const anchoContenedor = computed(() => (props.ancho === 'amplio' ? 'max-w-[96rem]' : 'max-w-5xl'))
 
@@ -115,7 +124,12 @@ async function onLogout() {
           <!-- Escritorio: grupos desplegables. `disable-hover-trigger` deja la
                apertura solo por clic, para que táctil y escritorio se comporten
                igual. -->
-          <NavigationMenu v-model="grupoAbierto" disable-hover-trigger class="hidden md:flex">
+          <NavigationMenu
+            v-if="!mostrador"
+            v-model="grupoAbierto"
+            disable-hover-trigger
+            class="hidden md:flex"
+          >
             <NavigationMenuList class="gap-1">
               <NavigationMenuItem
                 v-for="grupo in gruposNavegacion"
@@ -150,7 +164,7 @@ async function onLogout() {
           </NavigationMenu>
         </div>
 
-        <div class="flex min-w-0 items-center gap-2">
+        <div v-if="!mostrador" class="flex min-w-0 items-center gap-2">
           <!-- Menú de usuario: el nombre abre un desplegable con la configuración
                del sistema y el cierre de sesión. Usa DropdownMenu y no
                NavigationMenu porque mezcla un destino con una acción (ver 003).
@@ -208,7 +222,7 @@ async function onLogout() {
 
       <!-- Móvil: los mismos grupos como acordeón, sin desplegables flotantes. -->
       <nav
-        v-if="menuMovilAbierto"
+        v-if="menuMovilAbierto && !mostrador"
         id="menu-movil"
         class="border-border mx-auto border-t px-4 py-2 md:hidden"
         :class="anchoContenedor"
