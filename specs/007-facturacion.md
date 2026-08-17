@@ -55,9 +55,11 @@ multiempresa.
   coinciden exactamente.
 - **Totales** (siempre recalculados en backend, nunca persistidos tal cual los mande el frontend):
   `subtotal`, `total_descuento` (líneas + global), `total_iva_16`, `total_iva_0`,
-  `total_exento`, `total`. `total_iva_16`/`total_iva_0` se calculan **después** de aplicar tanto
-  el descuento de línea como la porción prorrateada del descuento global a cada línea (ver
-  "Cálculo de totales e IVA con descuento global" más abajo).
+  `total_exento`, `ajuste_al_peso`, `total`. `total_iva_16`/`total_iva_0` se calculan **después** de
+  aplicar tanto el descuento de línea como la porción prorrateada del descuento global a cada línea
+  (ver "Cálculo de totales e IVA con descuento global" más abajo). `ajuste_al_peso` son los centavos
+  que suben el total al peso cerrado, el último eslabón del cálculo
+  ([030](030-total-al-peso-cerrado.md)).
 - **Sellos/timbrado** (nullable hasta timbrarse; mapeados de la respuesta real de facturapi.io al
   timbrar — `uuid`, `folio_number`, `series`, `status`, objeto `stamp{...}`):
   - `facturapi_invoice_id` (campo `id` de la respuesta): identificador propio de facturapi.io para
@@ -115,12 +117,14 @@ el descuento global sí quede reflejado, tanto en el IVA interno como en lo que 
 3. **Segunda pasada, IVA por línea**: `importe_neto_final_línea = importe_pre_global −
    parte_línea`; el IVA de cada línea se calcula sobre `importe_neto_final_línea` según su
    `tasa_iva`. `total_iva_16`/`total_iva_0`/`total_exento` son la suma de esos IVA por línea.
-4. **Total**: `subtotal − descuento_global_monto + total_iva_16 + total_iva_0` (sin cambios en la
-   fórmula final, pero ahora los IVA que la componen ya están calculados correctamente).
+4. **Total**: `subtotal − descuento_global_monto + total_iva_16 + total_iva_0`, más el
+   `ajuste_al_peso` que cierra el total en pesos cerrados ([030](030-total-al-peso-cerrado.md)) — un
+   eslabón posterior que no toca ninguno de los sumandos anteriores.
 5. **Payload a facturapi.io**: el `discount` de cada ítem que arma `FacturapiService` pasa a ser
    `descuento_línea + parte_línea` (antes solo era `descuento_línea`) — así facturapi.io calcula
    el IVA sobre la misma base neta final que ya calculó el backend, y el CFDI timbrado coincide
-   con el total mostrado en el sistema.
+   con el total mostrado en el sistema. Cuando hay `ajuste_al_peso`, el payload lleva además un
+   ítem final "Ajuste al peso" sin traslados ([030](030-total-al-peso-cerrado.md)).
 6. Si una factura no tiene descuento global (`descuento_global_valor` nulo), `parte_línea = 0`
    para todas las líneas y el comportamiento es idéntico al actual (sin cambios para el caso sin
    descuento global).
@@ -331,7 +335,7 @@ Se amplía la base SQLite reducida de catálogos SAT creada en 004 y ampliada en
       unitario − descuento), **sin IVA incluido** — el IVA de cada línea se desglosa aparte en
       los totales generales.
   - Desglose de totales en tiempo real (subtotal, descuentos por línea, descuento global,
-    IVA por tasa, total), recalculado en el navegador conforme se editan las líneas.
+    IVA por tasa, ajuste al peso, total), recalculado en el navegador conforme se editan las líneas.
     **(Corregido — bug detectado el 2026-07-31)**: este cálculo en el navegador debe replicar
     **exactamente** el mismo algoritmo de dos pasadas que `FacturaTotalesCalculator` en el
     backend (ver "Cálculo de totales e IVA con descuento global" en el modelo `Factura`): primero

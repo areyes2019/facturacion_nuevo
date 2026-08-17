@@ -36,8 +36,9 @@ cancelación de cotizaciones, notas de crédito, ni multiempresa.
   - Editar una cotización que está en `enviada` la regresa a `borrador` (obliga a reenviarla
     explícitamente para notificar el cambio al cliente).
 - **Descuento global** y **totales** (`subtotal`, `total_descuento`, `total_iva_16`,
-  `total_iva_0`, `total_exento`, `total`): mismo modelo y mismo algoritmo de cálculo (dos pasadas,
-  prorrateo del descuento global entre líneas antes del IVA) que `Factura`/
+  `total_iva_0`, `total_exento`, `ajuste_al_peso`, `total`): mismo modelo y mismo algoritmo de
+  cálculo (dos pasadas, prorrateo del descuento global entre líneas antes del IVA, y el ajuste al
+  peso cerrado de [030](030-total-al-peso-cerrado.md) al final) que `Factura`/
   `FacturaTotalesCalculator` de 007 — se generaliza/reutiliza esa clase para operar también sobre
   `CotizacionLinea`. Recalculados siempre en backend, nunca persistidos tal cual los mande el
   frontend (mismo criterio de validación que en 007: `422` si el `total` enviado no coincide con
@@ -489,7 +490,9 @@ Implementada el 2026-07-31.
 3. Una cotización se compone de una o varias líneas de artículo (del catálogo de 006), con la
    misma estructura que `FacturaLinea` de 007.
 4. Los totales de la cotización se calculan con el mismo algoritmo de dos pasadas que
-   `FacturaTotalesCalculator` (007), incluyendo un descuento global opcional.
+   `FacturaTotalesCalculator` (007), incluyendo un descuento global opcional y el ajuste al peso
+   cerrado de [030](030-total-al-peso-cerrado.md): el total de la cotización y el de la factura que
+   sale de ella son el mismo número.
 5. Los 4 estados (`borrador`, `enviada`, `pagada`, `producto_entregado`) son secuenciales y no hay
    retroceso automático entre ellos, salvo el caso del supuesto 18.
 6. **(Redefinido dos veces)** El paso `borrador` → `enviada` ocurre al enviar la cotización al

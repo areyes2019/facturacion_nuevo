@@ -221,9 +221,11 @@ En la orden de compra la columna de precio se titula **Costo unitario**; en fact
 ### Los totales
 
 Bloque de ancho `32%` alineado a la derecha, con bordes, y el renglón de Total sobre fondo gris.
-Renglones: Subtotal · Descuento · IVA 16% · IVA 0% / Exento · Total. El de Descuento aparece solo
-cuando hay descuento; los dos de IVA, solo cuando su importe es distinto de cero, porque una
-cotización sin nada exento no gana nada mostrando un renglón en `$0.00`.
+Renglones: Subtotal · Descuento · IVA 16% · IVA 0% / Exento · Ajuste al peso · Total. El de
+Descuento aparece solo cuando hay descuento; los dos de IVA, solo cuando su importe es distinto de
+cero, porque una cotización sin nada exento no gana nada mostrando un renglón en `$0.00`; el de
+Ajuste al peso ([030](030-total-al-peso-cerrado.md)), solo cuando es mayor a cero, y por eso no
+aparece nunca en una orden de compra, que no redondea.
 
 La moneda se imprime junto al total: `$1,234.56 MXN`. La factura usa `factura.moneda`; cotización y
 orden de compra siguen siendo MXN fijo, como hoy.
@@ -508,8 +510,8 @@ los botones de PDF siguen exactamente como están.
    unitario".
 7. Una línea sin artículo asociado imprime la Clave SAT vacía; una línea de un artículo dado de baja
    conserva la suya.
-8. El bloque de totales aparece a la derecha con Subtotal, Descuento, IVA 16%, IVA 0%/Exento y Total,
-   omitiendo los renglones en cero, con el Total sobre fondo gris y con la moneda.
+8. El bloque de totales aparece a la derecha con Subtotal, Descuento, IVA 16%, IVA 0%/Exento, Ajuste
+   al peso y Total, omitiendo los renglones en cero, con el Total sobre fondo gris y con la moneda.
 9. Una factura timbrada imprime el Timbre Fiscal Digital con QR, UUID, serie del CSD, ambos sellos y
    la cadena original, sin que ninguna tira se salga de la hoja ni quede cortada.
 10. El QR se genera sin salida a internet y apunta a la página de verificación del SAT con los cinco

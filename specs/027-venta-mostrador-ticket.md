@@ -135,9 +135,12 @@ descripción, cantidad y precio a mano, sin que el producto exista en el catálo
 - **No se da de alta en el catálogo.** Es una venta suelta, no un producto nuevo.
 - **Sí se puede facturar**, con claves SAT genéricas (ver "Portal de autofacturación").
 
-Los precios de las líneas con artículo se precargan del catálogo con el **precio con IVA redondeado
-a peso entero** de [024](024-precios-sin-centavos.md), y cantidad y precio quedan editables en la
-línea, igual que en 008.
+Los precios de las líneas con artículo se precargan del catálogo con el `precio_unitario_sin_iva`
+del artículo —el que produce el **precio con IVA en peso cerrado** de
+[024](024-precios-sin-centavos.md)—, y cantidad y precio quedan editables en la línea, igual que en
+008. El IVA se suma encima por renglón, como en cualquier documento del sistema; el ticket es el que
+imprime el precio con IVA de vuelta, para que el cliente pueda verificar su cuenta (ver "El ticket
+JPG" y [030](030-total-al-peso-cerrado.md)).
 
 ### Modelo `PedidoPago`
 
@@ -210,8 +213,12 @@ confirmada disponible en local y verificada como requisito en [020](020-imagenes
   2. Nombre, teléfono y domicilio del emisor.
   3. `TICKET No. 00042` y la fecha y hora de la venta.
   4. Nombre del cliente.
-  5. Las líneas: cantidad, descripción, precio unitario e importe.
-  6. Subtotal, descuento (si lo hay), IVA y **Total**.
+  5. Las líneas: cantidad, descripción, **precio unitario con IVA** e importe. El precio va con IVA
+     porque es el número que el cliente conoce y el único con el que puede comprobar el total que
+     lee abajo: `3 x $204.00` cuadra contra un total de $612.00, mientras que el precio sin IVA
+     imprimiría `3 x $175.86` al lado de un importe que no es el producto de esos dos números.
+  6. Subtotal, descuento (si lo hay), IVA, **ajuste al peso** (si lo hay,
+     [030](030-total-al-peso-cerrado.md)) y **Total**.
   7. **Pagado** y **Saldo pendiente**.
   8. **El código QR**, centrado, de **300 × 300 px** sobre fondo blanco, con `No. 00042` impreso
      debajo.
@@ -800,7 +807,11 @@ revisó como imagen, no solo por sus medidas.
     pedido en el listado del usuario.
 16. Cambiar el número del enlace de autofactura a mano no lleva a ningún otro pedido.
 17. El enlace deja de funcionar al terminar el mes de la venta y cuando el pedido ya se facturó.
-18. Ninguna pantalla del sistema pide datos de producción, y `php artisan test`, `pint`,
+18. El total del pedido queda en peso cerrado ([030](030-total-al-peso-cerrado.md)): tres piezas de
+    un artículo de $204.00 con IVA dan $612.00, el ticket imprime `3 x $204.00` arriba de ese total,
+    y la factura que el cliente se genera en el portal de autofacturación dice exactamente el mismo
+    número.
+19. Ninguna pantalla del sistema pide datos de producción, y `php artisan test`, `pint`,
     `npm run build`, `npm run lint` y `vitest` corren en verde.
 
 ## Supuestos asumidos (registro completo)
@@ -844,8 +855,9 @@ se movió y por qué.
 **El ticket**
 
 15. Imagen JPG vertical estilo tira de punto de venta, no PDF.
-16. **(Redefinido)** Contiene datos del negocio, no. de ticket, fecha y hora, cliente, líneas,
-    total, pagado, saldo **y el código QR**, al pie, centrado y grande. (La versión original decía
+16. **(Redefinido)** Contiene datos del negocio, no. de ticket, fecha y hora, cliente, líneas con su
+    precio unitario **con IVA**, total en peso cerrado ([030](030-total-al-peso-cerrado.md)),
+    pagado, saldo **y el código QR**, al pie, centrado y grande. (La versión original decía
     "sin QR": el código vivía solo en la etiqueta, con el argumento de que el cliente no cierra su
     propio pedido. Lo que ese argumento pasaba por alto es que el cliente **llega con el ticket en
     el celular y sin la caja**, y ahí el QR de su pantalla es lo único que hay para cerrar la

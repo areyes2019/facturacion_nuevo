@@ -114,15 +114,15 @@ En artículos muy baratos es notorio: un precio crudo con IVA de $6.03 aterriza 
 arriba, porque el $7.00 intermedio es inalcanzable. Es el precio de la regla "siempre hacia arriba,
 siempre entero" en montos pequeños, y se acepta: el catálogo no vende artículos de ese rango.
 
-### Lo que el redondeo no alcanza
+### Lo que este redondeo no alcanza: el total del documento
 
 El número entero es una propiedad del **precio de lista del artículo**: la ficha, el listado, el
 buscador y lo que se le contesta al cliente cuando pregunta cuánto cuesta.
 
 En una factura o cotización, el IVA se calcula sobre el importe del renglón completo, no pieza por
 pieza ([FacturaTotalesCalculator](../backend/app/Services/FacturaTotalesCalculator.php)). Con más de
-una pieza, la fracción de centavo que absorbe el redondeo se acumula y el total queda unos centavos
-por debajo del múltiplo exacto:
+una pieza, la fracción de centavo que absorbe el redondeo se acumula y el total del documento queda
+unos centavos por debajo del múltiplo exacto:
 
 ```
 1 pieza  →  201.72 + IVA  32.28 = $234.00     (= 1 × 234.00)
@@ -131,16 +131,17 @@ por debajo del múltiplo exacto:
 6 piezas → 1210.32 + IVA 193.65 = $1,403.97   (−$0.03)
 ```
 
-Esto **se acepta tal cual** y no se corrige. Las dos formas de eliminarlo son peores:
+Ese desfase **no se corrige aquí**, porque no es un problema del precio de lista: se cierra en el
+total del documento, con el ajuste al peso de [030](030-total-al-peso-cerrado.md), que suma los
+centavos faltantes como un concepto propio y deja el total en $468.00 y $1,404.00.
 
-- Calcular el IVA por pieza y multiplicarlo cuadra en todas las cantidades, pero produce un importe
-  de traslado distinto del 16% del importe del renglón —con 10 piezas, 5 centavos arriba— y expone
-  el timbrado a rechazo.
-- Imprimir en el PDF una columna de precio con IVA pondría "$468.00" en la fila y "$467.99" en el
-  desglose de la misma hoja, que es peor que el problema original.
+Lo que sí queda descartado para siempre es **calcular el IVA por pieza y multiplicarlo**: cuadra en
+todas las cantidades, pero produce un importe de traslado distinto del 16% del importe del renglón
+—con 10 piezas, 5 centavos arriba— y expone el timbrado a rechazo.
 
 El PDF sigue imprimiendo el precio unitario **sin IVA**, como hoy
-([019](019-formato-pdf-documentos.md)).
+([019](019-formato-pdf-documentos.md)); el ticket de mostrador imprime el precio **con IVA**, por lo
+que dice [030](030-total-al-peso-cerrado.md).
 
 ## Backend (Laravel)
 
@@ -284,9 +285,10 @@ Precio final con IVA               $234.00
 - **Redondeo distinto por tipo de cliente**. Aunque las empresas toleren los centavos, el precio del
   artículo es uno solo para todos. Ninguna interacción con el descuento permanente de cliente de
   [015](015-descuento-permanente-cliente.md).
-- **Redondeo dentro de los documentos**: ni del total de la línea, ni del total de la factura o
-  cotización, ni renglón de ajuste, ni re-redondeo después de aplicar un descuento. Un descuento
-  vuelve a producir centavos en ese renglón y así se queda.
+- **Redondeo dentro de los documentos**: ni del total de la línea ni re-redondeo del precio después
+  de aplicar un descuento. Un descuento vuelve a producir centavos en ese renglón y así se queda. El
+  total del documento sí se cierra al peso, pero eso lo define
+  [030](030-total-al-peso-cerrado.md), no esta historia.
 - **Cambios a Facturación, Cotizaciones, Tesorería y Órdenes de Compra**, incluido el cálculo de IVA
   por pieza y cualquier modificación a `FacturaTotalesCalculator`.
 - **Cambios al PDF** ([019](019-formato-pdf-documentos.md)): no se agrega columna de precio con IVA
@@ -332,9 +334,10 @@ Precio final con IVA               $234.00
     no modifica ningún valor.
 13. Facturación y Cotizaciones siguen precargando líneas con `precio_unitario_sin_iva` y calculando
     totales exactamente como antes, sin cambios de comportamiento respecto a 007/008.
-14. En una factura de 2 o más piezas del mismo artículo, el total queda unos centavos por debajo del
-    múltiplo exacto del precio con IVA, y eso es el comportamiento esperado: el importe de IVA de cada
-    renglón sigue siendo el 16% del importe del renglón, sin excepciones.
+14. En una factura de 2 o más piezas del mismo artículo, el importe de IVA de cada renglón sigue
+    siendo el 16% del importe del renglón, sin excepciones: nunca se calcula IVA pieza por pieza. Los
+    centavos que faltan para que el total sea el múltiplo exacto del precio con IVA los cierra el
+    ajuste al peso de [030](030-total-al-peso-cerrado.md).
 15. Pint, ESLint/Prettier y las suites de PHPUnit y Vitest corren sin errores sobre el código nuevo.
 
 ## Supuestos asumidos (registro completo)
@@ -358,11 +361,14 @@ Precio final con IVA               $234.00
    del usuario, no los del cliente.
 10. El total de una línea de varias piezas **no queda redondo**. El IVA se calcula sobre el importe
     del renglón completo, y la fracción de centavo que absorbe el redondeo se acumula: 2 piezas de
-    $234.00 dan $467.99, no $468.00. Se acepta y no se corrige.
+    $234.00 dan $467.99 de importe más IVA. El renglón se queda así; lo que se cierra es el total del
+    documento, en [030](030-total-al-peso-cerrado.md).
 11. Un descuento —por línea, o el descuento permanente de cliente de
-    [015](015-descuento-permanente-cliente.md)— vuelve a producir centavos en ese renglón, y no se
-    re-redondea. El redondeo es una propiedad del precio de lista, no del documento.
-12. El total de la factura tampoco se redondea; solo el precio de lista del artículo.
+    [015](015-descuento-permanente-cliente.md)— vuelve a producir centavos en ese renglón, y el
+    precio no se re-redondea. Este redondeo es una propiedad del precio de lista.
+12. El total del documento se cierra al peso, pero con un mecanismo propio y en otra historia
+    ([030](030-total-al-peso-cerrado.md)): un ajuste que se suma al final, no un re-redondeo de los
+    precios ni de los importes de las líneas.
 13. Todos los artículos existentes se recalculan. Sus precios con IVA suben entre **$0.00 y $1.99**:
     el tope no es $0.99 porque el 13.8% de los pesos enteros es inalcanzable y obliga a subir al
     siguiente.

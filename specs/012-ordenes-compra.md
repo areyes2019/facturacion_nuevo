@@ -50,8 +50,11 @@ captura del CFDI que el proveedor te emite a ti, cuentas por pagar formales, ni 
 - **Descuento global** y **totales** (`subtotal`, `total_descuento`, `total_iva_16`, `total_iva_0`,
   `total_exento`, `total`): mismo modelo y mismo algoritmo de cálculo (dos pasadas, prorrateo del
   descuento global entre líneas antes del IVA) que `Factura`/`Cotizacion`, reutilizando
-  `FacturaTotalesCalculator` **sin modificarlo** (ya opera sobre arreglos genéricos de líneas, según
-  el registro de implementación de 008). Recalculados siempre en backend, nunca persistidos tal cual
+  `FacturaTotalesCalculator` (ya opera sobre arreglos genéricos de líneas, según el registro de
+  implementación de 008). **Una orden de compra no redondea su total**: paga lo que cobra el
+  proveedor, así que llama al calculador sin el ajuste al peso de
+  [030](030-total-al-peso-cerrado.md) —el default— y no tiene columna `ajuste_al_peso`. Lo mismo
+  aplica a la orden de reabastecimiento que genera Inventario ([017](017-inventario.md)). Recalculados siempre en backend, nunca persistidos tal cual
   los mande el frontend: `422` si el `total` enviado no coincide con el recalculado, mismo criterio
   que 007/008.
 - **Pago** (ver "Pago de contado"): `cuenta_id` (FK nullable a `Cuenta` de 010) y `fecha_pago` (date,
@@ -574,8 +577,9 @@ Implementada el 2026-08-05.
     usuario.
 32. No hay flujo de aprobación por roles, ni fletes/gastos adicionales como concepto propio, ni
     comparativo de cotizaciones entre proveedores.
-33. **(Adición técnica)** Se reutiliza `FacturaTotalesCalculator` sin modificarlo, ya que opera sobre
-    arreglos genéricos de líneas. El IVA de la orden es el que cobra el proveedor (acreditable), pero
+33. **(Adición técnica)** Se reutiliza `FacturaTotalesCalculator`, ya que opera sobre arreglos
+    genéricos de líneas, y se le pide explícitamente que **no** redondee al peso
+    ([030](030-total-al-peso-cerrado.md)). El IVA de la orden es el que cobra el proveedor (acreditable), pero
     como el sistema no lleva contabilidad fiscal de IVA, esa distinción solo cambia etiquetas del
     PDF, no fórmulas.
 34. **(Adición técnica)** Se generaliza el mecanismo de envío de 008 (mailable, `TwilioWhatsAppService`
