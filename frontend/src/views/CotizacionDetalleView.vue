@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   ArrowDownTrayIcon,
@@ -17,7 +17,8 @@ import {
   type EstadoCotizacion,
   type TipoPagoCotizacion,
 } from '../stores/cotizaciones'
-import { extractErrorMessage } from '../lib/errors'
+import { extractErrorMessage, mensajeDeFallaDeDescarga } from '../lib/errors'
+import type { ArchivoCompartible } from '../lib/compartir'
 import { caducaPronto, fechaLegible, textoCaducidad } from '../lib/caducidadCotizacion'
 import AppLayout from '../layouts/AppLayout.vue'
 import { Button } from '../components/ui/button'
@@ -114,14 +115,38 @@ const destinatarios = ref('')
 const enviando = ref(false)
 const errorEnviar = ref<string | null>(null)
 const enviadoOk = ref(false)
+const archivos = ref<ArchivoCompartible[] | null>(null)
 
 function abrirEnviar() {
   canalEnvio.value = 'correo'
   destinatarios.value = cotizacion.value?.cliente_correo ?? ''
   errorEnviar.value = null
   enviadoOk.value = false
+  archivos.value = null
   mostrarEnviar.value = true
 }
+
+/**
+ * El PDF se baja al elegir el canal, no al apretar "Enviar": el menú de compartir solo se abre
+ * mientras el gesto del usuario sigue vivo, y una descarga en medio lo agota (ver
+ * 029-pwa-mostrador.md, supuesto 78).
+ */
+watch([canalEnvio, mostrarEnviar], async ([canal, abierto]) => {
+  if (!abierto || canal !== 'whatsapp' || archivos.value !== null || cotizacion.value === null) {
+    return
+  }
+
+  enviando.value = true
+  errorEnviar.value = null
+
+  try {
+    archivos.value = await cotizacionesStore.archivosParaWhatsapp(cotizacion.value)
+  } catch (err) {
+    errorEnviar.value = await mensajeDeFallaDeDescarga(err)
+  } finally {
+    enviando.value = false
+  }
+})
 
 async function confirmarEnviar() {
   if (!cotizacion.value) return
@@ -137,7 +162,12 @@ async function confirmarEnviar() {
       await cotizacionesStore.enviar(cotizacion.value.id, { canal: 'correo', destinatarios: lista })
       enviadoOk.value = true
     } else {
-      const resultado = await cotizacionesStore.compartirPorWhatsapp(cotizacion.value)
+      if (archivos.value === null) return
+
+      const resultado = await cotizacionesStore.compartirPorWhatsapp(
+        cotizacion.value,
+        archivos.value,
+      )
       enviadoOk.value = resultado !== 'cancelado'
     }
 

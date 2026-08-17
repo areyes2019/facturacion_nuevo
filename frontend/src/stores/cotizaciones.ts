@@ -1,6 +1,10 @@
 import { defineStore } from 'pinia'
 import http from '../lib/http'
-import { compartirArchivo, type ResultadoCompartir } from '../lib/compartir'
+import {
+  compartirArchivos,
+  type ArchivoCompartible,
+  type ResultadoCompartir,
+} from '../lib/compartir'
 import { extractErrorMessage } from '../lib/errors'
 import type { TipoDescuento, TasaIva } from './facturas'
 
@@ -219,22 +223,35 @@ export const useCotizacionesStore = defineStore('cotizaciones', {
     },
 
     /**
-     * Manda la cotización por WhatsApp: baja el PDF con la sesión del usuario y se lo entrega al
-     * menú de compartir del aparato, que ya tiene abierta la sesión de WhatsApp del negocio (ver
-     * 029-pwa-mostrador.md). En escritorio, donde ese menú casi nunca existe, `compartirArchivo`
-     * descarga el archivo y copia el mensaje.
+     * Baja lo que se va a mandar por WhatsApp. Se llama **antes** de que el usuario toque el botón:
+     * el menú del aparato solo se abre mientras su gesto sigue vivo, y esperar a una descarga en
+     * medio lo agota (ver 029-pwa-mostrador.md, supuesto 78).
+     */
+    async archivosParaWhatsapp(cotizacion: Cotizacion): Promise<ArchivoCompartible[]> {
+      return [
+        {
+          contenido: await this.pdfBlob(cotizacion.id),
+          nombre: `cotizacion-${cotizacion.folio}.pdf`,
+        },
+      ]
+    },
+
+    mensajeWhatsapp(cotizacion: Cotizacion): string {
+      return `Cotización ${cotizacion.folio} por un total de $${cotizacion.total.toFixed(2)} MXN.`
+    },
+
+    /**
+     * Entrega al menú de compartir del aparato lo que `archivosParaWhatsapp` ya bajó. No descarga
+     * nada aquí: la primera cosa que ocurre es el compartir, con el gesto del usuario todavía vivo.
      *
      * Solo marca la cotización como enviada si el usuario **no** canceló el menú: cancelar es no
      * haber mandado nada, y un estado que miente es peor que uno que se quedó corto.
      */
-    async compartirPorWhatsapp(cotizacion: Cotizacion): Promise<ResultadoCompartir> {
-      const blob = await this.pdfBlob(cotizacion.id)
-
-      const resultado = await compartirArchivo(
-        blob,
-        `cotizacion-${cotizacion.folio}.pdf`,
-        `Cotización ${cotizacion.folio} por un total de $${cotizacion.total.toFixed(2)} MXN.`,
-      )
+    async compartirPorWhatsapp(
+      cotizacion: Cotizacion,
+      archivos: ArchivoCompartible[],
+    ): Promise<ResultadoCompartir> {
+      const resultado = await compartirArchivos(archivos, this.mensajeWhatsapp(cotizacion))
 
       if (resultado !== 'cancelado') await this.marcarEnviada(cotizacion.id)
 

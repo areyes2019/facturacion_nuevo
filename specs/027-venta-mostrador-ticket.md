@@ -632,8 +632,8 @@ con `navigator.canShare({ files })` y no adivinando por el tamaño de la pantall
 
 - **En celular**: abre el menú de compartir del sistema con **la imagen del ticket y el mensaje**.
   Es el único camino por el que una imagen puede salir hacia WhatsApp desde una página web.
-- **En escritorio**: **descarga el `.jpg` y copia el mensaje al portapapeles**, avisando "Ticket
-  descargado y mensaje copiado". El usuario arrastra la imagen a WhatsApp Desktop y pega el texto.
+- **En escritorio**: **descarga el `.jpg`, copia el mensaje y abre WhatsApp** con el texto ya escrito
+  (ver [029](029-pwa-mostrador.md)). El usuario elige el contacto y arrastra la imagen descargada.
   Aquí sí se descarga la imagen, a diferencia de la ficha de artículo, porque el ticket no existe en
   ningún otro lado y sin el archivo el botón no sirve de nada en la computadora del mostrador.
 

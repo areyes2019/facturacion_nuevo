@@ -22,10 +22,12 @@ cosas que faltan para que sirva en el mostrador:
    escáner de etiquetas que lee el QR con la cámara sin salir de la aplicación.
 
 Casi todo ocurre en el frontend: no se agrega ninguna tabla ni ninguna columna, y los cuatro caminos
-se arman con lo que el backend ya expone. Del servidor se toca una sola cosa, el **envío de la
-cotización por WhatsApp**, que hoy no funciona: sale por Twilio, que nunca se configuró, y la
-pantalla responde "Error del servidor". Pasa a compartirse con el menú del propio aparato, que es
-como el sistema ya manda el ticket de [027](027-venta-mostrador-ticket.md).
+se arman con lo que el backend ya expone. Del servidor se tocan dos cosas, las dos porque estorban:
+el **envío de la cotización por WhatsApp**, que hoy no funciona —sale por Twilio, que nunca se
+configuró, y la pantalla responde "Error del servidor"— y pasa a compartirse con el menú del propio
+aparato, como el sistema ya manda el ticket de [027](027-venta-mostrador-ticket.md); y la validación
+que obliga a escribir para consultar el catálogo de **usos de CFDI**, que impide mostrarlo en una
+pantalla de opciones.
 
 ### Qué ya existe y no se rehace
 
@@ -75,7 +77,7 @@ Ninguna tabla y ninguna columna. Los cuatro caminos consumen lo que ya existe:
 | Camino     | Endpoints que usa                                                                        |
 | ---------- | ---------------------------------------------------------------------------------------- |
 | Venta      | `GET pedidos/por-telefono`, `POST pedidos`, `POST pedidos/{pedido}/pagos`, `GET pedidos/{pedido}/ticket` |
-| Factura    | `GET clientes`, `POST clientes/constancia`, `POST clientes`, `POST facturas`, `POST facturas/{factura}/timbrar`, `POST facturas/{factura}/enviar-correo` |
+| Factura    | `GET clientes`, `POST clientes/constancia`, `POST clientes`, `GET catalogos/usos-cfdi`, `GET catalogos/formas-pago`, `POST facturas`, `POST facturas/{factura}/timbrar`, `GET facturas/{factura}/pdf`, `GET facturas/{factura}/xml`, `POST facturas/{factura}/enviar-correo` |
 | Cotización | `GET clientes`, `POST clientes/constancia`, `POST clientes`, `POST cotizaciones`, `GET cotizaciones/{cotizacion}/pdf`, `POST cotizaciones/{cotizacion}/marcar-enviada`, `POST cotizaciones/{cotizacion}/enviar` |
 | Escáner    | `POST pedidos/{pedido}/entregar`, `POST pedidos/{pedido}/deshacer-entrega`                |
 
@@ -83,8 +85,19 @@ Que el modo mostrador no invente endpoints es la prueba de que es **otra forma d
 el sistema ya hace, y no un sistema paralelo con sus propias reglas. Las validaciones, los folios,
 los totales y el timbrado siguen siendo exactamente los mismos.
 
-Lo único que cambia del servidor es el envío por WhatsApp de la cotización, y cambia porque está
-roto.
+Del servidor cambian dos cosas: el envío por WhatsApp de la cotización, porque está roto, y una
+validación del catálogo de usos de CFDI, porque impide listarlo.
+
+### `GET catalogos/usos-cfdi` sin `q`
+
+Hoy `q` es obligatorio con dos caracteres mínimo, así que el endpoint solo sabe buscar: la pantalla
+de uso de CFDI abriría vacía, esperando que alguien escriba, cuando lo que tiene que hacer es
+mostrar el catálogo. `q` pasa a ser **opcional** y, sin él, se devuelve la lista completa ordenada
+por clave; con él, la búsqueda responde exactamente como hasta ahora, que es de lo que depende el
+portal de autofactura de [027](027-venta-mostrador-ticket.md).
+
+Es un cambio de una regla de validación, no un endpoint nuevo: el catálogo es el mismo y quien lo
+pide con `q` no nota nada.
 
 ### El WhatsApp de la cotización deja de salir del servidor
 
@@ -286,6 +299,19 @@ el de quitar y el importe del renglón, con el total al pie.
 - **Nada se guarda hasta el botón final.** Salirse a medias pide confirmación y no deja documentos a
   medio capturar en el sistema.
 
+#### Las pantallas de opción
+
+Uso de CFDI y forma de pago son la **misma pantalla con otra lista**: buscador arriba, tarjetas
+abajo con la clave y su descripción, la elegida marcada con una palomita, y un toque que elige y
+avanza. Escritas dos veces se verían distintas el día que una de las dos se corrigiera.
+
+- **La lista entera se trae en una sola petición** al abrir la pantalla, y se muestra **de 15 en 15**
+  con el mismo scroll infinito de los clientes y los artículos.
+- **El buscador filtra en el navegador**, sobre lo ya traído. Es la diferencia con las otras dos
+  listas, y es a propósito: estos son catálogos cerrados del SAT, de unas dos docenas de entradas
+  cada uno, así que pedirle una página al servidor por cada scroll y una búsqueda por cada letra
+  serían peticiones por nada, y filtrar sin esperar respuesta se siente inmediato.
+
 #### Venta al público — `/mostrador/venta`
 
 Es el pedido de mostrador de [027](027-venta-mostrador-ticket.md), no un documento nuevo.
@@ -326,19 +352,46 @@ imprime desde la computadora como hasta hoy, y es esa etiqueta la que después s
    es la manera más segura de timbrar mal.
 2. **Artículos** — las tarjetas del catálogo, sin artículo suelto.
 3. **Carrito** — los renglones y sus cantidades.
-4. **Datos fiscales** — uso de CFDI, forma de pago y método de pago, que el backend exige
-   (`uso_cfdi`, `forma_pago`, `metodo_pago`). Van en su propio paso, con los mismos valores por
-   omisión del formulario de escritorio, para no mezclarlos con la captura de lo que se vende.
-5. **Confirmar y timbrar** — nombre, RFC y total, grandes y sin nada más alrededor, y un solo botón:
-   **"Timbrar"**.
+4. **Uso de CFDI** — una pantalla de opciones, descrita abajo.
+5. **Forma de pago** — la misma pantalla, con el otro catálogo.
+6. **Método de pago** — dos botones grandes: **PUE**, "Pago en una sola exhibición", y **PPD**,
+   "Pago en parcialidades o diferido". Son dos y son los mismos siempre, así que no hay lista que
+   buscar ni petición que hacer —van escritos en la pantalla, como ya manda
+   [007](007-facturacion.md)—: la clave sola no dice nada y el nombre completo evita elegir de
+   memoria.
+7. **Confirmar y timbrar** — nombre, RFC y total, grandes; debajo, en letra chica, los tres datos
+   fiscales recién elegidos, y un solo botón: **"Timbrar"**.
+8. **Listo** — el resultado.
+
+Los tres datos que el backend exige (`uso_cfdi`, `forma_pago`, `metodo_pago`) tienen **una pantalla
+cada uno** en vez de compartir un formulario. Los tres son listas del SAT en las que hay que
+encontrar algo, y encontrarlo en un `<select>` de celular —una lista dentro de una ventanita, sin
+buscador— es la parte más incómoda de la captura. En su propia pantalla cada uno tiene el ancho
+entero, su buscador y el dedo entero para tocar.
+
+**Tocar la opción elige y avanza**, como en el paso de cliente, y ninguna de las tres trae nada
+preseleccionado: con avance automático un valor por omisión no ahorra el toque y sí puede colarse sin
+que nadie lo mire. Al volver atrás, la que se había elegido se ve marcada.
 
 El paso de revisión no es un trámite de más. Timbrar cuesta un folio, queda registrado ante la
-autoridad y deshacerlo no es borrar sino cancelar con un motivo. Tres datos en una pantalla limpia
-antes de apretar es barato comparado con una cancelación.
+autoridad y deshacerlo no es borrar sino cancelar con un motivo. Una pantalla limpia antes de apretar
+es barata comparada con una cancelación, y los tres datos fiscales van ahí porque tres pantallas
+atrás ya no se recuerdan de memoria.
 
 Después del timbrado, la pantalla de resultado muestra el folio fiscal y ofrece **"Enviar por
-correo"** (`POST facturas/{factura}/enviar-correo`), "Nueva factura" e "Inicio". Sin ese botón, el
-cliente se iría del mostrador con su factura timbrada y sin recibirla.
+WhatsApp"**, **"Enviar por correo"** (`POST facturas/{factura}/enviar-correo`, con el correo del
+cliente ya escrito en su diálogo), "Nueva factura" e "Inicio" —la misma pantalla que cierra la
+cotización—. Sin esos botones, el cliente se iría del mostrador con su factura timbrada y sin
+recibirla.
+
+Por WhatsApp se comparten **el PDF y el XML juntos**: un CFDI sin XML no le sirve al contador del
+cliente. Si el aparato no admite dos archivos en un mismo compartir, va solo el PDF, que es lo que el
+cliente mira, en vez de fallar sin mandar nada. Los dos archivos se bajan **al entrar a esta
+pantalla**, con las reglas de "El compartir del aparato": el XML viaja hasta facturapi y volver a por
+él después del toque agotaría el gesto que el menú necesita.
+
+**Compartir no cambia el estado de la factura.** Una factura timbrada ya está timbrada, y no hay un
+"enviada" que mover como en la cotización, así que aquí no hace falta ningún `marcar-enviada`.
 
 Si el timbrado falla, la factura **queda guardada** y la pantalla muestra el motivo con un botón de
 reintentar, que es como se comporta el timbrado del escritorio.
@@ -360,23 +413,14 @@ Los pasos se llaman **Cliente, Artículos, Carrito y Listo**, con el indicador a
 
 El sistema descarga el PDF con su propia sesión (`GET cotizaciones/{cotizacion}/pdf`) y se lo entrega
 al **menú de compartir del aparato**, con el resumen de la cotización como texto. El usuario elige el
-contacto en WhatsApp y manda el PDF desde el número del negocio.
-
-Lo comparte `compartirImagen` de `lib/compartir.ts`, que ya hace exactamente esto con el ticket de
-[027](027-venta-mostrador-ticket.md) y que **pasa a llamarse `compartirArchivo`**: siempre recibió un
-`Blob`, un nombre y un texto, y su nombre viejo describía al único que la usaba, no lo que hace. Un
-PDF compartido por una función llamada "imagen" es la clase de detalle que hace dudar de si el
-archivo saldrá bien.
+contacto en WhatsApp y manda el PDF desde el número del negocio. Lo hace `compartirArchivo` de
+`lib/compartir.ts`, descrito abajo en "El compartir del aparato".
 
 - **No hay campo de teléfono.** El contacto se elige en el menú del aparato, que ya conoce los
   contactos; pedir el número en la pantalla sería capturar un dato que nadie va a usar.
 - **Al volver del menú**, el sistema llama a `POST cotizaciones/{cotizacion}/marcar-enviada` y la
   cotización pasa a "enviada". **Si el usuario cancela el menú, no se marca**: cancelar es no haber
   mandado nada, y un estado que miente es peor que uno que se quedó corto.
-- **En escritorio**, donde ese menú casi nunca existe, se descarga el PDF y se abre `wa.me` con el
-  resumen ya escrito, para arrastrar el archivo a WhatsApp Desktop. Es el mismo reparto que
-  `compartirArchivo` ya hace: la decisión se toma preguntándole al navegador si puede compartir
-  archivos, no por el ancho de la pantalla.
 
 ##### Cómo sale por correo
 
@@ -384,6 +428,37 @@ archivo saldrá bien.
 editable antes de mandar. Ese envío lo sigue haciendo el servidor, que adjunta el PDF y ya deja la
 cotización en "enviada". Un correo mandado desde el servidor queda registrado y sale del dominio del
 negocio; no hay razón para bajarlo al teléfono.
+
+### El compartir del aparato
+
+Lo hace `compartirArchivo` de `lib/compartir.ts` —y `compartirArchivos`, su versión de varios
+archivos, para el CFDI—, la misma función con la que [027](027-venta-mostrador-ticket.md) manda el
+ticket. Se llamaba `compartirImagen`: siempre recibió un `Blob`, un nombre y un texto, y ese nombre
+describía a su único usuario, no lo que hace.
+
+Tres reglas, y las tres existen porque sin ellas el botón falla de maneras que no se explican solas:
+
+- **Los archivos se preparan al llegar a la pantalla de resultado, no al apretar el botón.** El menú
+  de compartir solo se abre mientras el gesto del usuario sigue vivo, y el navegador da unos pocos
+  segundos: un `await` de por medio lo agota y el compartir se rechaza. Con una descarga corta a
+  veces alcanza y a veces no, que es la peor de las conductas posibles. Así que al entrar a la
+  pantalla el sistema baja lo que va a mandar, el botón dice **"Preparando..."** y queda apagado
+  mientras tanto, y al tocarlo ya no hay nada que esperar: se comparte lo que está en la mano.
+- **Si el menú del aparato no se puede abrir, el botón sigue mandando por WhatsApp**: descarga el
+  archivo, copia el mensaje y **abre WhatsApp** —Web o Desktop, lo que el aparato tenga— con el texto
+  ya escrito, para elegir el contacto y adjuntar lo descargado. El botón dice "Enviar por WhatsApp";
+  dejar el archivo en la carpeta de descargas y callarse no es cumplir eso.
+- **Cancelar el menú no es un error.** No se avisa nada, no se marca nada y la pantalla se queda
+  como estaba.
+
+Y lo que sí es un fallo —que la descarga del PDF o del XML no llegue— **se dice con su motivo**. Esas
+peticiones se piden como `blob`, así que el JSON de error del servidor llega envuelto y hay que
+leerlo antes de darlo por perdido; sin eso, un 404 o un 502 se verían como un "error inesperado" sin
+pista de qué pasó, que es justo lo que un mostrador no puede permitirse.
+
+La decisión entre un camino y otro se toma preguntándole al navegador si puede compartir archivos, no
+por el ancho de la pantalla: en escritorio muchos navegadores no tienen ese menú, y un botón que a
+veces hace una cosa y a veces otra según el tamaño de la ventana es peor que dos conductas claras.
 
 ### El WhatsApp de la cotización en el escritorio
 
@@ -559,8 +634,11 @@ Ninguna ruta existente cambia de dirección ni de nombre.
    que lo comparte por WhatsApp.
 6. Si el pago falla después de haberse creado el pedido, la pantalla lo dice con el número de ticket y
    permite reintentar solo el cobro, sin capturar la venta otra vez.
-7. "Generar Factura" termina en una pantalla de revisión con **nombre, RFC y total**, y desde ahí
-   timbra. El resultado muestra el folio fiscal y permite enviarla por correo.
+7. "Generar Factura" pide uso de CFDI, forma de pago y método de pago **en tres pantallas
+   distintas**, cada una con un toque que elige y avanza y ninguna con opción preseleccionada, y
+   termina en una pantalla de revisión con **nombre, RFC, total y esos tres datos**, desde donde
+   timbra. El resultado muestra el folio fiscal y permite mandarla por WhatsApp —con el PDF y el
+   XML— o por correo.
 8. El paso de cliente muestra tarjetas **sin escribir nada**, el buscador las filtra, y tocar una
    elige al cliente y pasa a artículos sin apretar nada más.
 9. Al cliente que no está en el catálogo se le da de alta de tres formas desde el celular: subiendo
@@ -569,32 +647,38 @@ Ninguna ruta existente cambia de dirección ni de nombre.
 10. El paso de artículos muestra el catálogo en tarjetas con su imagen desde que abre, carga más al
     llegar al final, y **tocar una tarjeta suma una unidad sin salir de la pantalla**, con el conteo
     y el total siempre a la vista al pie.
-11. El carrito permite cambiar cantidades y quitar renglones antes de guardar, y volver a agregar
+11. Las pantallas de uso de CFDI y forma de pago muestran su catálogo **sin escribir nada**, de 15 en
+    15, con un buscador que filtra al instante y una palomita sobre la opción ya elegida al volver
+    atrás.
+12. El carrito permite cambiar cantidades y quitar renglones antes de guardar, y volver a agregar
     artículos sin perder lo capturado.
-12. "Enviar por WhatsApp" abre el menú de compartir del aparato con el **PDF de la cotización**
+13. "Enviar por WhatsApp" abre el menú de compartir del aparato con el **PDF de la cotización**
     adjunto —nunca responde "Error del servidor"— y al compartir la cotización queda en "enviada".
     Si el usuario cancela el menú, sigue en borrador.
-13. "Enviar por correo" manda el PDF al correo del cliente, que viene escrito y se puede corregir.
-14. El botón de WhatsApp del escritorio comparte el PDF de la misma forma, y ninguna pantalla del
+14. El botón de compartir espera a tener los archivos antes de habilitarse, y al tocarlo el menú del
+    aparato abre sin descargas de por medio. Donde el menú no se pueda abrir, el documento se
+    descarga y la pantalla lo dice; ninguna de las dos caras muestra un "error inesperado".
+15. "Enviar por correo" manda el PDF al correo del cliente, que viene escrito y se puede corregir.
+16. El botón de WhatsApp del escritorio comparte el PDF de la misma forma, y ninguna pantalla del
     sistema le pide un envío de WhatsApp a Twilio para una cotización.
-15. Ningún importe capturado en el celular difiere de lo que calcularía el formulario de escritorio con
+17. Ningún importe capturado en el celular difiere de lo que calcularía el formulario de escritorio con
     los mismos datos.
-16. "Escanear etiquetas" abre la cámara dentro de la aplicación y **captura sola**, sin botón de
+18. "Escanear etiquetas" abre la cámara dentro de la aplicación y **captura sola**, sin botón de
     disparo.
-17. Un QR que no es de una etiqueta del sistema no abre nada: avisa y el escáner sigue trabajando.
-18. Al leer una etiqueta, el pedido se cobra y se entrega igual que hoy, con su "Deshacer" de diez
+19. Un QR que no es de una etiqueta del sistema no abre nada: avisa y el escáner sigue trabajando.
+20. Al leer una etiqueta, el pedido se cobra y se entrega igual que hoy, con su "Deshacer" de diez
     segundos, y al terminar se puede escanear la siguiente sin volver al inicio.
-19. La linterna, la pantalla despierta y la vibración funcionan donde el aparato las soporta, y su
+21. La linterna, la pantalla despierta y la vibración funcionan donde el aparato las soporta, y su
     ausencia no impide escanear.
-20. Con el detector disponible pero la cámara en vivo cerrada, el escáner ofrece tomar una foto de la
+22. Con el detector disponible pero la cámara en vivo cerrada, el escáner ofrece tomar una foto de la
     etiqueta y la lee. Sin detector, dice que ese navegador no puede leer códigos y manda a abrir la
     etiqueta con la app de cámara, en vez de fallar sin explicación.
-21. Existe un botón visible para instalar la aplicación, que desaparece una vez instalada.
-22. La aplicación instalada abre siempre en los cuatro accesos.
-23. Con una versión nueva desplegada, la aplicación abierta muestra un aviso con un botón de recargar.
-24. Sin internet la aplicación abre y explica que no hay conexión, con un botón de reintentar, en vez
+23. Existe un botón visible para instalar la aplicación, que desaparece una vez instalada.
+24. La aplicación instalada abre siempre en los cuatro accesos.
+25. Con una versión nueva desplegada, la aplicación abierta muestra un aviso con un botón de recargar.
+26. Sin internet la aplicación abre y explica que no hay conexión, con un botón de reintentar, en vez
     de quedarse en blanco.
-25. Pint y `php artisan test` en verde; ESLint y Prettier sin errores sobre el código nuevo; `vitest`
+27. Pint y `php artisan test` en verde; ESLint y Prettier sin errores sobre el código nuevo; `vitest`
     y `npm run build` en verde.
 
 ## Supuestos asumidos (registro completo)
@@ -773,3 +857,54 @@ envío por WhatsApp, que nunca funcionó.
     abierta sin razón.
 66. **Los pasos de la cotización se llaman Cliente, Artículos, Carrito y Listo**, conservando el
     indicador de paso actual arriba.
+
+### Los datos fiscales de la factura, pantalla por pantalla
+
+Aprobados uno por uno con el usuario después de la redefinición anterior. Parten en tres el paso de
+datos fiscales de la factura y cierran su pantalla de resultado como la de la cotización.
+
+67. **La factura pasa de seis a ocho pasos**: Cliente, Artículos, Carrito, Uso de CFDI, Forma de
+    pago, Método de pago, Revisar y Listo.
+68. **Tocar la opción elige y avanza** en las tres pantallas nuevas, sin botón de "Siguiente", igual
+    que el paso de cliente.
+69. **Ninguna trae opción preseleccionada**, y al volver atrás la elegida se ve marcada. Con avance
+    automático, un valor por omisión no ahorra el toque y sí puede colarse sin que nadie lo mire.
+70. **Uso de CFDI y forma de pago se traen enteros en una sola petición** y se muestran de 15 en 15
+    con scroll infinito; el buscador filtra en el navegador. Son catálogos cerrados de unas dos
+    docenas de entradas: una petición por scroll y otra por letra serían peticiones por nada.
+71. **(Cambio de backend)** `GET catalogos/usos-cfdi` acepta `q` opcional y, sin `q`, devuelve el
+    catálogo completo. Hoy lo exige con dos caracteres mínimo, así que la pantalla abriría vacía.
+72. **Método de pago son dos botones** con clave y nombre completo —PUE, "Pago en una sola
+    exhibición"; PPD, "Pago en parcialidades o diferido"—, sin buscador ni tarjetas.
+73. **La pantalla de revisión muestra también los tres datos fiscales**, en letra chica bajo el
+    total: tres pantallas atrás ya no se recuerdan de memoria, y corregirlos cuesta menos que
+    cancelar un CFDI.
+74. **La pantalla final de la factura queda como la de la cotización**: "Enviar por WhatsApp",
+    "Enviar por correo" en su diálogo, "Nueva factura" e "Inicio". El correo deja de ser un campo
+    suelto en la pantalla.
+75. **Por WhatsApp van el PDF y el XML juntos**, y solo el PDF cuando el aparato no admite dos
+    archivos: un CFDI sin XML no le sirve al contador del cliente, pero mandar algo es mejor que
+    fallar.
+76. **Compartir no cambia el estado de la factura.** Una timbrada ya está timbrada y no hay un
+    "enviada" que mover, así que no hace falta ningún `marcar-enviada` de su lado.
+77. **Uso de CFDI y forma de pago son el mismo componente** con otra lista: escritas dos veces se
+    verían distintas el día que una de las dos se corrigiera.
+
+### El compartir, corregido al probarlo
+
+Al usar el botón de WhatsApp de la factura apareció "Ocurrió un error inesperado". El servidor no
+tenía nada que ver —el PDF y el XML se sirven bien— y el mensaje era el texto que el frontend usa
+cuando el fallo no viene de una petición. Estas tres reglas son la corrección, y valen para los tres
+documentos.
+
+78. **Los archivos se preparan al entrar a la pantalla de resultado**, no al apretar el botón. El
+    menú de compartir del aparato solo se abre mientras el gesto del usuario sigue vivo, y esperar a
+    dos descargas —una de ellas hasta facturapi, por el XML— lo agota. Con una sola descarga corta a
+    veces alcanzaba y a veces no, que es la peor conducta posible.
+79. **Donde el menú no se puede abrir, el botón sigue mandando por WhatsApp**: descarga el archivo,
+    copia el mensaje y abre WhatsApp con el texto escrito para elegir contacto y adjuntarlo. El botón
+    promete un envío, no una descarga, y quedarse en la carpeta de descargas sin decir nada es la
+    peor de las salidas.
+80. **Los errores de las descargas se leen aunque la respuesta venga como `blob`.** Pedir un archivo
+    envuelve también el JSON de error del servidor, así que sin desenvolverlo un 404 o un 502 se ven
+    como un "error inesperado" que no dice nada de lo que pasó.

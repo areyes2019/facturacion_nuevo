@@ -1,22 +1,21 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ArrowLeftIcon, EnvelopeIcon } from '@heroicons/vue/24/outline'
+import { ArrowLeftIcon, EnvelopeIcon, ShareIcon } from '@heroicons/vue/24/outline'
 import { useFacturasStore, type Factura, type FacturaPayload } from '../../stores/facturas'
 import { calcularTotales } from '../../lib/totalesDocumento'
 import { reaplicarDescuento } from '../../lib/lineasMostrador'
-import { mensajeDeFalla } from '../../lib/errors'
+import { mensajeDeFalla, mensajeDeFallaDeDescarga } from '../../lib/errors'
+import type { ArchivoCompartible } from '../../lib/compartir'
 import { useConfirmarSalida } from '../../lib/salidaCaptura'
 import AppLayout from '../../layouts/AppLayout.vue'
 import PasosMostrador from '../../components/mostrador/PasosMostrador.vue'
 import PasoArticulosTarjetas from '../../components/mostrador/PasoArticulosTarjetas.vue'
 import PasoClienteTarjetas from '../../components/mostrador/PasoClienteTarjetas.vue'
+import PasoOpciones from '../../components/mostrador/PasoOpciones.vue'
 import CarritoMostrador from '../../components/mostrador/CarritoMostrador.vue'
 import type { LineaEditable } from '../../components/DocumentoLineas.vue'
 import type { ClienteResultado } from '../../components/ClienteCombobox.vue'
-import UsoCfdiCombobox from '../../components/UsoCfdiCombobox.vue'
-import FormaPagoSelect from '../../components/FormaPagoSelect.vue'
-import MetodoPagoSelect from '../../components/MetodoPagoSelect.vue'
 import { Alert, AlertDescription } from '../../components/ui/alert'
 import { Button } from '../../components/ui/button'
 import {
@@ -33,12 +32,31 @@ import { Label } from '../../components/ui/label'
 /**
  * Factura capturada por pasos, hasta el timbrado (ver 029-pwa-mostrador.md).
  *
+ * Los tres datos fiscales tienen **una pantalla cada uno**: son listas del SAT en las que hay que
+ * encontrar algo, y encontrarlo en un `<select>` de celular —una lista dentro de una ventanita, sin
+ * buscador— es la parte más incómoda de la captura.
+ *
  * El paso de revisión no es un trámite de más: timbrar cuesta un folio, queda registrado ante la
- * autoridad y deshacerlo no es borrar sino cancelar con un motivo. Tres datos en una pantalla
- * limpia antes de apretar es barato comparado con una cancelación.
+ * autoridad y deshacerlo no es borrar sino cancelar con un motivo. Una pantalla limpia antes de
+ * apretar es barata comparada con una cancelación.
  */
 
-const PASOS = ['Cliente', 'Artículos', 'Carrito', 'Datos fiscales', 'Revisar', 'Listo']
+const PASOS = [
+  'Cliente',
+  'Artículos',
+  'Carrito',
+  'Uso de CFDI',
+  'Forma de pago',
+  'Método de pago',
+  'Revisar',
+  'Listo',
+]
+
+/** Son dos y son siempre los mismos, así que van escritos aquí y no salen de una petición. */
+const METODOS_PAGO = [
+  { id: 'PUE', texto: 'Pago en una sola exhibición' },
+  { id: 'PPD', texto: 'Pago en parcialidades o diferido' },
+]
 
 const router = useRouter()
 const facturas = useFacturasStore()
@@ -49,7 +67,9 @@ const cliente = ref<ClienteResultado | null>(null)
 const lineas = ref<LineaEditable[]>([])
 
 const usoCfdi = ref<string | null>(null)
+const usoCfdiTexto = ref('')
 const formaPago = ref<string | null>(null)
+const formaPagoTexto = ref('')
 const metodoPago = ref<string | null>(null)
 
 /** La factura, una vez guardada. Sobrevive a un timbrado fallido, que es lo que permite reintentar. */
@@ -59,27 +79,26 @@ const error = ref<string | null>(null)
 
 const correo = ref('')
 const enviando = ref(false)
-const avisoCorreo = ref<string | null>(null)
+const dialogoCorreo = ref(false)
+const compartiendo = ref(false)
+const avisoEnvio = ref<string | null>(null)
+
+/** El PDF y el XML ya bajados, listos para el menú de compartir (ver 029, supuesto 78). */
+const archivos = ref<ArchivoCompartible[] | null>(null)
 
 const totales = computed(() => calcularTotales(lineas.value, null, null))
 
-const datosFiscalesCompletos = computed(
-  () => usoCfdi.value !== null && formaPago.value !== null && metodoPago.value !== null,
+const metodoPagoTexto = computed(
+  () => METODOS_PAGO.find((metodo) => metodo.id === metodoPago.value)?.texto ?? '',
 )
 
 const hayCaptura = computed(
-  () => paso.value < 5 && (cliente.value !== null || lineas.value.length > 0),
+  () => paso.value < 7 && (cliente.value !== null || lineas.value.length > 0),
 )
 
 const { confirmandoSalida, confirmarSalida, cancelarSalida } = useConfirmarSalida(
   () => hayCaptura.value,
 )
-
-function puedeAvanzar(): boolean {
-  if (paso.value === 2) return lineas.value.length > 0
-
-  return datosFiscalesCompletos.value
-}
 
 /**
  * Elegir al cliente avanza solo. Si ya había artículos capturados, su descuento se reemplaza por el
@@ -89,6 +108,11 @@ function onClienteElegido(elegido: ClienteResultado) {
   cliente.value = elegido
   lineas.value = reaplicarDescuento(lineas.value, elegido.descuento_permanente)
   paso.value = 1
+}
+
+function elegirMetodoPago(id: string) {
+  metodoPago.value = id
+  paso.value = 6
 }
 
 /**
@@ -120,7 +144,8 @@ async function timbrar() {
 
     if (factura.value.estado === 'timbrada') {
       correo.value = factura.value.cliente_correo ?? ''
-      paso.value = 5
+      paso.value = 7
+      void prepararEnvio()
       return
     }
 
@@ -133,19 +158,60 @@ async function timbrar() {
 }
 
 /**
+ * Baja el PDF y el XML en cuanto la factura queda timbrada. El XML viaja hasta facturapi, así que
+ * esperarlo después del toque agotaría el gesto que el menú del aparato necesita (ver 029,
+ * supuesto 78).
+ */
+async function prepararEnvio() {
+  if (factura.value === null) return
+
+  compartiendo.value = true
+  avisoEnvio.value = null
+
+  try {
+    archivos.value = await facturas.archivosParaWhatsapp(factura.value)
+  } catch (err) {
+    avisoEnvio.value = await mensajeDeFallaDeDescarga(err)
+  } finally {
+    compartiendo.value = false
+  }
+}
+
+/** El PDF y el XML salen del servidor y los comparte el aparato (ver 029). */
+async function compartirPorWhatsapp() {
+  if (factura.value === null || archivos.value === null) return
+
+  avisoEnvio.value = null
+
+  try {
+    const resultado = await facturas.compartirPorWhatsapp(factura.value, archivos.value)
+
+    if (resultado === 'descargado') {
+      avisoEnvio.value =
+        'PDF y XML descargados: adjúntalos en la ventana de WhatsApp que acaba de abrirse.'
+    } else if (resultado === 'compartido') {
+      avisoEnvio.value = 'Factura compartida.'
+    }
+  } catch (err) {
+    avisoEnvio.value = mensajeDeFalla(err)
+  }
+}
+
+/**
  * Sin este botón el cliente se iría del mostrador con su factura timbrada y sin recibirla.
  */
 async function enviarPorCorreo() {
   if (factura.value === null || correo.value.trim() === '') return
 
   enviando.value = true
-  avisoCorreo.value = null
+  avisoEnvio.value = null
 
   try {
     await facturas.enviarCorreo(factura.value.id, [correo.value.trim()])
-    avisoCorreo.value = 'Factura enviada.'
+    dialogoCorreo.value = false
+    avisoEnvio.value = 'Factura enviada por correo.'
   } catch (err) {
-    avisoCorreo.value = mensajeDeFalla(err)
+    avisoEnvio.value = mensajeDeFalla(err)
   } finally {
     enviando.value = false
   }
@@ -155,12 +221,15 @@ function nuevaFactura() {
   cliente.value = null
   lineas.value = []
   usoCfdi.value = null
+  usoCfdiTexto.value = ''
   formaPago.value = null
+  formaPagoTexto.value = ''
   metodoPago.value = null
   factura.value = null
   error.value = null
   correo.value = ''
-  avisoCorreo.value = null
+  avisoEnvio.value = null
+  archivos.value = null
   paso.value = 0
 }
 </script>
@@ -184,29 +253,71 @@ function nuevaFactura() {
 
       <CarritoMostrador v-else-if="paso === 2" v-model:lineas="lineas" />
 
-      <div v-else-if="paso === 3" class="space-y-4">
-        <div class="space-y-1.5">
-          <Label>Uso de CFDI</Label>
-          <UsoCfdiCombobox v-model="usoCfdi" />
-        </div>
-        <div class="space-y-1.5">
-          <Label>Forma de pago</Label>
-          <FormaPagoSelect v-model="formaPago" />
-        </div>
-        <div class="space-y-1.5">
-          <Label>Método de pago</Label>
-          <MetodoPagoSelect v-model="metodoPago" />
-        </div>
+      <PasoOpciones
+        v-else-if="paso === 3"
+        v-model="usoCfdi"
+        url="/catalogos/usos-cfdi"
+        placeholder="Buscar uso de CFDI..."
+        @elegido="
+          (opcion) => {
+            usoCfdiTexto = opcion.texto
+            paso = 4
+          }
+        "
+      />
+
+      <PasoOpciones
+        v-else-if="paso === 4"
+        v-model="formaPago"
+        url="/catalogos/formas-pago"
+        placeholder="Buscar forma de pago..."
+        @elegido="
+          (opcion) => {
+            formaPagoTexto = opcion.texto
+            paso = 5
+          }
+        "
+      />
+
+      <!-- Método de pago: dos botones y nada más. La clave sola no dice nada, así que va con su
+           nombre completo debajo. -->
+      <div v-else-if="paso === 5" class="space-y-3">
+        <button
+          v-for="metodo in METODOS_PAGO"
+          :key="metodo.id"
+          type="button"
+          class="border-border bg-background hover:bg-accent focus-visible:ring-ring w-full rounded-lg border p-6 text-left focus-visible:ring-2 focus-visible:outline-none"
+          :class="metodo.id === metodoPago ? 'border-primary' : ''"
+          @click="elegirMetodoPago(metodo.id)"
+        >
+          <p class="text-foreground font-mono text-2xl font-semibold">{{ metodo.id }}</p>
+          <p class="text-muted-foreground">{{ metodo.texto }}</p>
+        </button>
       </div>
 
-      <!-- Revisión: nombre, RFC y total, grandes y sin nada más alrededor. -->
-      <div v-else-if="paso === 4" class="space-y-6">
+      <!-- Revisión: nombre, RFC y total, grandes; los tres datos fiscales debajo, en letra chica. -->
+      <div v-else-if="paso === 6" class="space-y-6">
         <div class="space-y-1 text-center">
           <p class="text-foreground text-2xl font-semibold">{{ cliente?.razon_social }}</p>
           <p class="text-muted-foreground font-mono text-lg">{{ cliente?.rfc }}</p>
         </div>
 
         <p class="text-center text-4xl font-semibold">${{ totales.total.toFixed(2) }}</p>
+
+        <dl class="text-muted-foreground space-y-1 text-sm">
+          <div class="flex justify-between gap-4">
+            <dt>Uso de CFDI</dt>
+            <dd class="text-right">{{ usoCfdi }} · {{ usoCfdiTexto }}</dd>
+          </div>
+          <div class="flex justify-between gap-4">
+            <dt>Forma de pago</dt>
+            <dd class="text-right">{{ formaPago }} · {{ formaPagoTexto }}</dd>
+          </div>
+          <div class="flex justify-between gap-4">
+            <dt>Método de pago</dt>
+            <dd class="text-right">{{ metodoPago }} · {{ metodoPagoTexto }}</dd>
+          </div>
+        </dl>
 
         <Alert v-if="error" variant="destructive">
           <AlertDescription>{{ error }}</AlertDescription>
@@ -220,22 +331,22 @@ function nuevaFactura() {
           <p class="font-mono text-sm break-all">{{ factura?.uuid_fiscal }}</p>
         </div>
 
-        <div class="space-y-1.5">
-          <Label for="correo-factura">Correo del cliente</Label>
-          <Input id="correo-factura" v-model="correo" type="email" class="h-12 text-base" />
-        </div>
-
-        <Alert v-if="avisoCorreo">
-          <AlertDescription>{{ avisoCorreo }}</AlertDescription>
+        <Alert v-if="avisoEnvio">
+          <AlertDescription>{{ avisoEnvio }}</AlertDescription>
         </Alert>
 
         <Button
           class="h-14 w-full text-base"
-          :disabled="enviando || correo.trim() === ''"
-          @click="enviarPorCorreo"
+          :disabled="compartiendo"
+          @click="compartirPorWhatsapp"
         >
+          <ShareIcon class="size-5" />
+          {{ compartiendo ? 'Preparando...' : 'Enviar por WhatsApp' }}
+        </Button>
+
+        <Button variant="outline" class="h-14 w-full text-base" @click="dialogoCorreo = true">
           <EnvelopeIcon class="size-5" />
-          {{ enviando ? 'Enviando...' : 'Enviar por correo' }}
+          Enviar por correo
         </Button>
 
         <div class="flex gap-2">
@@ -246,9 +357,9 @@ function nuevaFactura() {
         </div>
       </div>
 
-      <!-- El paso de cliente elige tocando una tarjeta y el de artículos se cierra con el botón de
-           su pie: ninguno de los dos necesita "Siguiente". -->
-      <div v-if="paso > 0 && paso < 5" class="flex items-center gap-2 pt-2">
+      <!-- El paso de cliente, los dos de catálogo y el de método de pago eligen tocando, y el de
+           artículos se cierra con el botón de su pie: ninguno necesita "Siguiente". -->
+      <div v-if="paso >= 2 && paso <= 6" class="flex items-center gap-2 pt-2">
         <Button
           type="button"
           variant="outline"
@@ -261,17 +372,17 @@ function nuevaFactura() {
         </Button>
 
         <Button
-          v-if="paso > 1 && paso < 4"
+          v-if="paso === 2"
           type="button"
           class="h-14 flex-1 text-base"
-          :disabled="!puedeAvanzar()"
+          :disabled="lineas.length === 0"
           @click="paso += 1"
         >
           Siguiente
         </Button>
 
         <Button
-          v-else-if="paso === 4"
+          v-else-if="paso === 6"
           type="button"
           class="h-14 flex-1 text-base"
           :disabled="timbrando"
@@ -281,6 +392,30 @@ function nuevaFactura() {
         </Button>
       </div>
     </div>
+
+    <Dialog v-model:open="dialogoCorreo">
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Enviar por correo</DialogTitle>
+          <DialogDescription>
+            Sale del servidor con el PDF y el XML adjuntos. Viene el correo del cliente; puedes
+            cambiarlo.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div class="space-y-1.5">
+          <Label for="correo-factura">Correo</Label>
+          <Input id="correo-factura" v-model="correo" type="email" class="h-12 text-base" />
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" @click="dialogoCorreo = false">Cancelar</Button>
+          <Button :disabled="enviando || correo.trim() === ''" @click="enviarPorCorreo">
+            {{ enviando ? 'Enviando...' : 'Enviar' }}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
 
     <Dialog :open="confirmandoSalida" @update:open="(v) => !v && cancelarSalida()">
       <DialogContent>

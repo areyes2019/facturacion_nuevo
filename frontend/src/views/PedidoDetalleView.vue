@@ -131,8 +131,7 @@ async function compartirTicket() {
     )
 
     if (resultado === 'descargado') {
-      aviso.value =
-        'Ticket descargado y mensaje copiado: arrastra la imagen a WhatsApp y pega el texto.'
+      aviso.value = 'Ticket descargado: arrástralo a la ventana de WhatsApp que acaba de abrirse.'
     }
   } catch {
     aviso.value = 'No se pudo compartir el ticket.'

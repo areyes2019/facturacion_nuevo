@@ -1,14 +1,26 @@
 /**
- * Compartir desde el navegador (ver 020-imagenes-articulos.md y 027-venta-mostrador-ticket.md).
+ * Compartir desde el navegador (ver 020-imagenes-articulos.md, 027-venta-mostrador-ticket.md y
+ * 029-pwa-mostrador.md).
  *
- * La decisión entre "menú del sistema" y "portapapeles" se toma preguntándole al navegador si
- * **puede** compartir archivos, no por el ancho de la pantalla: en escritorio muchos navegadores no
- * tienen ese menú, y un botón que a veces hace algo y a veces no es peor que dos comportamientos
- * claros.
+ * La decisión entre "menú del sistema" y "abrir WhatsApp con el archivo descargado" se toma
+ * preguntándole al navegador si **puede** compartir archivos, no por el ancho de la pantalla: en
+ * escritorio muchos navegadores no tienen ese menú, y un botón que a veces hace algo y a veces no es
+ * peor que dos comportamientos claros.
+ *
+ * **Quien llame a estas funciones tiene que traer los archivos ya descargados.** El menú del aparato
+ * solo se abre mientras el gesto del usuario sigue vivo, y el navegador da unos pocos segundos:
+ * esperar aquí a una descarga lo agota y el compartir se rechaza sin que nada lo explique (ver 029,
+ * supuesto 78).
  */
 
 /** Lo que ocurrió al compartir, para que la vista diga algo distinto en cada caso. */
 export type ResultadoCompartir = 'compartido' | 'descargado' | 'copiado' | 'cancelado'
+
+/** Un archivo listo para salir: ya descargado, con el nombre con el que llegará al cliente. */
+export interface ArchivoCompartible {
+  contenido: Blob
+  nombre: string
+}
 
 export function puedeCompartirArchivos(): boolean {
   return typeof navigator.canShare === 'function' && typeof navigator.share === 'function'
@@ -16,39 +28,74 @@ export function puedeCompartirArchivos(): boolean {
 
 /**
  * Comparte un archivo con su texto: el ticket de una venta (027) o el PDF de una cotización (029).
- *
- * - **Celular**: menú de compartir del propio aparato, con archivo y texto. Es el único camino por
- *   el que un archivo puede salir hacia WhatsApp desde una página web.
- * - **Escritorio**: descarga el archivo y copia el texto, para arrastrarlo a WhatsApp Desktop y
- *   pegar el mensaje. A diferencia de la ficha de artículo, aquí **sí** se descarga: el archivo no
- *   existe en ningún otro lado y sin él el botón no serviría de nada en el mostrador.
  */
 export async function compartirArchivo(
   contenido: Blob,
   nombreArchivo: string,
   texto: string,
 ): Promise<ResultadoCompartir> {
-  const archivo = new File([contenido], nombreArchivo, {
-    type: contenido.type || 'application/octet-stream',
-  })
+  return compartirArchivos([{ contenido, nombre: nombreArchivo }], texto)
+}
 
-  if (puedeCompartirArchivos() && navigator.canShare({ files: [archivo] })) {
-    try {
-      await navigator.share({ text: texto, files: [archivo] })
+/**
+ * Comparte varios archivos de una vez: el PDF y el XML de un CFDI, que sin su XML no le sirve al
+ * contador del cliente (ver 029-pwa-mostrador.md).
+ *
+ * Si el aparato no admite el grupo completo se intenta **solo con el primero**, que es el que el
+ * cliente mira, antes de caer a la descarga. Mandar algo es mejor que no mandar nada porque un
+ * segundo archivo no cupo.
+ */
+export async function compartirArchivos(
+  archivos: ArchivoCompartible[],
+  texto: string,
+): Promise<ResultadoCompartir> {
+  const files = archivos.map(
+    ({ contenido, nombre }) =>
+      new File([contenido], nombre, { type: contenido.type || 'application/octet-stream' }),
+  )
 
-      return 'compartido'
-    } catch (err) {
-      // Cerrar el menú del sistema lanza AbortError y no es un fallo que reportar.
-      if (err instanceof DOMException && err.name === 'AbortError') return 'cancelado'
+  if (puedeCompartirArchivos()) {
+    for (const grupo of files.length > 1 ? [files, files.slice(0, 1)] : [files]) {
+      if (!navigator.canShare({ files: grupo })) continue
 
-      throw err
+      try {
+        await navigator.share({ text: texto, files: grupo })
+
+        return 'compartido'
+      } catch (err) {
+        // Cerrar el menú del sistema lanza AbortError y no es un fallo que reportar.
+        if (err instanceof DOMException && err.name === 'AbortError') return 'cancelado'
+
+        // Cualquier otro rechazo —un tipo de archivo que el navegador no acepta, un gesto que ya
+        // caducó— no deja al usuario sin documento: se sigue por el camino de abajo, que también
+        // termina en WhatsApp.
+        break
+      }
     }
   }
 
-  descargar(contenido, nombreArchivo)
-  await copiarTexto(texto)
+  archivos.forEach(({ contenido, nombre }) => descargar(contenido, nombre))
+  await abrirWhatsappConTexto(texto)
 
   return 'descargado'
+}
+
+/**
+ * El camino para cuando el menú del aparato no está: deja el mensaje en el portapapeles y abre
+ * WhatsApp —Desktop si está instalado, Web si no— con el texto ya escrito. El botón prometía un
+ * envío por WhatsApp, así que dejar el archivo en la carpeta de descargas y callarse no lo cumple.
+ *
+ * Copiar puede fallar sola —el navegador la rechaza si la ventana perdió el foco— y eso no puede
+ * tumbar el envío: el mensaje va igual escrito en el enlace.
+ */
+async function abrirWhatsappConTexto(texto: string): Promise<void> {
+  try {
+    await copiarTexto(texto)
+  } catch {
+    // El texto viaja en la propia dirección de WhatsApp, así que no se pierde nada.
+  }
+
+  window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, '_blank', 'noopener')
 }
 
 /**

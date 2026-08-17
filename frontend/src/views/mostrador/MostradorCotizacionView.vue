@@ -9,7 +9,8 @@ import {
 } from '../../stores/cotizaciones'
 import { calcularTotales } from '../../lib/totalesDocumento'
 import { reaplicarDescuento } from '../../lib/lineasMostrador'
-import { mensajeDeFalla } from '../../lib/errors'
+import { mensajeDeFalla, mensajeDeFallaDeDescarga } from '../../lib/errors'
+import type { ArchivoCompartible } from '../../lib/compartir'
 import { useConfirmarSalida } from '../../lib/salidaCaptura'
 import AppLayout from '../../layouts/AppLayout.vue'
 import PasosMostrador from '../../components/mostrador/PasosMostrador.vue'
@@ -56,6 +57,9 @@ const error = ref<string | null>(null)
 const compartiendo = ref(false)
 const avisoEnvio = ref<string | null>(null)
 
+/** El PDF ya bajado, listo para el menú de compartir (ver 029, supuesto 78). */
+const archivos = ref<ArchivoCompartible[] | null>(null)
+
 const totales = computed(() => calcularTotales(lineas.value, null, null))
 
 const hayCaptura = computed(
@@ -92,6 +96,7 @@ async function guardar() {
     cotizacion.value = await cotizaciones.create(payload)
     correo.value = cotizacion.value.cliente_correo ?? ''
     paso.value = 3
+    void prepararEnvio()
   } catch (err) {
     error.value = mensajeDeFalla(err)
   } finally {
@@ -99,25 +104,41 @@ async function guardar() {
   }
 }
 
-/** El PDF sale del servidor y lo comparte el aparato: Twilio ya no participa (ver 029). */
-async function compartirPorWhatsapp() {
+/**
+ * Baja el PDF en cuanto la cotización queda guardada, sin que nadie lo pida: al tocar el botón ya no
+ * puede haber esperas de por medio o el menú del aparato se rechaza (ver 029, supuesto 78).
+ */
+async function prepararEnvio() {
   if (cotizacion.value === null) return
 
   compartiendo.value = true
   avisoEnvio.value = null
 
   try {
-    const resultado = await cotizaciones.compartirPorWhatsapp(cotizacion.value)
+    archivos.value = await cotizaciones.archivosParaWhatsapp(cotizacion.value)
+  } catch (err) {
+    avisoEnvio.value = await mensajeDeFallaDeDescarga(err)
+  } finally {
+    compartiendo.value = false
+  }
+}
+
+/** El PDF sale del servidor y lo comparte el aparato: Twilio ya no participa (ver 029). */
+async function compartirPorWhatsapp() {
+  if (cotizacion.value === null || archivos.value === null) return
+
+  avisoEnvio.value = null
+
+  try {
+    const resultado = await cotizaciones.compartirPorWhatsapp(cotizacion.value, archivos.value)
 
     if (resultado === 'descargado') {
-      avisoEnvio.value = 'PDF descargado y mensaje copiado: arrástralo a WhatsApp y pega el texto.'
+      avisoEnvio.value = 'PDF descargado: adjúntalo en la ventana de WhatsApp que acaba de abrirse.'
     } else if (resultado === 'compartido') {
       avisoEnvio.value = 'Cotización compartida.'
     }
   } catch (err) {
     avisoEnvio.value = mensajeDeFalla(err)
-  } finally {
-    compartiendo.value = false
   }
 }
 
@@ -154,6 +175,7 @@ function nuevaCotizacion() {
   error.value = null
   correo.value = ''
   avisoEnvio.value = null
+  archivos.value = null
   paso.value = 0
 }
 </script>

@@ -253,7 +253,7 @@ async function compartirTicket() {
     )
 
     if (resultado === 'descargado') {
-      avisoTicket.value = 'Ticket descargado y mensaje copiado.'
+      avisoTicket.value = 'Ticket descargado: adjúntalo en la ventana de WhatsApp que se abrió.'
     }
   } catch {
     avisoTicket.value = 'No se pudo compartir el ticket.'

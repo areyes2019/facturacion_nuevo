@@ -202,3 +202,40 @@ test('el listado de facturas solo muestra las del usuario autenticado', function
     $response->assertOk();
     $response->assertJsonCount(1, 'data');
 });
+
+test('el catalogo de usos de cfdi se devuelve completo y ordenado sin busqueda', function () {
+    $user = User::factory()->create();
+
+    // Sin `q`: es como lo pide la pantalla de uso de CFDI del mostrador, que abre con la lista a la
+    // vista en vez de esperar a que alguien escriba (ver 029-pwa-mostrador.md).
+    $response = $this->actingAs($user)->getJson('/api/v1/catalogos/usos-cfdi');
+
+    $response->assertOk();
+    $response->assertJsonFragment(['id' => 'G03', 'texto' => 'Gastos en general.']);
+
+    $claves = array_column($response->json('data'), 'id');
+    $ordenadas = $claves;
+    sort($ordenadas);
+
+    expect(count($claves))->toBeGreaterThan(20)
+        ->and($claves)->toBe($ordenadas);
+});
+
+test('el catalogo de usos de cfdi sigue buscando por texto', function () {
+    $user = User::factory()->create();
+
+    $response = $this->actingAs($user)->getJson('/api/v1/catalogos/usos-cfdi?q=gastos');
+
+    $response->assertOk();
+    $response->assertJsonFragment(['id' => 'G03']);
+    expect(count($response->json('data')))->toBeLessThan(20);
+});
+
+test('una busqueda de un solo caracter en usos de cfdi se rechaza', function () {
+    $user = User::factory()->create();
+
+    $this->actingAs($user)
+        ->getJson('/api/v1/catalogos/usos-cfdi?q=g')
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('q');
+});

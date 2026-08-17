@@ -105,19 +105,35 @@ class CatalogoController extends Controller
     /**
      * Catálogo SAT c_UsoCFDI (CFDI 4.0). Se captura por factura (no en el cliente, ver
      * 004-gestion-clientes.md); se busca por texto igual que clave de producto/servicio.
+     *
+     * `q` es opcional: sin él se devuelve el catálogo completo ordenado por clave, que es lo que la
+     * pantalla de uso de CFDI del mostrador necesita para abrir con la lista a la vista en vez de
+     * esperar a que alguien escriba (ver 029-pwa-mostrador.md). Con `q`, la búsqueda responde
+     * exactamente igual que antes, que es de lo que depende el portal de autofactura de 027.
      */
     public function usosCfdi(Request $request): JsonResponse
     {
         $request->validate([
-            'q' => ['required', 'string', 'min:2', 'max:100'],
+            'q' => ['nullable', 'string', 'min:2', 'max:100'],
         ]);
 
-        $entradas = $this->satCatalogos->usosCfdi40()->searchByText('%'.$request->string('q')->trim().'%', 20);
+        $busqueda = $request->string('q')->trim();
+
+        $entradas = $busqueda->isEmpty()
+            ? $this->satCatalogos->usosCfdi40()->searchByText('%')
+            : $this->satCatalogos->usosCfdi40()->searchByText('%'.$busqueda.'%', 20);
 
         $data = array_map(fn ($entrada) => [
             'id' => $entrada->id(),
             'texto' => $entrada->texto(),
         ], $entradas);
+
+        // El catálogo completo sale ordenado por clave, mismo criterio que formas de pago: es el
+        // orden en que el usuario espera encontrar un G03 o un D01. La búsqueda conserva el orden
+        // por relevancia que trae el propio catálogo.
+        if ($busqueda->isEmpty()) {
+            usort($data, fn ($a, $b) => $a['id'] <=> $b['id']);
+        }
 
         return response()->json(['data' => $data]);
     }

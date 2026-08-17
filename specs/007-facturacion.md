@@ -196,7 +196,10 @@ nuestra).
 Se amplía la base SQLite reducida de catálogos SAT creada en 004 y ampliada en 006
 (`storage/app/sat-catalogos.sqlite`, comando `catalogos-sat:actualizar`) con dos tablas nuevas:
 
-- `GET /api/v1/catalogos/usos-cfdi?q=...` — búsqueda sobre `c_UsoCFDI`.
+- `GET /api/v1/catalogos/usos-cfdi?q=...` — búsqueda sobre `c_UsoCFDI`. Desde
+  [029](029-pwa-mostrador.md), `q` es opcional: sin él se devuelve el catálogo completo ordenado por
+  clave, que es lo que la pantalla de opciones del mostrador necesita para abrir con la lista a la
+  vista.
 - `GET /api/v1/catalogos/formas-pago?q=...` — búsqueda sobre `c_FormaPago`.
 - `GET /api/v1/catalogos/motivos-cancelacion` — catálogo `c_MotivoCancelacion` (solo 4 valores
   fijos: 01–04), se sirve completo sin `?q=` por su tamaño reducido.
