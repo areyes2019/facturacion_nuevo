@@ -10,6 +10,7 @@ use App\Models\Proveedor;
 use App\Models\User;
 use App\Services\FacturapiService;
 use Facturapi\Exceptions\FacturapiException;
+use Illuminate\Support\Facades\DB;
 use PhpCfdi\Rfc\RfcFaker;
 
 function crearClienteYArticulo(User $user, array $overridesArticulo = []): array
@@ -201,6 +202,37 @@ test('el listado de facturas solo muestra las del usuario autenticado', function
 
     $response->assertOk();
     $response->assertJsonCount(1, 'data');
+});
+
+test('el listado de facturas filtra por fecha con el dia calendario de la zona horaria del negocio', function () {
+    $user = User::factory()->create();
+    [$cliente] = crearClienteYArticulo($user);
+
+    // 2026-08-03 04:16 UTC equivale a 2026-08-02 22:16 en America/Mexico_City (UTC-6): de noche
+    // del dia anterior en hora del negocio, aunque created_at ya cayo en el dia siguiente en UTC.
+    // Misma interpretacion que el listado de cotizaciones (ver 031-mostrador-consulta.md).
+    $factura = Factura::factory()->for($user)->for($cliente)->create();
+    DB::table('facturas')->where('id', $factura->id)->update(['created_at' => '2026-08-03 04:16:00']);
+
+    $filtroDiaUtc = $this->actingAs($user)->getJson('/api/v1/facturas?fecha_desde=2026-08-03&fecha_hasta=2026-08-03');
+    $filtroDiaUtc->assertOk();
+    $filtroDiaUtc->assertJsonCount(0, 'data');
+
+    $filtroDiaNegocio = $this->actingAs($user)->getJson('/api/v1/facturas?fecha_desde=2026-08-02&fecha_hasta=2026-08-02');
+    $filtroDiaNegocio->assertOk();
+    $filtroDiaNegocio->assertJsonCount(1, 'data');
+    $filtroDiaNegocio->assertJsonPath('data.0.id', $factura->id);
+});
+
+test('el recurso de la factura expone el rfc del cliente', function () {
+    $user = User::factory()->create();
+    [$cliente] = crearClienteYArticulo($user);
+    $factura = Factura::factory()->for($user)->for($cliente)->create();
+
+    $response = $this->actingAs($user)->getJson('/api/v1/facturas/'.$factura->id);
+
+    $response->assertOk();
+    $response->assertJsonPath('data.cliente_rfc', $cliente->rfc);
 });
 
 test('el catalogo de usos de cfdi se devuelve completo y ordenado sin busqueda', function () {

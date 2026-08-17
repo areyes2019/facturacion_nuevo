@@ -1,10 +1,8 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ArrowLeftIcon, ShareIcon } from '@heroicons/vue/24/outline'
 import { usePedidosStore, type Pedido, type PedidoPayload } from '../../stores/pedidos'
-import type { Cuenta } from '../../stores/cuentas'
-import http from '../../lib/http'
 import { calcularTotales } from '../../lib/totalesDocumento'
 import { compartirArchivo } from '../../lib/compartir'
 import { mensajeDeFalla } from '../../lib/errors'
@@ -13,6 +11,7 @@ import AppLayout from '../../layouts/AppLayout.vue'
 import PasosMostrador from '../../components/mostrador/PasosMostrador.vue'
 import PasoArticulosTarjetas from '../../components/mostrador/PasoArticulosTarjetas.vue'
 import CarritoMostrador from '../../components/mostrador/CarritoMostrador.vue'
+import SelectorCuentaMostrador from '../../components/mostrador/SelectorCuentaMostrador.vue'
 import type { LineaEditable } from '../../components/DocumentoLineas.vue'
 import { Alert, AlertDescription } from '../../components/ui/alert'
 import { Button } from '../../components/ui/button'
@@ -26,13 +25,6 @@ import {
 } from '../../components/ui/dialog'
 import { Input } from '../../components/ui/input'
 import { Label } from '../../components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../../components/ui/select'
 
 /**
  * Venta al público, capturada por pasos (ver 029-pwa-mostrador.md).
@@ -64,9 +56,7 @@ const lineas = ref<LineaEditable[]>([])
 /** Datos del último pedido con este teléfono: una sugerencia que se acepta con un toque. */
 const sugerencia = ref<{ cliente_nombre: string; cliente_correo: string | null } | null>(null)
 
-const cuentas = ref<Cuenta[]>([])
 const cuentaId = ref<number | null>(null)
-const errorCuentas = ref<string | null>(null)
 const monto = ref<number | null>(null)
 
 /** El pedido, una vez creado. Sobrevive a un cobro fallido: existe aunque el pago no entrara. */
@@ -94,28 +84,9 @@ const { confirmandoSalida, confirmarSalida, cancelarSalida } = useConfirmarSalid
   () => hayCaptura.value,
 )
 
-onMounted(cargarCuentas)
-
 onBeforeUnmount(() => {
   if (ticketUrl.value) URL.revokeObjectURL(ticketUrl.value)
 })
-
-/**
- * La caja viene preseleccionada: es la cuenta de efectivo activa más antigua, que en el mostrador
- * es donde entra casi todo. Se puede cambiar a otra cuenta con un toque.
- */
-async function cargarCuentas() {
-  errorCuentas.value = null
-
-  try {
-    const { data } = await http.get('/cuentas', { params: { per_page: 100, activa: 'true' } })
-    cuentas.value = (data.data as Cuenta[]).slice().sort((a, b) => a.id - b.id)
-    cuentaId.value =
-      (cuentas.value.find((c) => c.tipo === 'efectivo') ?? cuentas.value[0])?.id ?? null
-  } catch (err) {
-    errorCuentas.value = mensajeDeFalla(err)
-  }
-}
 
 /**
  * Al terminar de capturar el teléfono se busca si ese número ya compró antes. No se dispara en cada
@@ -375,31 +346,7 @@ function nuevaVenta() {
           </p>
         </div>
 
-        <div class="space-y-1.5">
-          <Label>¿A qué cuenta entra el dinero?</Label>
-          <Select
-            :model-value="cuentaId?.toString() ?? undefined"
-            @update:model-value="(v) => (cuentaId = v ? Number(v) : null)"
-          >
-            <SelectTrigger class="h-12 w-full">
-              <SelectValue placeholder="Selecciona una cuenta" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem v-for="cuenta in cuentas" :key="cuenta.id" :value="cuenta.id.toString()">
-                {{ cuenta.nombre }}
-              </SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        <Alert v-if="errorCuentas" variant="destructive">
-          <AlertDescription class="space-y-2">
-            <p>{{ errorCuentas }}</p>
-            <Button type="button" size="sm" variant="outline" @click="cargarCuentas">
-              Reintentar
-            </Button>
-          </AlertDescription>
-        </Alert>
+        <SelectorCuentaMostrador v-model="cuentaId" />
 
         <Alert v-if="errorPedido" variant="destructive">
           <AlertDescription>{{ errorPedido }}</AlertDescription>

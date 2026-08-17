@@ -21,6 +21,7 @@ use App\Models\MovimientoInventario;
 use App\Services\FacturapiService;
 use App\Services\FacturaTotalesCalculator;
 use App\Services\InventarioService;
+use Carbon\Carbon;
 use Facturapi\Exceptions\FacturapiException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -32,6 +33,8 @@ use Illuminate\Validation\ValidationException;
 
 class FacturaController extends Controller
 {
+    private const ZONA_HORARIA_NEGOCIO = 'America/Mexico_City';
+
     public function __construct(
         private readonly FacturapiService $facturapi,
         private readonly InventarioService $inventario,
@@ -53,6 +56,11 @@ class FacturaController extends Controller
                 });
             })
             ->when($request->string('estado')->trim()->isNotEmpty(), fn ($query) => $query->where('estado', (string) $request->string('estado')))
+            // Mismos filtros de fecha que el listado de cotizaciones, con la misma interpretación:
+            // la fecha llega como día del negocio y se compara contra `created_at` en UTC. Sin
+            // ellos, la lista del mostrador no puede acotarse a 30 días (ver 031-mostrador-consulta.md).
+            ->when($request->string('fecha_desde')->trim()->isNotEmpty(), fn ($query) => $query->where('created_at', '>=', Carbon::parse((string) $request->string('fecha_desde'), self::ZONA_HORARIA_NEGOCIO)->startOfDay()->utc()))
+            ->when($request->string('fecha_hasta')->trim()->isNotEmpty(), fn ($query) => $query->where('created_at', '<=', Carbon::parse((string) $request->string('fecha_hasta'), self::ZONA_HORARIA_NEGOCIO)->endOfDay()->utc()))
             ->orderByDesc('id')
             ->paginate(15);
 

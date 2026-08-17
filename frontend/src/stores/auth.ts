@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { defineStore } from 'pinia'
 import http, { ensureCsrfCookie } from '../lib/http'
+import { olvidarListas } from '../lib/memoriaLista'
 
 export interface AuthUser {
   id: number
@@ -76,6 +77,9 @@ export const useAuthStore = defineStore('auth', {
     async logout() {
       await http.post('/auth/logout')
       this.user = null
+      // Lo que las listas del mostrador traían cargado es de la sesión que acaba de cerrarse
+      // (ver 031-mostrador-consulta.md).
+      olvidarListas()
     },
 
     async forgotPassword(email: string) {

@@ -49,6 +49,15 @@ const RUTAS_PERMITIDAS = new Set([
   'mostrador-factura',
   'mostrador-cotizacion',
   'mostrador-escanear',
+  // Las tres secciones de la barra del pie (ver 031-mostrador-consulta.md). Consultar sí se puede
+  // desde el celular, con sus propias pantallas de tarjetas; editar sigue siendo trabajo de
+  // computadora, y eso lo cierra cada pantalla, no el candado.
+  'mostrador-cotizaciones',
+  'mostrador-cotizacion-ver',
+  'mostrador-facturas',
+  'mostrador-factura-ver',
+  'mostrador-catalogo',
+  'mostrador-articulo-ver',
   // El destino del QR de la etiqueta, sin el cual el cuarto acceso no serviría.
   'pedidos-entregar',
   // La puerta de entrada.

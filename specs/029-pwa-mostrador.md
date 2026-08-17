@@ -610,7 +610,9 @@ Ninguna ruta existente cambia de dirección ni de nombre.
 - **Imprimir la etiqueta adhesiva desde el celular**, en cualquier forma, incluida una cola de
   impresión hacia la computadora.
 - **Editar o consultar documentos ya capturados** desde el modo mostrador: los cuatro accesos son
-  para crear y para entregar, no para revisar. Consultar es trabajo de computadora.
+  para crear y para entregar, no para revisar. Consultar es trabajo de computadora. *(La mitad de
+  consultar la abrió después [031](031-mostrador-consulta.md), con sus propias pantallas de
+  tarjetas; editar sigue fuera.)*
 - **Cobrar con terminal bancaria** o cualquier medio de pago que no sea registrar el monto.
 - **Leer códigos de barras de artículos** para agregarlos a la venta. El catálogo no tiene códigos
   de barras capturados; el escáner solo lee el QR de las etiquetas del sistema.
@@ -618,7 +620,8 @@ Ninguna ruta existente cambia de dirección ni de nombre.
   frontend o en PHP. El escáner descansa en el detector nativo, y donde no lo hay lo dice en vez de
   fingir que puede (ver "Las cuatro ayudas de la cámara").
 - **Un quinto acceso**, de cualquier clase, y cualquier resumen, cifra o gráfica en la pantalla de
-  inicio.
+  inicio. *(La pantalla de inicio se quedó en cuatro; [031](031-mostrador-consulta.md) sumó tres
+  secciones más en una barra al pie, sin tocar la cuadrícula.)*
 - **Notificaciones al celular** (push).
 - **Publicar la aplicación en Google Play** o empaquetarla con Capacitor.
 - **Cambiar los formularios de escritorio** de factura, cotización o venta. La única excepción es el

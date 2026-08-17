@@ -45,6 +45,7 @@ export interface Factura {
   estado: EstadoFactura
   cliente_id: number
   cliente_razon_social: string | null
+  cliente_rfc: string | null
   cliente_correo: string | null
   uso_cfdi: string
   forma_pago: string

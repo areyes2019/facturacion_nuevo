@@ -16,7 +16,7 @@ const mostrador = enModoMostrador()
 </script>
 
 <template>
-  <AppLayout :mostrador="mostrador">
+  <AppLayout :mostrador="mostrador" :barra="mostrador">
     <CuatroAccesos v-if="mostrador" />
 
     <div v-else class="space-y-4">

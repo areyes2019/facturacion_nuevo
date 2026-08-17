@@ -240,6 +240,45 @@ const router = createRouter({
       component: () => import('../views/mostrador/MostradorEscanearView.vue'),
       meta: { requiresAuth: true },
     },
+    // Las tres secciones de la barra del pie (ver 031-mostrador-consulta.md). Van bajo el mismo
+    // prefijo por la misma razón que las cuatro de arriba, en plural para la lista y con sufijo
+    // `-ver` para el detalle, para no chocar con los nombres de las rutas de captura.
+    {
+      path: '/mostrador/cotizaciones',
+      name: 'mostrador-cotizaciones',
+      component: () => import('../views/mostrador/MostradorCotizacionesView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/mostrador/cotizaciones/:id',
+      name: 'mostrador-cotizacion-ver',
+      component: () => import('../views/mostrador/MostradorCotizacionDetalleView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/mostrador/facturas',
+      name: 'mostrador-facturas',
+      component: () => import('../views/mostrador/MostradorFacturasView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/mostrador/facturas/:id',
+      name: 'mostrador-factura-ver',
+      component: () => import('../views/mostrador/MostradorFacturaDetalleView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/mostrador/catalogo',
+      name: 'mostrador-catalogo',
+      component: () => import('../views/mostrador/MostradorCatalogoView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/mostrador/catalogo/:id',
+      name: 'mostrador-articulo-ver',
+      component: () => import('../views/mostrador/MostradorArticuloView.vue'),
+      meta: { requiresAuth: true },
+    },
     {
       // Portal público de autofacturación: lo abre el cliente, que no tiene cuenta en el sistema.
       // Fuera del guard de sesión y sin el layout de la aplicación.

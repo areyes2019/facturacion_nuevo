@@ -51,6 +51,17 @@ class CotizacionController extends Controller
             // `puede_eliminarse` del Resource necesita saber si tiene pagos: contarlos en la misma
             // consulta evita una por fila del listado.
             ->withCount('pagos')
+            // Buscador único del mostrador: folio, razón social y RFC a la vez, como el de facturas
+            // (ver 031-mostrador-consulta.md). Convive con los tres filtros de abajo, que son los
+            // que la tabla por columnas del escritorio necesita separados.
+            ->when($request->string('search')->trim()->isNotEmpty(), function ($query) use ($request) {
+                $busqueda = '%'.$request->string('search')->trim().'%';
+                $query->where(function ($query) use ($busqueda) {
+                    $query->where('folio', 'like', $busqueda)
+                        ->orWhereHas('cliente', fn ($q) => $q->where('razon_social', 'like', $busqueda)
+                            ->orWhere('rfc', 'like', $busqueda));
+                });
+            })
             ->when($request->string('cliente')->trim()->isNotEmpty(), function ($query) use ($request) {
                 $busqueda = '%'.$request->string('cliente')->trim().'%';
                 $query->whereHas('cliente', fn ($q) => $q->where('razon_social', 'like', $busqueda));

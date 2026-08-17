@@ -412,6 +412,44 @@ test('el listado de cotizaciones filtra por cliente, rfc, folio y estado', funct
     $response->assertJsonPath('data.0.estado', 'pagada');
 });
 
+test('el buscador unico del listado de cotizaciones encuentra por folio, razon social y rfc', function () {
+    $user = User::factory()->create();
+    [$cliente] = crearClienteYArticuloParaCotizacion($user);
+    [$otroCliente] = crearClienteYArticuloParaCotizacion($user);
+
+    $cliente->update(['razon_social' => 'Herrajes del Bajio SA de CV']);
+    $otroCliente->update(['razon_social' => 'Papeleria Central SA de CV']);
+
+    $buscada = Cotizacion::factory()->for($user)->for($cliente)->create(['folio' => 314]);
+    Cotizacion::factory()->for($user)->for($otroCliente)->create(['folio' => 315]);
+
+    // Un solo campo en el celular, tres columnas en el servidor: el buscador tiene que dar con la
+    // misma cotizacion escriba lo que escriba el usuario (ver 031-mostrador-consulta.md).
+    foreach (['314', 'Herrajes', $cliente->rfc] as $texto) {
+        $response = $this->actingAs($user)->getJson('/api/v1/cotizaciones?search='.urlencode($texto));
+
+        $response->assertOk();
+        $response->assertJsonCount(1, 'data');
+        $response->assertJsonPath('data.0.id', $buscada->id);
+    }
+});
+
+test('el buscador unico convive con los filtros por columna del escritorio', function () {
+    $user = User::factory()->create();
+    [$cliente] = crearClienteYArticuloParaCotizacion($user);
+
+    $cliente->update(['razon_social' => 'Herrajes del Bajio SA de CV']);
+
+    Cotizacion::factory()->for($user)->for($cliente)->create(['estado' => EstadoCotizacion::Pagada->value]);
+    Cotizacion::factory()->for($user)->for($cliente)->create(['estado' => EstadoCotizacion::Borrador->value]);
+
+    $response = $this->actingAs($user)->getJson('/api/v1/cotizaciones?search=Herrajes&estado=pagada');
+
+    $response->assertOk();
+    $response->assertJsonCount(1, 'data');
+    $response->assertJsonPath('data.0.estado', 'pagada');
+});
+
 test('el filtro de fecha usa el dia calendario de la zona horaria del negocio, no UTC', function () {
     $user = User::factory()->create();
     [$cliente] = crearClienteYArticuloParaCotizacion($user);

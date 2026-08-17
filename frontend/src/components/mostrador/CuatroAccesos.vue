@@ -38,7 +38,9 @@ async function onLogout() {
 </script>
 
 <template>
-  <div class="flex min-h-[calc(100svh-9rem)] flex-col gap-3">
+  <!-- El alto descontado es el de la barra de arriba, el respiro del `main` y el de la barra de
+       secciones del pie (ver 031-mostrador-consulta.md). -->
+  <div class="flex min-h-[calc(100svh-15rem)] flex-col gap-3">
     <!-- Cuadrícula de dos por dos que reparte el alto en partes iguales. Toda la superficie del
          cuadro es tocable, no solo las letras. -->
     <div class="grid flex-1 grid-cols-2 grid-rows-2 gap-3">

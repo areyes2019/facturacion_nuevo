@@ -20,6 +20,9 @@ class FacturaResource extends JsonResource
             'estado' => $this->estado->value,
             'cliente_id' => $this->cliente_id,
             'cliente_razon_social' => $this->whenLoaded('cliente', fn () => $this->cliente->razon_social),
+            // El mismo campo que `CotizacionResource` ya publica: sin él, pintar el RFC en el
+            // detalle del mostrador costaría una segunda petición (ver 031-mostrador-consulta.md).
+            'cliente_rfc' => $this->whenLoaded('cliente', fn () => $this->cliente->rfc),
             'cliente_correo' => $this->whenLoaded('cliente', fn () => $this->cliente->correo_contacto),
             'uso_cfdi' => $this->uso_cfdi,
             'forma_pago' => $this->forma_pago,

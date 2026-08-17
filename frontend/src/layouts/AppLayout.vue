@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Bars3Icon, ChevronDownIcon, XMarkIcon } from '@heroicons/vue/24/outline'
 import { useAuthStore } from '../stores/auth'
+import BarraMostrador from '../components/mostrador/BarraMostrador.vue'
 import { Button } from '../components/ui/button'
 import {
   NavigationMenu,
@@ -47,10 +48,17 @@ import {
  * vista sería ofrecer lo que no se puede dar. Queda el nombre del sistema, que en las pantallas
  * interiores funciona como botón de regreso a los cuatro accesos.
  */
-const props = withDefaults(defineProps<{ ancho?: 'normal' | 'amplio'; mostrador?: boolean }>(), {
-  ancho: 'normal',
-  mostrador: false,
-})
+/**
+ * `barra` cuelga del pie la barra de tres secciones del mostrador (ver 031-mostrador-consulta.md).
+ * La piden la pantalla de los cuatro accesos y las tres secciones nuevas; **no** las capturas por
+ * pasos ni el escáner, donde abajo ya vive la barra del carrito con el total y el botón que cierra
+ * la captura: un segundo juego de botones en el mismo lugar sería un estorbo, y en el peor caso un
+ * toque que tira una venta a medio capturar.
+ */
+const props = withDefaults(
+  defineProps<{ ancho?: 'normal' | 'amplio'; mostrador?: boolean; barra?: boolean }>(),
+  { ancho: 'normal', mostrador: false, barra: false },
+)
 
 const anchoContenedor = computed(() => (props.ancho === 'amplio' ? 'max-w-[96rem]' : 'max-w-5xl'))
 
@@ -284,8 +292,12 @@ async function onLogout() {
       </nav>
     </header>
 
-    <main class="mx-auto p-4 sm:p-6" :class="anchoContenedor">
+    <!-- El hueco de abajo es lo que la barra fija tapa: sin él, el último renglón de cualquier
+         lista quedaría escondido detrás de ella. -->
+    <main class="mx-auto p-4 sm:p-6" :class="[anchoContenedor, barra ? 'pb-24 sm:pb-24' : '']">
       <slot />
     </main>
+
+    <BarraMostrador v-if="barra" />
   </div>
 </template>
