@@ -22,14 +22,32 @@ El flujo completo, tal como lo describió el usuario:
 8. Se genera un enlace para que el cliente se autofacture y se le manda por WhatsApp con un botón
    compartir.
 
+### Revisión del 2026-08-16
+
+Al replantear el seguimiento de la producción, el usuario redujo el flujo a cuatro pasos:
+
+1. El ticket se genera cuando el cliente hace un primer pago, parcial o total.
+2. El ticket lleva el QR y los datos de la venta.
+3. **El sello se elabora fuera del sistema.**
+4. Se entrega el sello y se escanea el QR para cerrar la compra, con saldo pendiente o sin él.
+
+De ahí salen los cambios que este documento ya incorpora: el **QR dentro del ticket**, el **saldo en
+la etiqueta**, la **entrega que pide confirmación cuando hay dinero de por medio**, el aviso de "ya
+está listo" y el **ticket que no se guarda en disco**. Las reglas que quedaron superadas están
+reescritas al comportamiento nuevo, y el registro de supuestos dice cuáles cambiaron.
+
+El sistema **no da seguimiento a la fabricación**: no hay órdenes de trabajo, ni dibujos, ni colores
+de tinta, ni estados de producción. Se evaluó un módulo para eso y se descartó por sobredimensionado
+para un taller de una persona que hace unos diez sellos diarios.
+
 ## Objetivo / Alcance
 
 Un módulo nuevo, **Pedidos**, con su propio documento, su propio folio y su propio listado
 `/pedidos`. Incluye: captura del cliente de mostrador dentro del propio pedido (sin RFC), líneas de
-artículo del catálogo **y líneas libres a mano**, registro de pagos contra Tesorería, ticket JPG
-dibujado en el servidor, etiqueta imprimible de 5 × 2.5 cm con QR, cierre automático del pedido al
-escanear ese QR, y un **portal público de autofacturación** que timbra la factura del pedido con
-Facturapi.
+artículo del catálogo **y líneas libres a mano**, registro de pagos contra Tesorería, ticket JPG con
+QR dibujado en el servidor, etiqueta imprimible de 5 × 2.5 cm con QR y saldo, cierre del pedido al
+escanear ese QR, aviso de "ya está listo", y un **portal público de autofacturación** que timbra la
+factura del pedido con Facturapi.
 
 Se apoya en lo que ya existe y **no lo modifica salvo donde se diga explícitamente**: el cálculo de
 totales de [007](007-facturacion.md) (`FacturaTotalesCalculator`), el componente de líneas
@@ -86,9 +104,9 @@ propio que reusa los mismos servicios.
 - `estado`: enum `EstadoPedido` (abajo).
 - `entregado_en`: `timestamp` nullable. Momento exacto en que el escaneo cerró el pedido; es lo que
   hace posible la ventana de "Deshacer".
-- `ticket_ruta`: string nullable, **fuera de `#[Fillable]`**. Ruta del JPG dentro del disco privado;
-  solo la escribe `TicketPedidoService`. Mismo criterio que `articulos.imagen_ruta` en
-  [020](020-imagenes-articulos.md) y `emisor.logo_ruta` en [019](019-formato-pdf-documentos.md).
+- **No hay columna para el ticket.** La imagen no se guarda en ningún lado: se dibuja cada vez que
+  se pide y se desecha (ver "El ticket `.jpg`"). La columna `ticket_ruta` que tuvo la primera
+  versión se elimina con una migración, junto con los archivos que dejó en el disco.
 - `autofactura_token`: string(64) nullable, único, **fuera de `#[Fillable]`**. Ver "Portal de
   autofacturación".
 - `autofactura_error`: text nullable, **fuera de `#[Fillable]`**. Último motivo por el que falló un
@@ -123,7 +141,7 @@ línea, igual que en 008.
 
 ### Modelo `PedidoPago`
 
-`$table = 'pedido_pagos'`. Campos: `pedido_id`, `fecha_pago`, `monto`, `cuenta_id`, `automatico`.
+`$table = 'pedido_pagos'`. Campos: `pedido_id`, `fecha_pago`, `monto`, `cuenta_id`.
 
 Sigue la decisión de 008: **`cuenta_id`, no `forma_pago`**. Un pedido no es un CFDI, así que la
 forma de pago del catálogo del SAT no se timbra nunca desde aquí; lo que importa es a qué cuenta de
@@ -134,9 +152,9 @@ autofactura (ver más abajo).
   porcentaje mínimo: el usuario captura el monto que recibió.
 - Cada pago genera su `Movimiento` de ingreso vía `TesoreriaService`, con concepto no editable
   `Pago de Pedido PED-00042` (mismo formato de `CotizacionPago::conceptoMovimiento`).
-- `automatico`: booleano, `false` por omisión. Lo pone en `true` **solo** el cobro que dispara el
-  escaneo del QR. Es lo que permite que "Deshacer" sepa qué pago borrar sin adivinar por monto o
-  por fecha.
+- **Todos los pagos son iguales**, incluido el que se registra al entregar: mismo monto capturado,
+  misma cuenta elegida por el usuario, mismo movimiento de Tesorería. No hay pagos "automáticos"
+  (ver "El escaneo: la entrega").
 
 ### Estados
 
@@ -173,9 +191,9 @@ apunta, exactamente como ya hace con `Cotizacion`.
 ### El ticket `.jpg`
 
 **Lo dibuja el servidor, no el navegador.** El motivo es concreto: el mismo pedido se comparte desde
-la computadora del mostrador y desde el celular del usuario, y si cada aparato dibujara la imagen con
-sus propias fuentes, al cliente le llegarían tickets de distinto aspecto según desde dónde se mandó.
-Dibujarlo una vez y guardarlo también evita rehacerlo cada vez que se vuelve a compartir.
+la computadora del mostrador y desde el celular del usuario, y si cada aparato dibujara la imagen
+con sus propias fuentes —y su propio código QR— al cliente le llegarían tickets de distinto aspecto
+según desde dónde se mandó.
 
 `TicketPedidoService`, con **GD** (`imagecreatetruecolor`, `imagettftext`, `imagejpeg`), ya
 confirmada disponible en local y verificada como requisito en [020](020-imagenes-articulos.md).
@@ -195,17 +213,33 @@ confirmada disponible en local y verificada como requisito en [020](020-imagenes
   5. Las líneas: cantidad, descripción, precio unitario e importe.
   6. Subtotal, descuento (si lo hay), IVA y **Total**.
   7. **Pagado** y **Saldo pendiente**.
+  8. **El código QR**, centrado, de **300 × 300 px** sobre fondo blanco, con `No. 00042` impreso
+     debajo.
+- **El QR va al pie y va grande.** Al pie porque es donde el ojo termina de leer la tira y donde no
+  compite con nada; grande porque el peor escenario de ese código es que se lea **desde la pantalla
+  de un celular**, que brilla y refleja. 300 px sobre un ancho de 576 es poco más de la mitad del
+  ticket: sobrado para leerlo de una pantalla o de un papel maltratado. El número impreso debajo es
+  el respaldo para cuando el código no lee y hay que buscar el pedido a mano.
 
-  **Sin código QR**: el QR va únicamente en la etiqueta, que es lo que se pega al trabajo. En el
-  ticket no serviría de nada — el cliente no cierra su propio pedido.
-- **Salida JPEG calidad 85**, guardado en el disco privado (`Storage::disk('local')`) bajo
-  `Pedido::DIRECTORIO_TICKETS` (`pedidos/tickets`), y servido por una ruta de Laravel que primero
-  valida la sesión. Fuera del docroot por las dos razones de [020](020-imagenes-articulos.md):
-  `symlink` está desactivada en Hostinger y `deploy/deploy-frontend.sh` borra todo lo que no venga
-  en el build.
-- **Se regenera cuando cambia lo que muestra**: al guardar el pedido y al agregar o borrar un pago,
-  se borra el archivo anterior y se marca `ticket_ruta = null`; se vuelve a dibujar la próxima vez
-  que se pida. Así el ticket nunca miente sobre el saldo.
+  Lo dibuja `chillerlan/php-qrcode` —el mismo del timbre fiscal de
+  [019](019-formato-pdf-documentos.md)— y se pega dentro de la imagen con GD. Su contenido es la
+  misma URL de la etiqueta (ver "La etiqueta con QR"): **un solo código por pedido**, idéntico en
+  los dos papeles. Que el cliente se lleve ese código en su ticket no le da acceso a nada, porque el
+  destino exige sesión; le sirve al mostrador, que puede escanearlo **de la pantalla del cliente**
+  cuando llega sin la caja etiquetada, que pasa seguido.
+- **Salida JPEG calidad 85**, servida por una ruta de Laravel que primero valida la sesión.
+- **No se guarda en ningún lado.** El ticket se dibuja en el momento en que se pide —para verlo o
+  para compartirlo— y se desecha. La imagen no es un registro: el folio, el cliente, las líneas, los
+  totales y los pagos viven en la base de datos y la imagen solo los pinta, así que se puede volver
+  a dibujar idéntica cuando haga falta. Guardarla sería guardar una copia por comodidad, y a diez
+  tickets diarios eso son unos 200 MB al año que **nunca dejan de crecer** en un plan compartido
+  donde el espacio se paga.
+
+  Tiene dos consecuencias buenas y una mala, todas asumidas. **Es imposible que el ticket muestre un
+  saldo viejo**, porque siempre se dibuja con los datos del momento: desaparece toda la lógica de
+  invalidarlo al registrar o borrar un pago. **No hay nada que limpiar** después ni carpeta que
+  vigilar. Y a cambio, **compartirlo dos veces lo dibuja dos veces** — milésimas de segundo, un
+  precio irrelevante para este volumen.
 
 Se comparte tal cual en JPEG, sin la conversión desde WEBP que hace la ficha de artículo — aquí el
 archivo ya nace en el formato que WhatsApp trata como foto y no como calcomanía.
@@ -253,12 +287,37 @@ Documento aparte del ticket, pensado para etiqueta adhesiva. Se imprime **desde 
 se genera archivo: una vista dedicada con `@page { size: 50mm 25mm; margin: 0 }` y `@media print`,
 que llama a `window.print()` al montarse.
 
-Contenido, y nada más: **nombre del cliente, `No. 00042`, teléfono y el QR**. Sin precios, sin
-artículos, sin totales — la etiqueta va pegada al trabajo y pasa por manos que no tienen por qué ver
-lo que se cobró.
+Contenido, y nada más: **nombre del cliente, teléfono, `No. 00042`, el saldo y el QR**. Sin
+artículos y sin desglose: la etiqueta identifica el trabajo en el estante, no lo detalla.
+
+**El saldo sí se imprime**: `SALDO: $250.00` cuando queda algo por cobrar, `PAGADO` cuando no. Al
+ver la caja se sabe si hay que cobrar, sin abrir el sistema. La primera versión de esta spec lo
+prohibía —"pasa por manos que no tienen por qué ver lo que se cobró"—, y ese argumento no aplica a
+un taller de una persona: no hay manos ajenas por las que pase.
+
+**Distribución de los 50 × 25 mm.** El QR necesita ser cuadrado y tener margen blanco, y con 25 mm
+de alto no puede pasar de unos 20 mm sin comerse los márgenes. Así que va **a la izquierda en un
+cuadro de 20 mm**, y los cuatro renglones de texto ocupan los ~28 mm restantes, aprovechando que la
+etiqueta es más ancha que alta:
+
+```
+|<---------- 50 mm ---------->|
++-----------------------------+ ---
+| +---------+  Juan Perez     |  ^
+| |         |  55 1234 5678   |  |
+| |   QR    |  No. 00042      | 25 mm
+| |  20mm   |  SALDO: $250.00 |  |
+| +---------+                 |  v
++-----------------------------+ ---
+  |<-20mm->| |<---- 28mm ---->|
+```
+
+El saldo va en el último renglón, en negritas: es el único dato que obliga a actuar y es donde el
+ojo lo busca. El nombre se recorta con puntos suspensivos si no cabe — antes de romper el renglón,
+porque un renglón que se parte empuja al saldo fuera de la etiqueta.
 
 El QR se dibuja en el servidor con `chillerlan/php-qrcode`, igual que el del timbre fiscal de
-[019](019-formato-pdf-documentos.md), y viaja en el recurso del pedido como data URI (`qr_imagen`),
+[019](019-formato-pdf-documentos.md), y viaja en el recurso del pedido como data URI (`qr_entrega`),
 solo en el `show`. Su contenido es la **URL absoluta** de la pantalla de entrega:
 
 ```
@@ -266,53 +325,125 @@ solo en el `show`. Su contenido es la **URL absoluta** de la pantalla de entrega
 ```
 
 Una URL absoluta y no un dato suelto, por dos razones: la app de cámara del celular la abre sola sin
-que nadie copie ni pegue nada, y **la futura PWA con Capacitor podrá leer ese mismo QR con su propio
-lector** y actuar sobre el `id` que trae la ruta, sin reimprimir una sola etiqueta. Esa PWA está
-fuera del alcance de esta spec, pero el formato del QR se elige hoy para no cerrarle la puerta.
+que nadie copie ni pegue nada, y **el escáner de la aplicación instalada de
+[029](029-pwa-mostrador.md) lee ese mismo QR con su propio lector** y actúa sobre el `id` que trae
+la ruta, sin reimprimir una sola etiqueta.
 
-### El escaneo: cobrar y entregar de un golpe
+**Los dos caminos llegan a la misma pantalla y hacen exactamente lo mismo.** No hay una entrega "por
+cámara" y otra "por escáner": el escáner de 029 solo cambia cómo se llega, no lo que pasa al llegar.
 
-Se escanea con la **app de cámara del propio celular**, que abre la URL en el navegador. No se
-construye un lector de QR dentro del sistema.
+### Avisar que está listo
+
+El sello se elabora fuera del sistema, así que **el sistema no sabe cuándo está listo** y no puede
+avisar solo. Lo que sí puede es redactar el aviso: el detalle del pedido ofrece **"Avisar que está
+listo"**, que el usuario aprieta cuando efectivamente lo está.
+
+Comparte un texto por el menú del sistema en celular y por WhatsApp Desktop/Web en escritorio
+(`compartirTexto` de `lib/compartir.ts`, igual que el enlace de autofactura). **No cambia ningún
+estado**: el pedido sigue donde estaba y el botón se puede apretar las veces que haga falta, porque
+al cliente que no contesta se le insiste.
+
+El texto vive en el almacén clave→valor de Configuración, como clave nueva
+`ClaveConfiguracion::MensajeListo` (`mensaje_listo`), con las mismas reglas del mensaje del ticket
+(`['present', 'nullable', 'string', 'max:2000']`). Editable y no fijo en el código: es un mensaje
+que se le manda al cliente y el tono lo pone el negocio, no el sistema.
+
+Su `valorPorDefecto()`:
+
+```
+Hola {nombre} 👋
+Tu pedido con No. de ticket {folio} ya está listo. 🎉
+Puedes pasar por él cuando gustes. ¡Gracias por tu preferencia!
+```
+
+Admite **los mismos huecos que el mensaje del ticket** —`{nombre}`, `{folio}`, `{total}`,
+`{pagado}` y `{saldo}`— resueltos por el mismo camino y expuestos ya resueltos en el recurso del
+pedido, para que el frontend no conozca la lista. `{saldo}` es el útil aquí: "tu pedido ya está
+listo y quedan $250.00 por cubrir" ahorra la sorpresa en el mostrador.
+
+### El escaneo: la entrega
+
+Se escanea con la **app de cámara del propio celular**, que abre la URL en el navegador, o con el
+escáner de la aplicación instalada de [029](029-pwa-mostrador.md). Esta spec no construye un lector
+de QR.
 
 La pantalla `/pedidos/:id/entregar` **requiere sesión**. Sin ella manda al login y regresa sola al
 pedido al autenticarse. Es una acción que mueve dinero: nadie que encuentre la etiqueta tirada en la
-calle debe poder cerrarla.
+calle —o que reciba el ticket reenviado por WhatsApp— debe poder cerrarla.
 
-Al abrirse, y **sin pedir confirmación**, dispara `POST /api/v1/pedidos/{pedido}/entregar`, que en
-una sola transacción:
+**La pantalla se resuelve sola según el saldo**, en tres caminos. Al montarse consulta el pedido y
+no actúa hasta saber en cuál está.
+
+#### Camino 1 — El pedido ya está entregado
+
+No ofrece ninguna acción. Muestra de quién era y **cuándo se entregó**, y ahí termina. Es el candado
+contra el doble escaneo —dos escaneos seguidos no pueden cobrar el saldo dos veces— y de paso sirve
+como consulta: se escanea una etiqueta vieja y se ve qué fue de ese pedido, sin poder tocar nada.
+
+#### Camino 2 — Saldo en cero: se cierra solo
+
+El pedido ya estaba pagado por completo, así que **no hay nada que decidir**: la pantalla dispara
+`POST /api/v1/pedidos/{pedido}/entregar` al montarse, sin preguntar, y muestra el resultado. No se
+registra ningún pago porque no queda nada por cobrar; solo se marca `estado = entregado` y
+`entregado_en = now()`.
+
+Preguntar aquí sería pedir permiso para lo único que se puede hacer.
+
+**El "Deshacer" vive únicamente en este camino**, durante **10 segundos**, porque es el único donde
+el sistema actúa sin preguntar: escanear la etiqueta equivocada daría por entregado el pedido de
+otro cliente sin que nadie lo haya confirmado. Llama a
+`POST /api/v1/pedidos/{pedido}/deshacer-entrega`, que deja `entregado_en = null` y recalcula el
+estado desde los pagos. El backend lo acepta mientras el pedido esté `entregado`, **no haya
+registrado ningún cobro al entregarse** y `entregado_en` sea de hace **menos de 5 minutos**.
+
+La ventana del backend es más ancha que los 10 segundos del botón a propósito: el botón mide
+impaciencia del usuario, el límite del servidor evita que un "Deshacer" disparado desde una pestaña
+olvidada revierta mañana una entrega legítima.
+
+#### Camino 3 — Saldo pendiente: pide confirmación
+
+Aquí sí hay dinero de por medio, así que **la pantalla no toca nada hasta que el usuario confirma**.
+Muestra, en grande:
+
+- Nombre del cliente y no. de ticket.
+- **Total**, **Pagado** y **Saldo**.
+- El selector de cuenta a la que entra el dinero.
+- Un solo botón: **"Cobrar y entregar"**.
+
+Ver a quién se le está cobrando **antes** de cobrarle atrapa la etiqueta equivocada cuando
+corregirlo todavía es gratis, en vez de revertir un movimiento de Tesorería después. Es el cambio de
+fondo respecto de la primera versión de esta spec, donde el escaneo cobraba y entregaba solo.
+
+**Un botón y no dos.** Cobrar y entregar son la misma decisión con el cliente enfrente; partirla en
+dos confirmaciones no protege de nada, porque nadie va a decir que sí al pago y que no a la entrega.
+
+**Se cobra el saldo completo y el monto no se edita.** Entregar el trabajo con el cliente todavía
+debiendo dejaría una cuenta abierta sin nada que la respalde — el sello ya se fue. Quien quiera
+cobrar de menos tiene el detalle del pedido para registrar el abono que quiera; la entrega cierra.
+
+**La cuenta no viene preseleccionada** y el botón queda deshabilitado hasta elegir una. La primera
+versión asumía la caja de efectivo, que es lo más común, pero elegir siempre evita el error que esa
+comodidad invita: confirmar por inercia y mandar a la caja un dinero que entró por transferencia.
+Es un toque por entrega a cambio de no tener que corregir pagos después. Si el usuario no tuviera
+ninguna cuenta dada de alta, la pantalla lo dice y manda a Tesorería.
+
+Al confirmar, `POST /api/v1/pedidos/{pedido}/entregar` con `cuenta_id`, que en una sola transacción:
 
 1. Bloquea la fila del pedido con `lockForUpdate()`.
-2. Si el pedido ya está `entregado`, **no toca nada** y responde "este pedido ya está entregado",
-   con la fecha en que se entregó. Es el candado contra el doble escaneo: dos escaneos seguidos —o
-   dos personas escaneando a la vez— no pueden cobrar el saldo dos veces ni meter dinero de más a la
-   caja.
-3. Si queda saldo, registra un `PedidoPago` por el saldo exacto, con `automatico = true`, y su
-   movimiento de ingreso vía `TesoreriaService`.
+2. Si el pedido ya está `entregado`, **no toca nada** y responde con la fecha en que se entregó.
+3. Registra un `PedidoPago` por el saldo exacto en la cuenta elegida, con su movimiento de ingreso
+   vía `TesoreriaService`.
 4. Marca `estado = entregado` y `entregado_en = now()`.
 
-**Con qué cuenta se cobra ese saldo.** El escaneo no puede preguntar nada, así que la cuenta se
-elige por regla fija: **la cuenta de tipo `efectivo` más antigua del usuario** (menor `id`), que es
-la caja del mostrador. Es lo más común al entregar en persona; si el cliente pagó por transferencia,
-el pago se corrige después desde el detalle del pedido, borrándolo y recapturándolo con la cuenta
-correcta. Si el usuario **no tiene ninguna cuenta de efectivo**, el escaneo marca entregado sin
-cobrar y avisa en pantalla que hay que registrar el saldo a mano — no se inventa una cuenta ni se
-bloquea la entrega del trabajo.
+**Sin "Deshacer"**: ya hubo una confirmación con los datos del cliente a la vista. Un pago mal
+capturado se corrige desde el detalle del pedido, borrándolo y recapturándolo, que es el mismo
+camino de todos los demás pagos del sistema.
 
-**El "Deshacer".** La pantalla muestra el resultado con un botón "Deshacer" durante **10 segundos**,
-por si se escaneó la etiqueta equivocada. Llama a `POST /api/v1/pedidos/{pedido}/deshacer-entrega`,
-que revierte **las dos cosas**:
-
-- Borra el `PedidoPago` con `automatico = true` de ese pedido **y su movimiento de Tesorería**, con
-  el mismo camino que ya usa el borrado de pagos de cotización: quien revierte el movimiento y
-  recalcula el saldo de la cuenta es `TesoreriaService`. Si solo se regresara el estado, quedarían
-  doscientos pesos fantasma en la caja.
-- Deja `entregado_en = null` y recalcula el estado desde los pagos que quedan.
-
-El backend lo acepta mientras el pedido esté `entregado` y `entregado_en` sea de hace **menos de 5
-minutos**. La ventana del backend es más ancha que los 10 segundos del botón a propósito: el botón
-mide impaciencia del usuario, el límite del servidor evita que un "Deshacer" disparado desde una
-pestaña olvidada revierta mañana un cobro legítimo.
+Como ninguna entrega registra ya un cobro sin que el usuario lo confirme, la columna
+`pedido_pagos.automatico` deja de nombrar algo que exista y **se renombra a
+`registrado_al_entregar`**. El dato sigue siendo útil por dos motivos, pero ninguno es el de antes:
+nombra el movimiento en Tesorería (`Saldo al entregar de Pedido PED-00042`) y es lo que le permite a
+`deshacer-entrega` saber que esa entrega ya pasó por una confirmación.
 
 ### Portal de autofacturación
 
@@ -388,9 +519,11 @@ Bajo `auth:sanctum`, scopeados al usuario autenticado:
   [025](025-filtros-columna-listado-articulos.md).
 - `POST pedidos/{pedido}/pagos` — registra un pago.
 - `DELETE pedidos/{pedido}/pagos/{pago}` — lo borra y revierte su movimiento.
-- `GET pedidos/{pedido}/ticket` — devuelve el JPG (lo dibuja si aún no existe).
-- `POST pedidos/{pedido}/entregar` — cobro automático del saldo + entrega. Idempotente.
-- `POST pedidos/{pedido}/deshacer-entrega` — revierte lo anterior dentro de la ventana de 5 minutos.
+- `GET pedidos/{pedido}/ticket` — dibuja el JPG en el momento y lo devuelve. No guarda nada.
+- `POST pedidos/{pedido}/entregar` — cierra el pedido. Con saldo pendiente exige `cuenta_id` y
+  registra el cobro; sin saldo solo marca la entrega. Idempotente.
+- `POST pedidos/{pedido}/deshacer-entrega` — revierte una entrega **que no cobró nada**, dentro de
+  la ventana de 5 minutos.
 
 **Fuera** de `auth:sanctum`, junto al `cotizaciones/{cotizacion}/pdf-publico` que ya vive ahí:
 
@@ -411,6 +544,10 @@ cualquiera en internet puede llamar.
 - **Edición bloqueada** con `422` si el estado no es editable.
 - **Pago**: `monto` > 0 y no mayor al saldo pendiente; `cuenta_id` propia del usuario; `fecha_pago`
   válida.
+- **Entrega**: `cuenta_id` **requerido cuando el pedido tiene saldo pendiente** y propio del
+  usuario; prohibido cuando el saldo es cero, porque ahí no entra dinero. El monto no viaja en la
+  petición: lo calcula el backend como el saldo exacto, para que un frontend manipulado no pueda
+  cerrar un pedido cobrando de menos.
 - **Autofactura**: `rfc` válido (`phpcfdi/rfc`, ya instalado), `razon_social`, `regimen_fiscal` del
   catálogo, `codigo_postal_fiscal` de 5 dígitos, `uso_cfdi` del catálogo, `correo` email válido.
 
@@ -427,22 +564,24 @@ Feature, con Facturapi mockeado (Mockery), en el estilo del resto del proyecto:
 6. Cada pago genera su movimiento de ingreso y mueve el saldo de la cuenta.
 7. Editar un pedido `pagado` → `422`.
 8. Borrar un pedido con pagos → `422`.
-9. `POST entregar` con saldo pendiente cobra el saldo a la cuenta de efectivo más antigua, marca
-   `entregado` y deja el pago con `automatico = true`.
-10. `POST entregar` dos veces seguidas cobra **una sola vez** (candado).
-11. `POST entregar` sin cuentas de efectivo marca entregado sin cobrar y lo reporta.
-12. `deshacer-entrega` borra el pago automático, revierte el movimiento, restaura el saldo de la
-    cuenta y regresa el estado.
-13. `deshacer-entrega` pasados 5 minutos → `422`, sin tocar nada.
-14. El ticket se genera, es un JPEG válido, y se invalida al agregar o borrar un pago.
-15. El mensaje del ticket resuelve los huecos y deja intactos los que no existen.
-16. `GET autofactura/{token}` inexistente, vencido o ya facturado responde con su motivo.
-17. `POST autofactura/{token}` crea el cliente fiscal, timbra, escribe `factura_id` y **no**
+9. `POST entregar` con saldo pendiente y `cuenta_id` cobra **el saldo exacto** a esa cuenta, marca
+   `entregado` y genera su movimiento de ingreso.
+10. `POST entregar` con saldo pendiente y **sin** `cuenta_id` → `422`, sin tocar nada.
+11. `POST entregar` con saldo cero marca `entregado` **sin registrar ningún pago** ni movimiento.
+12. `POST entregar` dos veces seguidas cobra **una sola vez** (candado contra el doble escaneo).
+13. `deshacer-entrega` de una entrega que no cobró nada limpia `entregado_en` y regresa el estado.
+14. `deshacer-entrega` de una entrega **que sí cobró** → `422`, sin tocar el pago ni el movimiento.
+15. `deshacer-entrega` pasados 5 minutos → `422`, sin tocar nada.
+16. El ticket es un JPEG válido, **contiene el QR**, y **no deja ningún archivo en el disco**.
+17. El mensaje del ticket y el de "ya está listo" resuelven los huecos y dejan intactos los que no
+    existen.
+18. `GET autofactura/{token}` inexistente, vencido o ya facturado responde con su motivo.
+19. `POST autofactura/{token}` crea el cliente fiscal, timbra, escribe `factura_id` y **no**
     descuenta inventario por segunda vez.
-18. Timbrado fallido: la transacción se revierte, `autofactura_error` queda escrito, el token sigue
+20. Timbrado fallido: la transacción se revierte, `autofactura_error` queda escrito, el token sigue
     vivo y no hay factura huérfana.
-19. Un pedido ya facturado rechaza un segundo intento.
-20. Todas las rutas de `/pedidos` responden `401` sin sesión; las de autofactura responden sin ella.
+21. Un pedido ya facturado rechaza un segundo intento.
+22. Todas las rutas de `/pedidos` responden `401` sin sesión; las de autofactura responden sin ella.
 
 ## Frontend (Vue 3)
 
@@ -457,20 +596,36 @@ Feature, con Facturapi mockeado (Mockery), en el estilo del resto del proyecto:
   - Al capturar un teléfono que ya existe en otro pedido, se ofrece **rellenar nombre y correo** con
     los de la venta anterior. Es una sugerencia que se acepta o se ignora, no un autocompletado que
     pise lo que el usuario esté escribiendo.
-- **`/pedidos/:id`** — detalle: datos del cliente, líneas, totales, historial de pagos con su cuenta,
-  vista previa del ticket, y los botones **"Compartir ticket"**, **"Imprimir etiqueta"**, **"Agregar
-  pago"** y —cuando está pagado— **"Compartir enlace de autofactura"**. Si ya se facturó, el folio de
-  la factura con enlace a `/facturas/:id`.
+- **`/pedidos/:id`** — detalle: datos del cliente, líneas, totales, historial de pagos con su
+  cuenta, vista previa del ticket, y los botones **"Imprimir etiqueta"**, **"Agregar pago"**, —en
+  cuanto hay un primer pago— **"Compartir ticket"** y **"Avisar que está listo"**, y —cuando está
+  pagado— **"Compartir enlace de autofactura"**. Si ya se facturó, el folio de la factura con enlace
+  a `/facturas/:id`.
 - **`/pedidos/:id/etiqueta`** — vista de impresión de 5 × 2.5 cm, sin layout de la aplicación, que
   llama a `window.print()` al montarse.
-- **`/pedidos/:id/entregar`** — destino del QR. Dispara la entrega al montarse y muestra el
-  resultado: qué se cobró, a qué cuenta, y el botón "Deshacer" con su cuenta regresiva de 10
-  segundos. Si el pedido ya estaba entregado, lo dice y no ofrece deshacer.
+- **`/pedidos/:id/entregar`** — destino del QR. Se resuelve sola según el saldo, en los tres caminos
+  de "El escaneo: la entrega":
+  - **Ya entregado**: dice de quién era y cuándo, y no ofrece nada.
+  - **Saldo cero**: cierra el pedido al montarse y muestra el resultado con "Deshacer" y su cuenta
+    regresiva de 10 segundos.
+  - **Saldo pendiente**: muestra cliente, no. de ticket, total, pagado y saldo en grande, el
+    selector de cuenta y el botón **"Cobrar y entregar"**, deshabilitado hasta elegir cuenta. Al
+    confirmar muestra el resultado, sin "Deshacer".
+
+  Está pensada para el pulgar y para leerse de lejos: es la única pantalla del sistema que se usa
+  de pie, con el cliente enfrente y una caja en la otra mano.
 - **`/autofactura/:token`** — **pública**, fuera del guard de sesión y sin el layout de la
   aplicación: la ve un cliente, no el usuario. Muestra folio, fecha y total, el formulario fiscal, y
   al terminar el acuse con el folio de la factura timbrada.
 
 ### El botón "Compartir"
+
+**Solo aparece a partir del primer pago**, sea anticipo o pago completo. Un ticket es el comprobante
+de un dinero que ya entró; mandarlo con el pedido en `pendiente` le entregaría al cliente un
+documento que dice "Pagado $0.00" y que él puede leer como que ya quedó todo hecho. Mientras no haya
+ningún pago, en el detalle queda la vista previa del ticket —para que el usuario revise cómo va
+quedando— pero no el botón. En cuanto se registra el primer pago aparece, y desde ahí se puede
+recompartir cuantas veces haga falta.
 
 Mismo patrón que la ficha de artículo de [020](020-imagenes-articulos.md), decidiendo en tiempo real
 con `navigator.canShare({ files })` y no adivinando por el tamaño de la pantalla:
@@ -482,17 +637,21 @@ con `navigator.canShare({ files })` y no adivinando por el tamaño de la pantall
   Aquí sí se descarga la imagen, a diferencia de la ficha de artículo, porque el ticket no existe en
   ningún otro lado y sin el archivo el botón no sirve de nada en la computadora del mostrador.
 
-El botón de **enlace de autofactura** es distinto porque comparte texto, no imagen: en Windows abre
-**WhatsApp Desktop** con el mensaje y el enlace ya escritos (`https://wa.me/?text=…`, que el sistema
-enruta a la aplicación instalada), y deja al usuario elegir el contacto. Si no hay WhatsApp, el mismo
-enlace abre WhatsApp Web. En celular usa `navigator.share` con el texto.
+Los botones de **enlace de autofactura** y de **"Avisar que está listo"** son distintos porque
+comparten texto, no imagen: en Windows abren **WhatsApp Desktop** con el mensaje ya escrito
+(`https://wa.me/?text=…`, que el sistema enruta a la aplicación instalada), y dejan al usuario
+elegir el contacto. Si no hay WhatsApp, el mismo enlace abre WhatsApp Web. En celular usan
+`navigator.share` con el texto.
 
 ### Configuración
 
-Sección nueva **"Mensaje del ticket"**, hermana de las que ya existen
-([014](014-costo-elaboracion-goma.md), [019](019-formato-pdf-documentos.md),
-[026](026-datos-bancarios-cotizacion.md)): un `textarea` con el mensaje y, debajo, la lista de huecos
-disponibles con un ejemplo de cómo se ven resueltos.
+Dos secciones nuevas, hermanas de las que ya existen ([014](014-costo-elaboracion-goma.md),
+[019](019-formato-pdf-documentos.md), [026](026-datos-bancarios-cotizacion.md)):
+
+- **"Mensaje del ticket"** — un `textarea` con el mensaje y, debajo, la lista de huecos disponibles
+  con un ejemplo de cómo se ven resueltos.
+- **"Mensaje de pedido listo"** — igual, para el aviso de "ya está listo". Comparte la misma lista
+  de huecos, así que el componente es el mismo con otra clave y otro título.
 
 ### Navegación
 
@@ -505,8 +664,14 @@ el menú: a las dos primeras se llega desde el detalle o desde el QR, y la terce
 
 ## Fuera de alcance
 
-- **La PWA con Capacitor** y su lector de QR integrado. El formato del QR se elige hoy pensando en
-  ella, pero la aplicación es otra historia.
+- **Todo seguimiento de la fabricación**: órdenes de trabajo, dibujos del diseño, colores de tinta,
+  aprobación del cliente, impresión de hojas de taller y estados de producción. El sello se elabora
+  fuera del sistema. Se construyó un módulo para esto y se descartó por sobredimensionado para el
+  volumen real del taller.
+- **Que el sistema sepa cuándo un pedido está listo.** El aviso al cliente lo dispara el usuario,
+  que es quien lo sabe.
+- **La aplicación instalada y su lector de QR**, que son [029](029-pwa-mostrador.md). El formato del
+  QR se elige aquí para que esa aplicación pueda leerlo sin reimprimir etiquetas.
 - **Envío automático por WhatsApp vía Twilio.** Todos los envíos los dispara el usuario con un botón
   y pasan por el menú de compartir del sistema. Nada se manda solo.
 - **Convertir un pedido en cotización**, o al revés.
@@ -521,10 +686,39 @@ el menú: a las dos primeras se llega desde el detalle o desde el QR, y la terce
 
 ## Estado de implementación
 
-**Implementada el 2026-08-14.** Backend, frontend y pruebas completos; `php artisan test` en verde
-(538 pruebas), `pint` sin cambios, `npm run build`, `npm run lint` y `vitest` en verde.
+**Primera versión implementada el 2026-08-14.** Backend, frontend y pruebas completos; `php artisan
+test` en verde (538 pruebas), `pint` sin cambios, `npm run build`, `npm run lint` y `vitest` en
+verde.
 
-### Decisiones tomadas durante la implementación
+**Revisión del 2026-08-16 implementada el 2026-08-16.** `php artisan test` en verde (543 pruebas),
+`pint` sin cambios, `npm run build`, `npm run lint` y `vitest` en verde. El ticket con su QR se
+revisó como imagen, no solo por sus medidas.
+
+### Decisiones tomadas durante la implementación de la revisión
+
+- **`pedido_pagos.automatico` se renombró en vez de eliminarse.** La spec decía borrarla, y al
+  implementar el `422` de `deshacer-entrega` quedó claro que sin ella no hay forma exacta de saber
+  si una entrega cobró: compararla contra `entregado_en` es frágil porque las dos marcas de tiempo
+  caen en el mismo segundo. `registrado_al_entregar` dice lo que el dato significa ahora.
+- **`deshacer-entrega` ya no toca Tesorería en absoluto.** Al rechazar las entregas que cobraron, el
+  único caso que queda es el que no movió dinero, así que el endpoint se reduce a limpiar
+  `entregado_en` y recalcular el estado. El riesgo de dejar pesos fantasma en la caja desaparece de
+  raíz en vez de resolverse con cuidado.
+- **Los dos mensajes salieron de `TicketPedidoService` a `MensajePedidoService`.** Rellenar una
+  plantilla con los datos de un pedido no tiene que ver con dibujar una imagen, y con el aviso de
+  "ya está listo" pasaron a ser dos.
+- **Un solo componente de mensaje en el frontend** (`MensajePedidoForm`), con la clave por
+  propiedad, en lugar de dos casi idénticos: los dos guardan un `textarea` contra el mismo almacén
+  y comparten la lista de huecos.
+- **`QrTimbreFiscal` ganó `imagenPng()`**, que devuelve los bytes crudos. El ticket no incrusta el
+  código en un HTML sino que lo copia sobre su lienzo con GD, y un data URI habría que deshacerlo
+  antes de poder leerlo.
+- **El QR se reduce con vecino más cercano** (`IMG_NEAREST_NEIGHBOUR`). El escalado normal
+  interpola, y un código con los bordes suavizados es un código que el lector rechaza.
+- **El ticket nunca falla por su QR**, mismo criterio que el logo: si algo sale mal se dibuja sin
+  código y con el número de ticket, que es con lo que se busca el pedido a mano.
+
+### Decisiones tomadas durante la implementación de la primera versión
 
 - **`MotivoMovimientoInventario::CorreccionPedido`**, un motivo automático que la spec no había
   previsto. Editar o borrar un pedido tiene que devolver al inventario lo que descontó el alta, y
@@ -558,7 +752,7 @@ el menú: a las dos primeras se llega desde el detalle o desde el QR, y la terce
 - **`eliminarPago` no lleva la regla LIFO de 008.** Allá el monto de "saldo" se autocalcula a partir
   de los pagos previos y borrar uno intermedio dejaría a los posteriores describiendo un saldo que
   ya no existía; aquí cada pago lleva su propio monto capturado y ninguno depende de otro. Es además
-  la vía por la que se corrige el cobro automático del escaneo.
+  la vía por la que se corrige un cobro mal capturado al entregar.
 
 ### Lo que no se pudo verificar en vivo
 
@@ -579,30 +773,41 @@ el menú: a las dos primeras se llega desde el detalle o desde el QR, y la terce
    e independiente de facturas y cotizaciones.
 4. Se registra un anticipo con su cuenta y el pedido pasa a `anticipo`; el movimiento aparece en
    Tesorería y mueve el saldo de la cuenta.
-5. El detalle muestra el ticket dibujado por el servidor, con el saldo pendiente correcto, y el
-   botón "Compartir ticket" manda imagen y mensaje en celular, y descarga la imagen y copia el
-   mensaje en escritorio.
+5. El detalle muestra el ticket dibujado por el servidor, con el saldo pendiente correcto y **el QR
+   al pie**, grande y con el no. de ticket debajo. Sin ningún pago registrado no se ofrece el botón
+   "Compartir ticket"; en cuanto entra el primer pago aparece y manda imagen y mensaje en celular, y
+   descarga la imagen y copia el mensaje en escritorio.
 6. El mensaje sale de Configuración con los huecos ya resueltos.
-7. "Imprimir etiqueta" abre una etiqueta de 5 × 2.5 cm con nombre, no. de ticket, teléfono y QR, y
-   nada más.
-8. Escanear ese QR con la cámara del celular abre el sistema, cobra el saldo a la cuenta de efectivo
-   y marca el pedido entregado, sin pedir confirmación, mostrando "Deshacer" durante 10 segundos.
-9. Escanear dos veces no cobra dos veces.
-10. "Deshacer" borra el pago automático, revierte el movimiento de Tesorería y regresa el pedido a su
-    estado anterior.
-11. Al quedar pagado, el detalle ofrece el enlace de autofactura y el botón que abre WhatsApp
+7. **Pedir el ticket dos veces no deja ningún archivo en el servidor**, y el ticket de un pedido al
+   que se le acaba de registrar un abono sale con el saldo nuevo sin que nadie lo regenere.
+8. "Imprimir etiqueta" abre una etiqueta de 5 × 2.5 cm con el QR a la izquierda y, a la derecha,
+   nombre, teléfono, no. de ticket y `SALDO: $250.00` o `PAGADO`.
+9. Escanear el QR —el de la etiqueta o el del ticket en la pantalla del cliente— con un pedido
+   **totalmente pagado** lo cierra solo, sin preguntar, y ofrece "Deshacer" durante 10 segundos.
+10. Escanear un pedido **con saldo pendiente** no cobra nada hasta confirmar: muestra cliente,
+    total, pagado y saldo, exige elegir cuenta, y un solo botón "Cobrar y entregar" registra el
+    saldo completo y cierra el pedido. Después no ofrece "Deshacer".
+11. Escanear dos veces no cobra dos veces, y escanear un pedido ya entregado solo dice cuándo se
+    entregó.
+12. Con al menos un pago, "Avisar que está listo" abre WhatsApp con el mensaje de Configuración ya
+    resuelto con el nombre, el folio y el saldo, y **no cambia el estado del pedido**.
+13. Al quedar pagado, el detalle ofrece el enlace de autofactura y el botón que abre WhatsApp
     Desktop con el mensaje listo.
-12. Abriendo ese enlace sin sesión, el cliente captura sus datos fiscales y obtiene su factura
+14. Abriendo ese enlace sin sesión, el cliente captura sus datos fiscales y obtiene su factura
     timbrada, que le llega por correo; el pedido queda ligado a ella y no descuenta inventario otra
     vez.
-13. Un timbrado fallido le explica el motivo al cliente en español, le deja reintentar, y marca el
+15. Un timbrado fallido le explica el motivo al cliente en español, le deja reintentar, y marca el
     pedido en el listado del usuario.
-14. Cambiar el número del enlace de autofactura a mano no lleva a ningún otro pedido.
-15. El enlace deja de funcionar al terminar el mes de la venta y cuando el pedido ya se facturó.
+16. Cambiar el número del enlace de autofactura a mano no lleva a ningún otro pedido.
+17. El enlace deja de funcionar al terminar el mes de la venta y cuando el pedido ya se facturó.
+18. Ninguna pantalla del sistema pide datos de producción, y `php artisan test`, `pint`,
+    `npm run build`, `npm run lint` y `vitest` corren en verde.
 
 ## Supuestos asumidos (registro completo)
 
-Confirmados uno por uno con el usuario antes de redactar.
+Confirmados uno por uno con el usuario antes de redactar. Los que cambiaron en la revisión del
+2026-08-16 van marcados como **(Redefinido)**, con la regla vieja anotada para que se entienda qué
+se movió y por qué.
 
 **Qué es este documento**
 
@@ -639,72 +844,130 @@ Confirmados uno por uno con el usuario antes de redactar.
 **El ticket**
 
 15. Imagen JPG vertical estilo tira de punto de venta, no PDF.
-16. Contiene datos del negocio, no. de ticket, fecha y hora, cliente, líneas, total, pagado y saldo.
-    Sin QR.
-17. Se genera al guardar y se puede regenerar y recompartir en cualquier momento.
+16. **(Redefinido)** Contiene datos del negocio, no. de ticket, fecha y hora, cliente, líneas,
+    total, pagado, saldo **y el código QR**, al pie, centrado y grande. (La versión original decía
+    "sin QR": el código vivía solo en la etiqueta, con el argumento de que el cliente no cierra su
+    propio pedido. Lo que ese argumento pasaba por alto es que el cliente **llega con el ticket en
+    el celular y sin la caja**, y ahí el QR de su pantalla es lo único que hay para cerrar la
+    venta.)
+17. **(Redefinido)** El ticket **no se guarda en ningún lado**: se dibuja cada vez que se pide y se
+    desecha. Úsese y tírese. (La versión original lo guardaba en el disco y lo invalidaba cuando
+    cambiaba el saldo. A diez tickets diarios eso son ~200 MB al año que nunca dejan de crecer, para
+    almacenar algo que se puede volver a dibujar idéntico en milésimas de segundo.)
 18. El botón compartir sigue el patrón de la ficha de artículo: celular, menú del sistema con imagen
-    y texto; escritorio, descarga del JPG y copia del mensaje.
+    y texto; escritorio, descarga del JPG y copia del mensaje. **Solo se ofrece a partir del primer
+    pago**, sea anticipo o pago completo: el ticket sale hacia el cliente cuando hay dinero que
+    comprobar.
 19. El mensaje que acompaña al ticket es editable desde Configuración.
 
 **La etiqueta**
 
 20. Documento aparte del ticket, se imprime desde el navegador.
-21. Lleva nombre, no. de ticket, teléfono y QR; nada más.
+21. **(Redefinido)** Lleva nombre, teléfono, no. de ticket, QR **y el saldo** (`SALDO: $250.00` o
+    `PAGADO`). El QR ocupa un cuadro de 20 mm a la izquierda y el texto los ~28 mm restantes. (La
+    versión original prohibía importes porque "la etiqueta pasa por manos que no tienen por qué ver
+    lo que se cobró". En un taller de una persona no hay manos ajenas, y ver la caja y saber si hay
+    que cobrar sin abrir el sistema vale más que ese pudor.)
 22. Tamaño fijo de 5 × 2.5 cm.
 23. El QR apunta a la pantalla del pedido dentro del sistema, protegida por login.
 24. Se escanea con la cámara nativa del celular; no se construye un lector propio. **El formato del
-    QR se elige para que la futura PWA con Capacitor pueda leerlo con su propio lector y cerrar el
-    pedido en vivo** — esa PWA está fuera de alcance aquí.
+    QR se elige para que el escáner de la aplicación instalada de [029](029-pwa-mostrador.md) pueda
+    leerlo y cerrar el pedido en vivo** — esa aplicación está fuera de alcance aquí, y los dos
+    caminos llegan a la misma pantalla.
 
 **La entrega**
 
-25. El escaneo **no pide confirmación**: cobra el saldo y marca entregado solo, con unos segundos de
-    "Deshacer" por si se escaneó la etiqueta equivocada.
-26. El saldo se da por pagado en **efectivo, a la cuenta de caja**, corregible después desde el
-    pedido.
-27. El enlace del QR requiere sesión; sin ella manda al login y regresa al pedido.
+25. **(Redefinido)** El escaneo se resuelve **según el saldo**: con el pedido totalmente pagado
+    cierra solo, sin preguntar, y ofrece "Deshacer" 10 segundos; **con saldo pendiente pide
+    confirmación**, mostrando cliente, total, pagado y saldo, y no toca nada hasta que el usuario
+    aprieta "Cobrar y entregar". (La versión original cobraba y entregaba sola en los dos casos.)
+26. **(Redefinido)** La cuenta a la que entra el dinero **se elige siempre, sin preselección**, y el
+    botón queda deshabilitado hasta escogerla. (La versión original asumía la cuenta de efectivo más
+    antigua. Elegir siempre evita justo el error que esa comodidad invita: confirmar por inercia y
+    mandar a la caja un dinero que llegó por transferencia.)
+27. **(Redefinido)** Se cobra **el saldo completo** y el monto no se edita: la entrega cierra el
+    pedido y no puede quedar debiendo. Quien quiera cobrar de menos registra el abono desde el
+    detalle.
+28. **(Redefinido)** El "Deshacer" existe **solo en el camino que cierra sin preguntar**. En el que
+    pide confirmación no hace falta, y un pago mal capturado se corrige desde el detalle del pedido
+    como cualquier otro.
+29. Reescanear un pedido ya entregado **solo informa** de quién era y cuándo se entregó; no cobra ni
+    cierra por segunda vez.
+30. El enlace del QR requiere sesión; sin ella manda al login y regresa al pedido.
+
+**La fabricación**
+
+31. **El sello se elabora fuera del sistema.** No hay órdenes de trabajo, dibujos del diseño,
+    colores de tinta, aprobación del cliente ni estados de producción. Se construyó un módulo para
+    esto y se descartó por sobredimensionado para un taller de una persona que hace unos diez sellos
+    diarios.
+32. **El sistema no sabe cuándo un pedido está listo**, así que no avisa solo.
+33. Lo que sí hace es **redactar el aviso**: el botón "Avisar que está listo" abre WhatsApp con el
+    texto ya resuelto, lo dispara el usuario cuando el trabajo lo está, y **no cambia ningún
+    estado**.
+34. Ese texto es **editable desde Configuración**, con los mismos huecos que el mensaje del ticket.
+    Editable y no fijo en el código porque es un mensaje al cliente y el tono lo pone el negocio.
 
 **La autofactura**
 
-28. Enlace público, sin login, donde el cliente captura sus datos fiscales y el sistema timbra la
+35. Enlace público, sin login, donde el cliente captura sus datos fiscales y el sistema timbra la
     factura del pedido con los mismos importes.
-29. El enlace solo se habilita con el pedido totalmente pagado.
-30. Vence el último día del mes de la venta.
-31. Un pedido genera una sola factura; timbrada, el enlace deja de funcionar.
-32. Al facturar, el cliente sí queda dado de alta en el catálogo de Clientes y se le manda la
+36. El enlace solo se habilita con el pedido totalmente pagado.
+37. Vence el último día del mes de la venta.
+38. Un pedido genera una sola factura; timbrada, el enlace deja de funcionar.
+39. Al facturar, el cliente sí queda dado de alta en el catálogo de Clientes y se le manda la
     factura por correo.
-33. El enlace se comparte con un botón que en Windows abre WhatsApp Desktop con el texto y el enlace
+40. El enlace se comparte con un botón que en Windows abre WhatsApp Desktop con el texto y el enlace
     prellenados.
 
 **Transversal**
 
-34. Nada se envía automáticamente: ticket, mensaje y enlace siempre los dispara el usuario.
+41. Nada se envía automáticamente: ticket, mensaje, aviso y enlace siempre los dispara el usuario.
 
 **Adiciones técnicas aceptadas**
 
-35. El ticket lo dibuja el **servidor**, para que salga idéntico desde cualquier aparato.
-36. El mensaje admite **huecos que se rellenan solos**: `{nombre}`, `{folio}`, `{total}`,
+42. El ticket lo dibuja el **servidor**, para que salga idéntico desde cualquier aparato — incluido
+    su código QR.
+43. El mensaje admite **huecos que se rellenan solos**: `{nombre}`, `{folio}`, `{total}`,
     `{pagado}`, `{saldo}`.
-37. El enlace de autofactura lleva una **clave larga al azar** de 64 caracteres, imposible de
+44. El enlace de autofactura lleva una **clave larga al azar** de 64 caracteres, imposible de
     adivinar.
-38. **Candado contra el doble escaneo** y "Deshacer" que revierte también el pago en Tesorería.
-39. Si falla el timbrado: **motivo en español al cliente con reintento**, y **señal del fallo en el
+45. **Candado contra el doble escaneo.**
+46. Si falla el timbrado: **motivo en español al cliente con reintento**, y **señal del fallo en el
     listado** del usuario.
+47. El **QR del ticket mide 300 px** sobre un ancho de 576, porque el peor escenario de ese código
+    es leerse desde la pantalla de un celular, que brilla y refleja.
+48. En la etiqueta, **el QR va a la izquierda en 20 mm** y el texto a la derecha, aprovechando que
+    50 × 25 mm es más ancho que alto.
+49. **La pantalla de entrega funciona igual** por la cámara del celular que por el escáner de 029.
 
 **Decisiones de detalle tomadas al redactar** (no se consultaron una por una; se documentan para que
 puedan corregirse antes de implementar)
 
-40. **Cuál es "la caja"**: la cuenta de tipo `efectivo` más antigua del usuario. Si no hay ninguna,
-    el escaneo entrega sin cobrar y lo avisa, en vez de bloquear la entrega del trabajo.
-41. **La ventana del "Deshacer"** son 10 segundos en el botón y 5 minutos en el backend, para que un
-    "Deshacer" disparado desde una pestaña olvidada no revierta mañana un cobro legítimo.
-42. **Las líneas libres se timbran** con `clave_prod_serv` `01010101` y `clave_unidad` `H87`, porque
+50. **La ventana del "Deshacer"** son 10 segundos en el botón y 5 minutos en el backend, para que un
+    "Deshacer" disparado desde una pestaña olvidada no revierta mañana una entrega legítima.
+51. **Las líneas libres se timbran** con `clave_prod_serv` `01010101` y `clave_unidad` `H87`, porque
     el payload de Facturapi toma esas claves del artículo y una línea libre no tiene.
-43. **La forma de pago del CFDI** se deriva del tipo de cuenta del último pago (`efectivo` → 01,
+52. **La forma de pago del CFDI** se deriva del tipo de cuenta del último pago (`efectivo` → 01,
     `banco` y `digital` → 03, `otro` → 99); el cliente no la captura.
-44. **El método de pago del CFDI es siempre PUE**, porque el enlace solo existe con el pedido
+53. **El método de pago del CFDI es siempre PUE**, porque el enlace solo existe con el pedido
     totalmente pagado.
-45. **La fuente del ticket** (`DejaVuSansMono`) se copia a `backend/resources/fonts/` en vez de
+54. **La fuente del ticket** (`DejaVuSansMono`) se copia a `backend/resources/fonts/` en vez de
     leerse desde `vendor/dompdf`, para no atarse a la estructura interna de una dependencia.
-46. **Las rutas públicas** (`autofactura/{token}`) llevan `throttle:20,1`: son las únicas del sistema
-    que cualquiera en internet puede llamar.
+55. **Las rutas públicas** (`autofactura/{token}`) llevan `throttle:20,1`: son las únicas del
+    sistema que cualquiera en internet puede llamar.
+56. **La columna `pedido_pagos.automatico` se renombra a `registrado_al_entregar`.** Nombraba un
+    cobro que el sistema hacía sin preguntar y ese cobro ya no existe, pero el dato sí: distingue el
+    pago que cerró la venta del que se capturó en el mostrador. Es lo que nombra el movimiento en
+    Tesorería y lo que le permite a `deshacer-entrega` rechazar una entrega que cobró.
+57. **`deshacer-entrega` rechaza las entregas que cobraron.** Así el endpoint nunca tiene que
+    revertir un movimiento de Tesorería, que es donde estaba el riesgo de dejar dinero fantasma en
+    la caja.
+58. **El monto de la entrega no viaja en la petición**: lo calcula el backend como el saldo exacto,
+    para que un frontend manipulado no pueda cerrar un pedido cobrando de menos.
+59. **El nombre se recorta con puntos suspensivos en la etiqueta** antes que romper el renglón: un
+    renglón partido empuja al saldo fuera de los 25 mm.
+60. **"Avisar que está listo" aparece a partir del primer pago**, igual que "Compartir ticket". No
+    es una regla que el usuario pidiera: sale de que un pedido sin ningún pago todavía no es un
+    trabajo en curso, y avisar que está listo algo que nadie ha confirmado con dinero invita a
+    entregarlo sin cobrar. Si estorba, quitar la condición no rompe nada.

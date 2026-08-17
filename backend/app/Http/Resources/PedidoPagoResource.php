@@ -18,9 +18,9 @@ class PedidoPagoResource extends JsonResource
             'monto' => (float) $this->monto,
             'cuenta_id' => $this->cuenta_id,
             'cuenta_nombre' => $this->whenLoaded('cuenta', fn () => $this->cuenta?->nombre),
-            // Distingue el cobro que hizo el escaneo del QR de los que capturó el usuario. El
+            // Distingue el pago que cerró la venta de los que se capturaron en el mostrador. El
             // historial tiene que poder explicar de dónde salió cada peso.
-            'automatico' => (bool) $this->automatico,
+            'registrado_al_entregar' => (bool) $this->registrado_al_entregar,
             'created_at' => $this->created_at,
         ];
     }

@@ -19,7 +19,7 @@ import {
 import AppLayout from '../layouts/AppLayout.vue'
 import EmisorForm from '../components/EmisorForm.vue'
 import DatosBancariosForm from '../components/DatosBancariosForm.vue'
-import MensajeTicketForm from '../components/MensajeTicketForm.vue'
+import MensajePedidoForm from '../components/MensajePedidoForm.vue'
 
 /**
  * Ajustes globales del sistema (ver specs/014-costo-elaboracion-goma.md).
@@ -143,8 +143,19 @@ async function guardar() {
       <!-- Otra sección hermana, con su propio guardado por la misma razón (ver specs/026). -->
       <DatosBancariosForm />
 
-      <!-- Y otra más, del mismo modo (ver specs/027). -->
-      <MensajeTicketForm />
+      <!-- Y los dos textos que se le mandan al cliente de mostrador, del mismo modo (specs/027). -->
+      <MensajePedidoForm
+        clave="mensaje_ticket"
+        titulo="Mensaje del ticket"
+        descripcion="Este texto se comparte junto con la imagen del ticket de mostrador. Puedes dejarlo vacío si prefieres mandar solo la imagen."
+      />
+
+      <MensajePedidoForm
+        clave="mensaje_listo"
+        titulo="Mensaje de pedido listo"
+        descripcion="El aviso que se manda con el botón «Avisar que está listo» del pedido. Lo disparas tú cuando el trabajo lo está: el sello se hace fuera del sistema y el sistema no puede saberlo."
+        :renglones="5"
+      />
 
       <form v-if="!cargando" class="space-y-6" @submit.prevent="onSubmit">
         <Card>

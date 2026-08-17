@@ -27,8 +27,8 @@ export interface PedidoPago {
   monto: number
   cuenta_id: number | null
   cuenta_nombre: string | null
-  /** True solo en el cobro que disparó el escaneo del QR de la etiqueta. */
-  automatico: boolean
+  /** True en el pago que cerró la venta al escanear el QR, false en los capturados a mano. */
+  registrado_al_entregar: boolean
   created_at: string
 }
 
@@ -64,8 +64,10 @@ export interface Pedido {
   autofactura_no_disponible: string | null
   lineas: PedidoLinea[]
   pagos: PedidoPago[]
-  /** Solo en el detalle: mensaje con los huecos ya resueltos y QR ya dibujado en el servidor. */
+  /** Solo en el detalle: mensajes con los huecos ya resueltos y QR ya dibujado en el servidor. */
   mensaje_compartible?: string
+  /** Aviso de "ya está listo", que el usuario manda cuando el trabajo lo está. */
+  mensaje_listo?: string
   qr_entrega?: string | null
   url_entrega?: string
   created_at: string
@@ -97,7 +99,6 @@ export interface ResultadoEntrega {
   ya_estaba_entregado: boolean
   cobrado: number
   cuenta_nombre: string | null
-  aviso: string | null
   pedido: Pedido
 }
 
@@ -181,11 +182,15 @@ export const usePedidosStore = defineStore('pedidos', {
     },
 
     /**
-     * Destino del QR: cobra el saldo y entrega sin pedir confirmación. El backend es idempotente,
-     * así que reintentar tras un corte de red no cobra dos veces.
+     * Cierra el pedido. Con saldo pendiente hay que mandar la cuenta a la que entra el dinero; sin
+     * saldo, ninguna. El backend es idempotente, así que reintentar tras un corte de red no cobra
+     * dos veces.
      */
-    async entregar(id: number): Promise<ResultadoEntrega> {
-      const { data } = await http.post(`/pedidos/${id}/entregar`)
+    async entregar(id: number, cuentaId?: number): Promise<ResultadoEntrega> {
+      const { data } = await http.post(
+        `/pedidos/${id}/entregar`,
+        cuentaId === undefined ? {} : { cuenta_id: cuentaId },
+      )
       return data
     },
 

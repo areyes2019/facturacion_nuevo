@@ -19,10 +19,13 @@ use Illuminate\Support\Str;
  * `$table` explícito porque Eloquent pluraliza en inglés y de `Pedido` inferiría `pedidos` por
  * casualidad, no por regla — misma lección ya pagada en 005, 008, 012 y 017.
  *
- * Tres columnas viven aquí pero deliberadamente **fuera** de `#[Fillable]`, mismo criterio que
- * `articulos.imagen_ruta` en 020 y `cotizaciones.datos_bancarios` en 026: `ticket_ruta` es el
- * resultado de haber dibujado un archivo, y `autofactura_token`/`autofactura_error` los escribe el
- * sistema al cobrar y al timbrar. Ninguna de las tres es un dato que mande el cliente HTTP.
+ * Dos columnas viven aquí pero deliberadamente **fuera** de `#[Fillable]`, mismo criterio que
+ * `articulos.imagen_ruta` en 020 y `cotizaciones.datos_bancarios` en 026: `autofactura_token` y
+ * `autofactura_error` los escribe el sistema al cobrar y al timbrar, no el cliente HTTP.
+ *
+ * **No hay columna para el ticket.** La imagen no se guarda: se dibuja cada vez que se pide y se
+ * desecha, porque el folio, el cliente, las líneas y los pagos ya viven aquí y la imagen solo los
+ * pinta (ver `TicketPedidoService`).
  */
 #[Fillable([
     'folio',
@@ -48,15 +51,12 @@ class Pedido extends Model
 
     protected $table = 'pedidos';
 
-    /** Directorio del disco privado donde viven los tickets dibujados. */
-    public const DIRECTORIO_TICKETS = 'pedidos/tickets';
-
     /**
      * Ventana durante la cual el backend acepta deshacer una entrega.
      *
      * Es más ancha que los 10 segundos del botón a propósito: el botón mide la impaciencia del
      * usuario, este límite evita que un "Deshacer" disparado desde una pestaña olvidada revierta
-     * mañana un cobro legítimo.
+     * mañana una entrega legítima.
      */
     public const MINUTOS_PARA_DESHACER_ENTREGA = 5;
 
@@ -115,13 +115,19 @@ class Pedido extends Model
     }
 
     /**
-     * El pago que generó el escaneo del QR, si lo hubo. Es lo que "Deshacer" tiene que borrar, y se
-     * identifica por su bandera y no por ser el último: un pago manual registrado en el mismo
-     * segundo lo desplazaría del final de la lista.
+     * ¿La entrega de este pedido registró un cobro?
+     *
+     * Es lo que hace que "Deshacer" solo exista en el camino que cierra sin preguntar: una entrega
+     * que cobró ya pasó por la confirmación del usuario, con el nombre del cliente y el saldo a la
+     * vista, así que revertirla a ciegas no arregla un descuido — lo provoca. Ese pago se corrige
+     * desde el detalle del pedido, como cualquier otro.
+     *
+     * Se pregunta por la bandera y no por el último pago de la lista: un pago manual capturado en
+     * el mismo segundo lo desplazaría del final.
      */
-    public function pagoAutomatico(): ?PedidoPago
+    public function entregaRegistroCobro(): bool
     {
-        return $this->pagos()->where('automatico', true)->latest('id')->first();
+        return $this->pagos()->where('registrado_al_entregar', true)->exists();
     }
 
     public function tienePagos(): bool
@@ -215,11 +221,12 @@ class Pedido extends Model
     }
 
     /**
-     * Dirección que codifica el QR de la etiqueta: la pantalla de entrega, absoluta.
+     * Dirección que codifica el QR: la pantalla de entrega, absoluta.
      *
-     * Absoluta y no un dato suelto por dos razones: la app de cámara del celular la abre sola sin
-     * que nadie copie ni pegue nada, y la futura PWA con Capacitor podrá leer este mismo QR con su
-     * propio lector y actuar sobre el id que trae la ruta, sin reimprimir una sola etiqueta.
+     * **Un solo código por pedido**, idéntico en el ticket y en la etiqueta. Absoluta y no un dato
+     * suelto por dos razones: la app de cámara del celular la abre sola sin que nadie copie ni
+     * pegue nada, y el escáner de la aplicación instalada (029) lee este mismo QR con su propio
+     * lector y actúa sobre el id que trae la ruta, sin reimprimir una sola etiqueta.
      */
     public function urlEntrega(): string
     {

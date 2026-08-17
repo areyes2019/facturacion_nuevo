@@ -1,13 +1,18 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useConfiguracionStore } from '../stores/configuracion'
+import { useConfiguracionStore, type Configuracion } from '../stores/configuracion'
 import { extractErrorMessage, extractFieldErrors } from '../lib/errors'
 import { Button } from './ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
 import { Alert, AlertDescription } from './ui/alert'
 
 /**
- * Mensaje que viaja junto al ticket de mostrador al compartirlo (ver 027-venta-mostrador-ticket.md).
+ * Uno de los dos textos que se le mandan al cliente de mostrador (ver
+ * 027-venta-mostrador-ticket.md): el que acompaña al ticket y el aviso de "ya está listo".
+ *
+ * Un solo componente con la clave por propiedad, y no dos casi idénticos: los dos guardan un
+ * `textarea` contra el mismo almacén y comparten la misma lista de huecos, así que una copia solo
+ * podría divergir la primera vez que se corrija algo.
  *
  * Sección hermana con su propio guardado, igual que `EmisorForm` (019) y `DatosBancariosForm`
  * (026): guardar este texto no puede arrastrar el recálculo de precios de los costos de goma.
@@ -19,6 +24,16 @@ const HUECOS = [
   { hueco: '{pagado}', descripcion: 'lo que lleva pagado' },
   { hueco: '{saldo}', descripcion: 'saldo pendiente' },
 ]
+
+const props = withDefaults(
+  defineProps<{
+    clave: Extract<keyof Configuracion, 'mensaje_ticket' | 'mensaje_listo'>
+    titulo: string
+    descripcion: string
+    renglones?: number
+  }>(),
+  { renglones: 12 },
+)
 
 const configuracion = useConfiguracionStore()
 
@@ -35,7 +50,7 @@ const hayCambios = computed(() => mensaje.value !== original.value)
 onMounted(async () => {
   try {
     const valores = await configuracion.fetch()
-    mensaje.value = valores.mensaje_ticket ?? ''
+    mensaje.value = valores[props.clave] ?? ''
     original.value = mensaje.value
   } catch (err) {
     error.value = extractErrorMessage(err)
@@ -51,11 +66,11 @@ async function guardar() {
   guardado.value = false
 
   try {
-    const valores = await configuracion.update({ mensaje_ticket: mensaje.value })
-    original.value = valores.mensaje_ticket ?? ''
+    const valores = await configuracion.update({ [props.clave]: mensaje.value })
+    original.value = valores[props.clave] ?? ''
     guardado.value = true
   } catch (err) {
-    errorCampo.value = extractFieldErrors(err).mensaje_ticket ?? null
+    errorCampo.value = extractFieldErrors(err)[props.clave] ?? null
     error.value = extractErrorMessage(err)
   } finally {
     guardando.value = false
@@ -66,17 +81,14 @@ async function guardar() {
 <template>
   <Card>
     <CardHeader>
-      <CardTitle class="text-base">Mensaje del ticket</CardTitle>
+      <CardTitle class="text-base">{{ titulo }}</CardTitle>
     </CardHeader>
     <CardContent class="space-y-4">
-      <p class="text-muted-foreground text-sm">
-        Este texto se comparte junto con la imagen del ticket de mostrador. Puedes dejarlo vacío si
-        prefieres mandar solo la imagen.
-      </p>
+      <p class="text-muted-foreground text-sm">{{ descripcion }}</p>
 
       <textarea
         v-model="mensaje"
-        rows="12"
+        :rows="renglones"
         :disabled="cargando"
         class="border-input focus-visible:ring-ring w-full rounded-md border bg-transparent p-3 text-sm focus-visible:ring-1 focus-visible:outline-none"
       />

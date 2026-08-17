@@ -15,13 +15,19 @@ use Illuminate\Database\Eloquent\Relations\MorphOne;
  * puerta a que la etiqueta y el importe se contradigan. Se conserva `cuenta_id` por la misma razón
  * que 008: un pedido no es un CFDI y la forma de pago fiscal no se timbra desde aquí; lo que
  * importa es a qué cuenta entra el dinero.
+ *
+ * `registrado_al_entregar` distingue el pago que cerró la venta del que se capturó en el mostrador.
+ * Todos son iguales en mecánica —monto capturado, cuenta elegida por el usuario, movimiento de
+ * Tesorería— y la bandera no cambia nada de eso; sirve para dos cosas: nombrar el movimiento en
+ * Tesorería y para que "Deshacer" sepa que esa entrega ya pasó por una confirmación y no debe
+ * revertirse a ciegas.
  */
 #[Fillable([
     'pedido_id',
     'fecha_pago',
     'monto',
     'cuenta_id',
-    'automatico',
+    'registrado_al_entregar',
 ])]
 class PedidoPago extends Model
 {
@@ -48,7 +54,7 @@ class PedidoPago extends Model
      */
     public function conceptoMovimiento(): string
     {
-        $origen = $this->automatico ? 'Saldo al entregar' : 'Pago';
+        $origen = $this->registrado_al_entregar ? 'Saldo al entregar' : 'Pago';
 
         return $origen.' de Pedido '.$this->pedido->folioFormateado();
     }
@@ -61,7 +67,7 @@ class PedidoPago extends Model
         return [
             'fecha_pago' => 'date',
             'monto' => 'decimal:2',
-            'automatico' => 'boolean',
+            'registrado_al_entregar' => 'boolean',
         ];
     }
 }

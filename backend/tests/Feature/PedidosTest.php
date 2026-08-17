@@ -272,7 +272,7 @@ test('eliminar un pedido sin pagos devuelve las existencias', function () {
     $this->assertDatabaseMissing('pedidos', ['id' => $pedido->id]);
 });
 
-test('escanear el qr cobra el saldo a la caja de efectivo y marca entregado', function () {
+test('escanear con saldo pendiente cobra el saldo exacto a la cuenta elegida y marca entregado', function () {
     $user = User::factory()->create();
     $articulo = articuloParaPedido($user);
     $cuenta = cajaDe($user);
@@ -286,7 +286,9 @@ test('escanear el qr cobra el saldo a la caja de efectivo y marca entregado', fu
         'cuenta_id' => $cuenta->id,
     ])->assertOk();
 
-    $response = $this->actingAs($user)->postJson("/api/v1/pedidos/{$pedido->id}/entregar");
+    $response = $this->actingAs($user)->postJson("/api/v1/pedidos/{$pedido->id}/entregar", [
+        'cuenta_id' => $cuenta->id,
+    ]);
 
     $response->assertOk();
     $response->assertJsonPath('ya_estaba_entregado', false);
@@ -295,16 +297,61 @@ test('escanear el qr cobra el saldo a la caja de efectivo y marca entregado', fu
     $response->assertJsonPath('pedido.estado', 'entregado');
 
     expect((float) $cuenta->fresh()->saldo_actual)->toBe(232.0);
-    $this->assertDatabaseHas('pedido_pagos', ['pedido_id' => $pedido->id, 'automatico' => true, 'monto' => 132.00]);
+    $this->assertDatabaseHas('pedido_pagos', [
+        'pedido_id' => $pedido->id,
+        'registrado_al_entregar' => true,
+        'monto' => 132.00,
+    ]);
 });
 
-test('escanear dos veces no cobra dos veces', function () {
+test('escanear con saldo pendiente y sin cuenta se rechaza sin tocar nada', function () {
     $user = User::factory()->create();
     $articulo = articuloParaPedido($user);
     $cuenta = cajaDe($user);
 
     $this->actingAs($user)->postJson('/api/v1/pedidos', datosPedidoValidos($articulo))->assertCreated();
     $pedido = Pedido::where('user_id', $user->id)->firstOrFail();
+
+    $this->actingAs($user)->postJson("/api/v1/pedidos/{$pedido->id}/entregar")
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('cuenta_id');
+
+    // Ni entrega a medias ni dinero en la caja: la venta sigue exactamente como estaba.
+    expect(Pedido::find($pedido->id)->estado)->toBe(EstadoPedido::Pendiente);
+    expect((float) $cuenta->fresh()->saldo_actual)->toBe(0.0);
+    expect(Pedido::find($pedido->id)->pagos()->count())->toBe(0);
+});
+
+test('escanear un pedido ya pagado lo cierra sin registrar ningun pago', function () {
+    $user = User::factory()->create();
+    [$pedido, $cuenta] = pedidoPagado($user);
+
+    $response = $this->actingAs($user)->postJson("/api/v1/pedidos/{$pedido->id}/entregar");
+
+    $response->assertOk();
+    $response->assertJsonPath('cobrado', 0);
+    $response->assertJsonPath('cuenta_nombre', null);
+    $response->assertJsonPath('pedido.estado', 'entregado');
+
+    // El saldo de la cuenta no se mueve: no entró un peso más que el que ya estaba.
+    expect((float) $cuenta->fresh()->saldo_actual)->toBe(232.0);
+    expect(Pedido::find($pedido->id)->pagos()->count())->toBe(1);
+});
+
+test('mandar cuenta en un pedido sin saldo se rechaza', function () {
+    $user = User::factory()->create();
+    [$pedido, $cuenta] = pedidoPagado($user);
+
+    $this->actingAs($user)->postJson("/api/v1/pedidos/{$pedido->id}/entregar", [
+        'cuenta_id' => $cuenta->id,
+    ])->assertUnprocessable()->assertJsonValidationErrors('cuenta_id');
+
+    expect(Pedido::find($pedido->id)->estado)->toBe(EstadoPedido::Pagado);
+});
+
+test('escanear dos veces no cobra dos veces', function () {
+    $user = User::factory()->create();
+    [$pedido, $cuenta] = pedidoPagado($user);
 
     $this->actingAs($user)->postJson("/api/v1/pedidos/{$pedido->id}/entregar")->assertOk();
     $segundo = $this->actingAs($user)->postJson("/api/v1/pedidos/{$pedido->id}/entregar");
@@ -316,22 +363,23 @@ test('escanear dos veces no cobra dos veces', function () {
     expect(Pedido::find($pedido->id)->pagos()->count())->toBe(1);
 });
 
-test('sin cuenta de efectivo la entrega se registra pero avisa que falta cobrar', function () {
+test('deshacer una entrega que no cobro nada regresa el pedido a su estado', function () {
     $user = User::factory()->create();
-    $articulo = articuloParaPedido($user);
+    [$pedido, $cuenta] = pedidoPagado($user);
 
-    $this->actingAs($user)->postJson('/api/v1/pedidos', datosPedidoValidos($articulo))->assertCreated();
-    $pedido = Pedido::where('user_id', $user->id)->firstOrFail();
-
-    $response = $this->actingAs($user)->postJson("/api/v1/pedidos/{$pedido->id}/entregar");
+    $this->actingAs($user)->postJson("/api/v1/pedidos/{$pedido->id}/entregar")->assertOk();
+    $response = $this->actingAs($user)->postJson("/api/v1/pedidos/{$pedido->id}/deshacer-entrega");
 
     $response->assertOk();
-    $response->assertJsonPath('cobrado', 0);
-    expect($response->json('aviso'))->toContain('cuenta de efectivo');
-    expect(Pedido::find($pedido->id)->estado)->toBe(EstadoPedido::Entregado);
+    $response->assertJsonPath('pedido.estado', 'pagado');
+
+    expect(Pedido::find($pedido->id)->entregado_en)->toBeNull();
+    // El pago del cliente sigue donde estaba: deshacer nunca toca dinero.
+    expect((float) $cuenta->fresh()->saldo_actual)->toBe(232.0);
+    expect(Pedido::find($pedido->id)->pagos()->count())->toBe(1);
 });
 
-test('deshacer la entrega borra el pago automatico y devuelve el saldo de la cuenta', function () {
+test('no se puede deshacer una entrega que registro un cobro', function () {
     $user = User::factory()->create();
     $articulo = articuloParaPedido($user);
     $cuenta = cajaDe($user);
@@ -345,23 +393,23 @@ test('deshacer la entrega borra el pago automatico y devuelve el saldo de la cue
         'cuenta_id' => $cuenta->id,
     ])->assertOk();
 
-    $this->actingAs($user)->postJson("/api/v1/pedidos/{$pedido->id}/entregar")->assertOk();
-    $response = $this->actingAs($user)->postJson("/api/v1/pedidos/{$pedido->id}/deshacer-entrega");
+    $this->actingAs($user)->postJson("/api/v1/pedidos/{$pedido->id}/entregar", [
+        'cuenta_id' => $cuenta->id,
+    ])->assertOk();
 
-    $response->assertOk();
-    $response->assertJsonPath('pedido.estado', 'anticipo');
+    // Ese cobro pasó por la confirmación del usuario: revertirlo a ciegas provocaría el descuido
+    // que "Deshacer" pretende evitar. Se corrige borrando el pago desde el detalle.
+    $this->actingAs($user)->postJson("/api/v1/pedidos/{$pedido->id}/deshacer-entrega")
+        ->assertUnprocessable();
 
-    expect((float) $cuenta->fresh()->saldo_actual)->toBe(100.0);
-    $this->assertDatabaseMissing('pedido_pagos', ['pedido_id' => $pedido->id, 'automatico' => true]);
+    expect(Pedido::find($pedido->id)->estado)->toBe(EstadoPedido::Entregado);
+    expect((float) $cuenta->fresh()->saldo_actual)->toBe(232.0);
+    expect(Pedido::find($pedido->id)->pagos()->count())->toBe(2);
 });
 
 test('pasada la ventana ya no se puede deshacer la entrega', function () {
     $user = User::factory()->create();
-    $articulo = articuloParaPedido($user);
-    cajaDe($user);
-
-    $this->actingAs($user)->postJson('/api/v1/pedidos', datosPedidoValidos($articulo))->assertCreated();
-    $pedido = Pedido::where('user_id', $user->id)->firstOrFail();
+    [$pedido] = pedidoPagado($user);
 
     $this->actingAs($user)->postJson("/api/v1/pedidos/{$pedido->id}/entregar")->assertOk();
 
@@ -373,7 +421,7 @@ test('pasada la ventana ya no se puede deshacer la entrega', function () {
     expect(Pedido::find($pedido->id)->estado)->toBe(EstadoPedido::Entregado);
 });
 
-test('el ticket se genera como jpeg y se invalida al registrar un pago', function () {
+test('el ticket es un jpeg con el qr y no deja ningun archivo en el disco', function () {
     Storage::fake('local');
     Emisor::create(['nombre' => 'Sellos del Norte', 'rfc' => 'AAA010101AAA', 'telefono' => '5599887766']);
 
@@ -390,8 +438,14 @@ test('el ticket se genera como jpeg y se invalida al registrar un pago', functio
     $response->assertHeader('Content-Type', 'image/jpeg');
     expect(substr($response->getContent(), 0, 2))->toBe("\xFF\xD8");
 
-    $ruta = Pedido::find($pedido->id)->ticket_ruta;
-    expect($ruta)->not->toBeNull();
+    // El QR se pega dentro de la imagen, así que el ticket crece a lo alto muy por encima de lo que
+    // ocuparían solo los renglones de texto de una venta de una línea.
+    $medidas = getimagesizefromstring($response->getContent());
+    expect($medidas[0])->toBe(576);
+    expect($medidas[1])->toBeGreaterThan(600);
+
+    // Úsese y tírese: se dibuja al pedirlo y no queda nada guardado.
+    expect(Storage::disk('local')->allFiles())->toBe([]);
 
     $this->actingAs($user)->postJson("/api/v1/pedidos/{$pedido->id}/pagos", [
         'fecha_pago' => now()->toDateString(),
@@ -399,9 +453,12 @@ test('el ticket se genera como jpeg y se invalida al registrar un pago', functio
         'cuenta_id' => $cuenta->id,
     ])->assertOk();
 
-    // El ticket muestra el saldo pendiente: si sobreviviera a un pago, mentiría.
-    expect(Pedido::find($pedido->id)->ticket_ruta)->toBeNull();
-    Storage::disk('local')->assertMissing($ruta);
+    // Y como nunca se guarda, es imposible que muestre un saldo viejo: la segunda petición lo
+    // vuelve a dibujar con los datos del momento.
+    $segundo = $this->actingAs($user)->get("/api/v1/pedidos/{$pedido->id}/ticket");
+    $segundo->assertOk();
+    expect($segundo->getContent())->not->toBe($response->getContent());
+    expect(Storage::disk('local')->allFiles())->toBe([]);
 });
 
 test('el mensaje del ticket resuelve los huecos y deja intactos los que no existen', function () {
@@ -419,6 +476,43 @@ test('el mensaje del ticket resuelve los huecos y deja intactos los que no exist
         'data.mensaje_compartible',
         'Hola María Pérez, ticket 00001: total $232.00, saldo $0.00. {inexistente}',
     );
+});
+
+test('el aviso de pedido listo sale de configuracion con los huecos resueltos', function () {
+    $user = User::factory()->create();
+    $user->configuraciones()->create([
+        'clave' => 'mensaje_listo',
+        'valor' => 'Hola {nombre}, tu pedido {folio} está listo. Quedan {saldo}.',
+    ]);
+
+    $articulo = articuloParaPedido($user);
+    $cuenta = cajaDe($user);
+
+    $this->actingAs($user)->postJson('/api/v1/pedidos', datosPedidoValidos($articulo))->assertCreated();
+    $pedido = Pedido::where('user_id', $user->id)->firstOrFail();
+
+    $this->actingAs($user)->postJson("/api/v1/pedidos/{$pedido->id}/pagos", [
+        'fecha_pago' => now()->toDateString(),
+        'monto' => 100.00,
+        'cuenta_id' => $cuenta->id,
+    ])->assertOk();
+
+    $this->actingAs($user)->getJson("/api/v1/pedidos/{$pedido->id}")->assertJsonPath(
+        'data.mensaje_listo',
+        'Hola María Pérez, tu pedido 00001 está listo. Quedan $132.00.',
+    );
+});
+
+test('el aviso de pedido listo trae el texto de fabrica sin configurar nada', function () {
+    $user = User::factory()->create();
+    [$pedido] = pedidoPagado($user);
+
+    $response = $this->actingAs($user)->getJson("/api/v1/pedidos/{$pedido->id}");
+
+    expect($response->json('data.mensaje_listo'))
+        ->toContain('María Pérez')
+        ->toContain('00001')
+        ->toContain('ya está listo');
 });
 
 test('la sugerencia por telefono trae los datos del ultimo pedido de ese numero', function () {

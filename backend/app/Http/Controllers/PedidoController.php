@@ -4,13 +4,12 @@ namespace App\Http\Controllers;
 
 use App\Enums\EstadoPedido;
 use App\Enums\MotivoMovimientoInventario;
-use App\Enums\TipoCuenta;
 use App\Enums\TipoMovimiento;
+use App\Http\Requests\Pedidos\EntregarPedidoRequest;
 use App\Http\Requests\Pedidos\PedidoPagoRequest;
 use App\Http\Requests\Pedidos\StorePedidoRequest;
 use App\Http\Requests\Pedidos\UpdatePedidoRequest;
 use App\Http\Resources\PedidoResource;
-use App\Models\Cuenta;
 use App\Models\Pedido;
 use App\Models\PedidoPago;
 use App\Models\User;
@@ -150,8 +149,6 @@ class PedidoController extends Controller
             $pedido->asegurarTokenAutofactura();
         });
 
-        $this->ticket->invalidar($pedido);
-
         return new PedidoResource($pedido->fresh(['lineas.articulo', 'pagos.cuenta']));
     }
 
@@ -173,7 +170,6 @@ class PedidoController extends Controller
                 $pedido,
             );
 
-            $this->ticket->invalidar($pedido);
             $pedido->delete();
         });
 
@@ -181,8 +177,10 @@ class PedidoController extends Controller
     }
 
     /**
-     * El ticket como imagen. Se dibuja aquí si aún no existe, de modo que la primera petición
-     * después de un cambio siempre trae el saldo al día.
+     * El ticket como imagen, **dibujado en el momento y no guardado en ningún lado**.
+     *
+     * Por eso nunca puede mostrar un saldo viejo: cada petición lo pinta con los datos de ese
+     * instante. No hay archivo que invalidar al registrar un pago ni carpeta que limpiar después.
      */
     public function ticket(Request $request, Pedido $pedido): Response
     {
@@ -211,14 +209,12 @@ class PedidoController extends Controller
                 (float) $datos['monto'],
                 (int) $datos['cuenta_id'],
                 (string) $datos['fecha_pago'],
-                automatico: false,
+                registradoAlEntregar: false,
             );
 
             $pedido->refresh()->sincronizarEstadoConPagos();
             $pedido->asegurarTokenAutofactura();
         });
-
-        $this->ticket->invalidar($pedido);
 
         return new PedidoResource($pedido->fresh(['lineas.articulo', 'pagos.cuenta']));
     }
@@ -229,8 +225,7 @@ class PedidoController extends Controller
      * Sin la regla LIFO de 008: allá el monto de "saldo" se autocalcula a partir de los pagos
      * previos y borrar uno intermedio dejaría a los posteriores describiendo un saldo que ya no
      * existía; aquí cada pago lleva su propio monto capturado y ninguno depende de otro. Es además
-     * la vía por la que se corrige el cobro automático del escaneo cuando el cliente en realidad
-     * pagó por transferencia.
+     * la vía por la que se corrige un cobro mal capturado al entregar.
      */
     public function eliminarPago(Request $request, Pedido $pedido, PedidoPago $pago): Response
     {
@@ -250,23 +245,29 @@ class PedidoController extends Controller
             $pedido->refresh()->sincronizarEstadoConPagos();
         });
 
-        $this->ticket->invalidar($pedido);
-
         return response()->noContent();
     }
 
     /**
-     * Destino del QR de la etiqueta: **cobra el saldo y entrega, sin preguntar nada**.
+     * Destino del QR: cierra el pedido.
      *
-     * El candado es la relectura bloqueada dentro de la transacción: dos escaneos seguidos —o dos
-     * personas escaneando a la vez— no pueden cobrar el saldo dos veces ni meter dinero de más a la
-     * caja. El segundo escaneo no toca nada y lo dice.
+     * **Con saldo pendiente exige `cuenta_id` y cobra el saldo exacto**; sin saldo solo marca la
+     * entrega. La pantalla decide cuál de los dos caminos muestra —el primero pide confirmación con
+     * el nombre del cliente y el saldo a la vista, el segundo se dispara solo— pero el que decide de
+     * verdad es esto: quien mande una petición sin cuenta a un pedido que debe dinero recibe un 422,
+     * no una entrega a medias.
+     *
+     * El candado contra el doble escaneo es la relectura bloqueada dentro de la transacción: dos
+     * escaneos seguidos —o dos personas escaneando a la vez— no pueden cobrar el saldo dos veces ni
+     * meter dinero de más a la caja. El segundo escaneo no toca nada y lo dice.
      */
-    public function entregar(Request $request, Pedido $pedido): JsonResponse
+    public function entregar(EntregarPedidoRequest $request, Pedido $pedido): JsonResponse
     {
         abort_unless($pedido->user_id === $request->user()->id, 404);
 
-        $resultado = DB::transaction(function () use ($request, $pedido) {
+        $cuentaId = $request->integer('cuenta_id') ?: null;
+
+        $resultado = DB::transaction(function () use ($request, $pedido, $cuentaId) {
             $bloqueado = Pedido::lockForUpdate()->find($pedido->id);
 
             if ($bloqueado === null || $bloqueado->estado === EstadoPedido::Entregado) {
@@ -274,28 +275,20 @@ class PedidoController extends Controller
                     'ya_estaba_entregado' => true,
                     'cobrado' => 0.0,
                     'cuenta_nombre' => null,
-                    'aviso' => null,
                 ];
             }
 
             $saldo = $bloqueado->saldoPendiente();
-            $cuenta = $saldo > 0 ? $this->cajaDe($request->user()) : null;
-            $aviso = null;
+            $pago = null;
 
-            if ($saldo > 0 && $cuenta === null) {
-                // Sin cuenta de efectivo no se inventa una, pero tampoco se bloquea la entrega del
-                // trabajo: el cliente está enfrente esperando su sello.
-                $aviso = 'No hay ninguna cuenta de efectivo activa, así que el saldo no se registró. Captúralo a mano desde el pedido.';
-            }
-
-            if ($saldo > 0 && $cuenta !== null) {
-                $this->registrarPago(
+            if ($saldo > 0 && $cuentaId !== null) {
+                $pago = $this->registrarPago(
                     $request->user(),
                     $bloqueado,
                     $saldo,
-                    $cuenta->id,
+                    $cuentaId,
                     now()->toDateString(),
-                    automatico: true,
+                    registradoAlEntregar: true,
                 );
             }
 
@@ -308,15 +301,10 @@ class PedidoController extends Controller
 
             return [
                 'ya_estaba_entregado' => false,
-                'cobrado' => $cuenta !== null ? $saldo : 0.0,
-                'cuenta_nombre' => $cuenta?->nombre,
-                'aviso' => $aviso,
+                'cobrado' => $pago !== null ? $saldo : 0.0,
+                'cuenta_nombre' => $pago?->cuenta?->nombre,
             ];
         });
-
-        if (! $resultado['ya_estaba_entregado']) {
-            $this->ticket->invalidar($pedido);
-        }
 
         return response()->json([
             ...$resultado,
@@ -325,15 +313,20 @@ class PedidoController extends Controller
     }
 
     /**
-     * Revierte una entrega recién hecha, por si se escaneó la etiqueta equivocada.
+     * Revierte una entrega que **no cobró nada**, por si se escaneó la etiqueta equivocada.
      *
-     * Revierte **las dos cosas**: borra el pago automático con su movimiento de Tesorería —si solo
-     * regresara el estado quedarían pesos fantasma en la caja— y devuelve el pedido a la escalera
-     * de pagos.
+     * Solo existe para el camino que cierra sin preguntar —el del pedido ya pagado por completo—,
+     * que es el único donde el sistema actúa por su cuenta. Una entrega que cobró ya pasó por la
+     * confirmación del usuario, con el nombre del cliente y el saldo a la vista; revertirla a ciegas
+     * no arregla un descuido, lo provoca. Ese pago se corrige desde el detalle del pedido, como
+     * cualquier otro.
+     *
+     * Al no tocar nunca un pago, esto tampoco toca nunca Tesorería: desaparece de raíz el riesgo de
+     * dejar pesos fantasma en la caja.
      *
      * La ventana del servidor es más ancha que los 10 segundos del botón a propósito: el botón mide
      * la impaciencia del usuario, este límite evita que un "Deshacer" disparado desde una pestaña
-     * olvidada revierta mañana un cobro legítimo.
+     * olvidada revierta mañana una entrega legítima.
      */
     public function deshacerEntrega(Request $request, Pedido $pedido): JsonResponse
     {
@@ -341,30 +334,21 @@ class PedidoController extends Controller
         abort_unless($pedido->estado === EstadoPedido::Entregado, 422, 'Este pedido no está entregado.');
         abort_if($pedido->factura_id !== null, 422, 'No se puede deshacer la entrega de un pedido ya facturado.');
         abort_if(
+            $pedido->entregaRegistroCobro(),
+            422,
+            'Esta entrega registró un cobro que tú confirmaste. Si hay que corregirlo, borra el pago desde el detalle del pedido.',
+        );
+        abort_if(
             $pedido->entregado_en === null
                 || $pedido->entregado_en->lt(now()->subMinutes(Pedido::MINUTOS_PARA_DESHACER_ENTREGA)),
             422,
-            'Ya pasó el plazo para deshacer esta entrega. Corrige el pago desde el detalle del pedido.',
+            'Ya pasó el plazo para deshacer esta entrega. Corrígela desde el detalle del pedido.',
         );
 
         DB::transaction(function () use ($pedido) {
-            $automatico = $pedido->pagoAutomatico();
-
-            if ($automatico !== null) {
-                $movimiento = $automatico->movimiento;
-
-                if ($movimiento !== null) {
-                    $this->tesoreria->eliminar($movimiento);
-                }
-
-                $automatico->delete();
-            }
-
             $pedido->update(['entregado_en' => null, 'estado' => EstadoPedido::Pendiente->value]);
             $pedido->refresh()->sincronizarEstadoConPagos();
         });
-
-        $this->ticket->invalidar($pedido);
 
         return response()->json([
             'deshecho' => true,
@@ -400,35 +384,19 @@ class PedidoController extends Controller
         ]);
     }
 
-    /**
-     * La caja del mostrador: la cuenta de efectivo activa más antigua del usuario.
-     *
-     * Es una regla fija y no un ajuste configurable porque el escaneo no puede detenerse a
-     * preguntar. Si el cliente pagó por transferencia, el pago se corrige después borrándolo y
-     * recapturándolo con la cuenta correcta.
-     */
-    private function cajaDe(User $user): ?Cuenta
-    {
-        return $user->cuentas()
-            ->where('tipo', TipoCuenta::Efectivo->value)
-            ->where('activa', true)
-            ->orderBy('id')
-            ->first();
-    }
-
     private function registrarPago(
         User $user,
         Pedido $pedido,
         float $monto,
         int $cuentaId,
         string $fecha,
-        bool $automatico,
+        bool $registradoAlEntregar,
     ): PedidoPago {
         $pago = $pedido->pagos()->create([
             'fecha_pago' => $fecha,
             'monto' => $monto,
             'cuenta_id' => $cuentaId,
-            'automatico' => $automatico,
+            'registrado_al_entregar' => $registradoAlEntregar,
         ]);
 
         $this->tesoreria->registrarDesdeDocumento(

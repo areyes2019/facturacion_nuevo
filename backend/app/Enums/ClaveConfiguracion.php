@@ -18,6 +18,7 @@ enum ClaveConfiguracion: string
     case CostoGomaMediana = 'costo_goma_mediana';
     case CostoGomaGrande = 'costo_goma_grande';
     case MensajeTicket = 'mensaje_ticket';
+    case MensajeListo = 'mensaje_listo';
 
     /**
      * Valor con el que arranca un usuario que nunca ha guardado la pantalla de Configuración.
@@ -32,6 +33,7 @@ enum ClaveConfiguracion: string
             self::CostoGomaMediana => '10.00',
             self::CostoGomaGrande => '20.00',
             self::MensajeTicket => self::MENSAJE_TICKET_DE_FABRICA,
+            self::MensajeListo => self::MENSAJE_LISTO_DE_FABRICA,
         };
     }
 
@@ -39,10 +41,10 @@ enum ClaveConfiguracion: string
      * Reglas de validación del valor de esta clave, **incluida su obligatoriedad**.
      *
      * Los costos se permiten en 0.00 (una categoría que no cuesta nada) pero nunca negativos,
-     * porque una goma que abarate el artículo no existe. El mensaje del ticket, en cambio, es la
-     * primera clave de texto del almacén y sí admite quedar vacío: el usuario puede no querer
-     * mandar nada junto con la imagen. Por eso `required` vive aquí y no en el controlador — la
-     * regla depende de la clave, no del endpoint.
+     * porque una goma que abarate el artículo no existe. Los dos mensajes, en cambio, son claves de
+     * texto y sí admiten quedar vacíos: el usuario puede no querer mandar nada junto con la imagen,
+     * o no querer avisar. Por eso `required` vive aquí y no en el controlador — la regla depende de
+     * la clave, no del endpoint.
      *
      * @return array<int, string>
      */
@@ -55,13 +57,14 @@ enum ClaveConfiguracion: string
             // `nullable` además de `present` porque Laravel convierte la cadena vacía en null antes
             // de validar (`ConvertEmptyStringsToNull`): sin él, vaciar el campo se leería como "no
             // mandaste un texto" en vez de "no quiero mensaje".
-            self::MensajeTicket => ['present', 'nullable', 'string', 'max:2000'],
+            self::MensajeTicket,
+            self::MensajeListo => ['present', 'nullable', 'string', 'max:2000'],
         };
     }
 
     /**
-     * Huecos que `TicketPedidoService` rellena en el mensaje antes de compartirlo. El frontend los
-     * lista debajo del campo, así que la lista vive una sola vez y aquí.
+     * Huecos que `MensajePedidoService` rellena antes de compartir, comunes a los dos mensajes. El
+     * frontend los lista debajo de cada campo, así que la lista vive una sola vez y aquí.
      *
      * @return array<int, string>
      */
@@ -89,6 +92,18 @@ enum ClaveConfiguracion: string
         🚚 Recibirlo por paquetería, directo a tu domicilio.
 
         ¿Te parece bien? Quedo atento(a) a tu confirmación. 😉
+        TXT;
+
+    /**
+     * Aviso de que el pedido ya se puede recoger (ver 027-venta-mostrador-ticket.md).
+     *
+     * Editable y no fijo en el código, a diferencia de lo que podría parecer por lo corto: es un
+     * mensaje que se le manda al cliente y el tono lo pone el negocio, no el sistema.
+     */
+    private const MENSAJE_LISTO_DE_FABRICA = <<<'TXT'
+        Hola {nombre} 👋
+        Tu pedido con No. de ticket {folio} ya está listo. 🎉
+        Puedes pasar por él cuando gustes. ¡Gracias por tu preferencia!
         TXT;
 
     /**

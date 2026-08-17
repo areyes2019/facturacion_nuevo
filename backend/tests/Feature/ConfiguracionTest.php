@@ -30,6 +30,7 @@ test('la configuracion devuelve todas las claves con sus valores de fabrica sin 
         'costo_goma_mediana' => '10.00',
         'costo_goma_grande' => '20.00',
         'mensaje_ticket' => ClaveConfiguracion::MensajeTicket->valorPorDefecto(),
+        'mensaje_listo' => ClaveConfiguracion::MensajeListo->valorPorDefecto(),
     ]);
 });
 

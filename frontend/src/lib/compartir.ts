@@ -50,7 +50,7 @@ export async function compartirImagen(
 }
 
 /**
- * Comparte texto suelto (el enlace de autofactura).
+ * Comparte texto suelto: el enlace de autofactura y el aviso de "ya está listo".
  *
  * En celular usa el menú del sistema. En escritorio abre `wa.me`, que Windows enruta a WhatsApp
  * Desktop si está instalado y a WhatsApp Web si no, con el mensaje ya escrito: el usuario solo

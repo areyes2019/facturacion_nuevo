@@ -85,14 +85,34 @@ class QrTimbreFiscal
 
     /**
      * El QR listo para incrustarse en el HTML del PDF, o `null` si no se pudo generar.
+     *
+     * Lo reusa también el QR del pedido de 027 —la etiqueta y el detalle lo pintan como `<img>`—,
+     * porque dibujar un código es dibujar un código y una segunda copia de estas ocho líneas solo
+     * podría divergir.
      */
-    public function imagenBase64(string $url): ?string
+    public function imagenBase64(string $url, int $escala = 4): ?string
+    {
+        return $this->render($url, $escala, base64: true);
+    }
+
+    /**
+     * Los bytes crudos del PNG, para pegarlos dentro de otra imagen con GD.
+     *
+     * Es lo que necesita el ticket de 027: ahí el QR no se incrusta en un HTML sino que se copia
+     * sobre el lienzo del ticket, y un data URI habría que deshacerlo antes de poder leerlo.
+     */
+    public function imagenPng(string $url, int $escala = 4): ?string
+    {
+        return $this->render($url, $escala, base64: false);
+    }
+
+    private function render(string $url, int $escala, bool $base64): ?string
     {
         try {
             $qr = new QRCode(new QROptions([
                 'outputInterface' => QRGdImagePNG::class,
-                'outputBase64' => true,
-                'scale' => 4,
+                'outputBase64' => $base64,
+                'scale' => $escala,
                 'quietzoneSize' => 1,
             ]));
 

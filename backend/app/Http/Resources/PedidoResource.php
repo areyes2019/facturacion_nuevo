@@ -2,8 +2,8 @@
 
 namespace App\Http\Resources;
 
+use App\Services\MensajePedidoService;
 use App\Services\QrTimbreFiscal;
-use App\Services\TicketPedidoService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -46,10 +46,11 @@ class PedidoResource extends JsonResource
             'autofactura_no_disponible' => $this->motivoAutofacturaNoDisponible(),
             'lineas' => PedidoLineaResource::collection($this->whenLoaded('lineas')),
             'pagos' => PedidoPagoResource::collection($this->whenLoaded('pagos')),
-            // Solo en el detalle: el mensaje ya resuelto y el QR dibujado son trabajo que no tiene
-            // sentido repetir por cada fila de un listado de quince pedidos.
+            // Solo en el detalle: los mensajes ya resueltos y el QR dibujado son trabajo que no
+            // tiene sentido repetir por cada fila de un listado de quince pedidos.
             $this->mergeWhen($this->relationLoaded('lineas'), fn () => [
-                'mensaje_compartible' => app(TicketPedidoService::class)->mensajeCompartible($this->resource),
+                'mensaje_compartible' => app(MensajePedidoService::class)->delTicket($this->resource),
+                'mensaje_listo' => app(MensajePedidoService::class)->deListo($this->resource),
                 'qr_entrega' => app(QrTimbreFiscal::class)->imagenBase64($this->urlEntrega()),
                 'url_entrega' => $this->urlEntrega(),
             ]),

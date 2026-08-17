@@ -3,6 +3,7 @@ import { computed, onMounted, onBeforeUnmount, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import {
   ArrowLeftIcon,
+  BellAlertIcon,
   PencilIcon,
   PrinterIcon,
   ShareIcon,
@@ -60,6 +61,12 @@ const errorPago = ref<string | null>(null)
 
 const pedidoId = computed(() => Number(route.params.id))
 
+/**
+ * El ticket comprueba un dinero que ya entró: sin ningún pago diría "Pagado $0.00" y el cliente
+ * podría leerlo como que ya quedó todo hecho. Con el primer pago —anticipo o total— se comparte.
+ */
+const tienePagos = computed(() => (pedido.value?.pagos.length ?? 0) > 0)
+
 const estadoTexto = computed(() =>
   pedido.value
     ? {
@@ -92,8 +99,9 @@ async function cargar() {
 }
 
 /**
- * Trae el ticket recién dibujado por el servidor. Se vuelve a pedir después de cada pago porque el
- * backend lo invalida: el ticket muestra el saldo y no puede quedarse mostrando el anterior.
+ * Trae el ticket dibujado por el servidor. Se vuelve a pedir después de cada pago porque el ticket
+ * muestra el saldo: como no se guarda en ningún lado, cada petición lo pinta con los datos de ese
+ * instante y es imposible que se quede mostrando el anterior.
  */
 async function cargarTicket() {
   if (!pedido.value) return
@@ -130,6 +138,23 @@ async function compartirTicket() {
     aviso.value = 'No se pudo compartir el ticket.'
   } finally {
     compartiendo.value = false
+  }
+}
+
+/**
+ * Avisa al cliente que su trabajo está listo. El sello se elabora fuera del sistema, así que el
+ * sistema no sabe cuándo lo está: lo aprieta el usuario, que sí. **No cambia ningún estado** y se
+ * puede apretar las veces que haga falta, porque al cliente que no contesta se le insiste.
+ */
+async function avisarListo() {
+  if (!pedido.value?.mensaje_listo) return
+
+  aviso.value = null
+
+  try {
+    await compartirTexto(pedido.value.mensaje_listo)
+  } catch {
+    aviso.value = 'No se pudo compartir el aviso.'
   }
 }
 
@@ -221,7 +246,20 @@ async function eliminarPago(pagoId: number) {
               Imprimir etiqueta
             </RouterLink>
           </Button>
-          <Button size="sm" :disabled="compartiendo || !ticketBlob" @click="compartirTicket">
+          <!--
+            El aviso de que el trabajo está listo. Como el sello se hace fuera del sistema, quien
+            sabe cuándo lo está es el usuario: esto solo redacta el mensaje. No cambia ningún estado.
+          -->
+          <Button v-if="tienePagos" variant="outline" size="sm" @click="avisarListo">
+            <BellAlertIcon class="size-4" />
+            Avisar que está listo
+          </Button>
+          <Button
+            v-if="tienePagos"
+            size="sm"
+            :disabled="compartiendo || !ticketBlob"
+            @click="compartirTicket"
+          >
             <ShareIcon class="size-4" />
             {{ compartiendo ? 'Compartiendo...' : 'Compartir ticket' }}
           </Button>
@@ -335,9 +373,9 @@ async function eliminarPago(pagoId: number) {
                       <TableCell>{{ pago.fecha_pago }}</TableCell>
                       <TableCell>
                         {{ pago.cuenta_nombre ?? '—' }}
-                        <!-- El cobro que hizo el escaneo. Si el cliente en realidad pagó por
-                             transferencia, se corrige borrándolo y recapturándolo. -->
-                        <Badge v-if="pago.automatico" variant="secondary" class="ml-2">
+                        <!-- El pago que cerró la venta al escanear el QR. Si quedó mal capturado,
+                             se corrige borrándolo y recapturándolo. -->
+                        <Badge v-if="pago.registrado_al_entregar" variant="secondary" class="ml-2">
                           Al entregar
                         </Badge>
                       </TableCell>

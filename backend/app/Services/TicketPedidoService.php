@@ -2,11 +2,9 @@
 
 namespace App\Services;
 
-use App\Enums\ClaveConfiguracion;
 use App\Models\Emisor;
 use App\Models\Pedido;
 use GdImage;
-use Illuminate\Support\Facades\Storage;
 use RuntimeException;
 
 /**
@@ -14,12 +12,19 @@ use RuntimeException;
  *
  * **Lo dibuja el servidor y no el navegador.** El mismo pedido se comparte desde la computadora del
  * mostrador y desde el celular del usuario; si cada aparato dibujara la imagen con sus propias
- * fuentes, al cliente le llegarían tickets de distinto aspecto según desde dónde se mandó.
- * Dibujarlo una vez y guardarlo también evita rehacerlo cada vez que se vuelve a compartir.
+ * fuentes —y su propio código QR— al cliente le llegarían tickets de distinto aspecto según desde
+ * dónde se mandó.
  *
- * Vive en el **disco privado**, fuera del docroot, por las dos razones de 020-imagenes-articulos.md:
- * `symlink` está desactivada en Hostinger (018) y `deploy/deploy-frontend.sh` borra del docroot todo
- * lo que no venga en el build.
+ * **No se guarda en ningún lado.** Se dibuja cada vez que se pide y se desecha. La imagen no es un
+ * registro: el folio, el cliente, las líneas, los totales y los pagos viven en la base de datos y
+ * esto solo los pinta, así que se puede volver a dibujar idéntica cuando haga falta. Guardarla
+ * sería guardar una copia por comodidad, y a diez tickets diarios eso son ~200 MB al año que nunca
+ * dejan de crecer en un plan compartido donde el espacio se paga.
+ *
+ * Tiene dos consecuencias buenas y una mala, todas asumidas: es **imposible** que el ticket muestre
+ * un saldo viejo —desaparece toda la lógica de invalidarlo al registrar o borrar un pago—, no hay
+ * nada que limpiar después, y a cambio compartirlo dos veces lo dibuja dos veces, que son
+ * milésimas de segundo.
  */
 class TicketPedidoService
 {
@@ -38,73 +43,30 @@ class TicketPedidoService
     private const LADO_LOGO = 240;
 
     /**
+     * Lado del QR dentro del ticket.
+     *
+     * Poco más de la mitad del ancho, y a propósito: el peor escenario de este código es que se lea
+     * **desde la pantalla de un celular**, que brilla y refleja. 300 px sobran para eso y para un
+     * papel maltratado.
+     */
+    private const LADO_QR = 300;
+
+    /**
      * Zona horaria del negocio (mono-usuario/mono-empresa): la hora impresa en el ticket es la del
      * mostrador, no la de UTC en que se guardó `created_at`. Mismo criterio que el listado de
      * cotizaciones en 008.
      */
     private const ZONA_HORARIA_NEGOCIO = 'America/Mexico_City';
 
-    public function __construct(private readonly ConfiguracionService $configuracion) {}
+    public function __construct(private readonly QrTimbreFiscal $qr) {}
 
     /**
-     * Ruta del ticket dentro del disco privado, dibujándolo si aún no existe.
+     * Dibuja el ticket y devuelve los bytes del JPEG. Dos pasadas sobre la misma lista de filas: la
+     * primera mide el alto total, la segunda pinta. Sin medir antes no hay forma de crear el lienzo
+     * del tamaño correcto, y un lienzo fijo dejaría tickets largos cortados o tickets cortos con
+     * medio metro de blanco abajo.
      */
-    public function rutaDe(Pedido $pedido): string
-    {
-        if ($pedido->ticket_ruta !== null && Storage::disk('local')->exists($pedido->ticket_ruta)) {
-            return $pedido->ticket_ruta;
-        }
-
-        return $this->generar($pedido);
-    }
-
     public function contenido(Pedido $pedido): string
-    {
-        return (string) Storage::disk('local')->get($this->rutaDe($pedido));
-    }
-
-    /**
-     * Tira el ticket guardado. Se llama cada vez que cambia algo de lo que el ticket muestra —las
-     * líneas o los pagos—, para que nunca mienta sobre el saldo pendiente. Se vuelve a dibujar solo
-     * la próxima vez que alguien lo pida.
-     */
-    public function invalidar(Pedido $pedido): void
-    {
-        if ($pedido->ticket_ruta !== null) {
-            Storage::disk('local')->delete($pedido->ticket_ruta);
-        }
-
-        $pedido->ticket_ruta = null;
-        $pedido->save();
-    }
-
-    /**
-     * El mensaje que viaja junto a la imagen, con los huecos ya resueltos.
-     *
-     * Se resuelve en backend para que el frontend no tenga que conocer la lista de huecos, y un
-     * hueco que no exista se deja tal cual: el texto es de captura libre y un `{}` mal escrito no
-     * debe romper el envío.
-     */
-    public function mensajeCompartible(Pedido $pedido): string
-    {
-        $plantilla = $this->configuracion->obtener($pedido->user, ClaveConfiguracion::MensajeTicket);
-
-        return strtr($plantilla, [
-            '{nombre}' => (string) $pedido->cliente_nombre,
-            '{folio}' => $pedido->numeroTicket(),
-            '{total}' => $this->dinero((float) $pedido->total),
-            '{pagado}' => $this->dinero($pedido->totalPagado()),
-            '{saldo}' => $this->dinero($pedido->saldoPendiente()),
-        ]);
-    }
-
-    /**
-     * Dibuja el ticket y lo guarda. Dos pasadas sobre la misma lista de filas: la primera mide el
-     * alto total, la segunda pinta. Sin medir antes no hay forma de crear el lienzo del tamaño
-     * correcto, y un lienzo fijo dejaría tickets largos cortados o tickets cortos con medio metro
-     * de blanco abajo.
-     */
-    private function generar(Pedido $pedido): string
     {
         $pedido->loadMissing('lineas');
 
@@ -137,20 +99,11 @@ class TicketPedidoService
         $binario = (string) ob_get_clean();
         imagedestroy($lienzo);
 
-        $ruta = Pedido::DIRECTORIO_TICKETS."/pedido-{$pedido->id}.jpg";
-        Storage::disk('local')->put($ruta, $binario);
-
-        $pedido->ticket_ruta = $ruta;
-        $pedido->save();
-
-        return $ruta;
+        return $binario;
     }
 
     /**
      * La lista de filas del ticket, en el orden en que se imprimen.
-     *
-     * **Sin código QR**: el QR va únicamente en la etiqueta, que es lo que se pega al trabajo. En el
-     * ticket no serviría de nada, porque el cliente no cierra su propio pedido.
      *
      * @return array<int, array<string, mixed>>
      */
@@ -214,7 +167,44 @@ class TicketPedidoService
         $filas[] = $this->separador();
         $filas[] = $this->texto('¡Gracias por tu compra!', self::TAM_CHICO, 'c');
 
+        // El QR al final, que es donde el ojo termina de leer la tira y donde no compite con nada.
+        // El número impreso debajo es el respaldo para cuando el código no lee y hay que buscar el
+        // pedido a mano.
+        $codigo = $this->codigoQr($pedido);
+        if ($codigo !== null) {
+            $filas[] = ['tipo' => 'imagen', 'imagen' => $codigo, 'alto' => imagesy($codigo) + 16];
+            $filas[] = $this->texto('No. '.$pedido->numeroTicket(), self::TAM_CHICO, 'c');
+        }
+
         return $filas;
+    }
+
+    /**
+     * El QR de la pantalla de entrega, ya al tamaño exacto, o `null` si no se pudo dibujar.
+     *
+     * Se pide en grande y se reduce con **vecino más cercano**: cualquier interpolación suaviza los
+     * bordes de los módulos y un código borroso es un código que el lector rechaza. Un ticket nunca
+     * falla por su QR —mismo criterio que el logo—: si algo sale mal, sale sin código y con el
+     * número de ticket, que es con lo que se busca el pedido a mano.
+     */
+    private function codigoQr(Pedido $pedido): ?GdImage
+    {
+        $png = $this->qr->imagenPng($pedido->urlEntrega(), escala: 10);
+
+        if ($png === null) {
+            return null;
+        }
+
+        $original = @imagecreatefromstring($png);
+
+        if ($original === false) {
+            return null;
+        }
+
+        $reducido = imagescale($original, self::LADO_QR, self::LADO_QR, IMG_NEAREST_NEIGHBOUR);
+        imagedestroy($original);
+
+        return $reducido === false ? null : $reducido;
     }
 
     /**

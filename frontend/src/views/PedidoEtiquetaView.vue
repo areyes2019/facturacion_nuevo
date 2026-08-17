@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { usePedidosStore, type Pedido } from '../stores/pedidos'
 import { extractErrorMessage } from '../lib/errors'
@@ -10,14 +10,26 @@ import { extractErrorMessage } from '../lib/errors'
  * Se imprime **desde el navegador**, sin generar archivo, y sin el layout de la aplicación: lo que
  * sale por la impresora son 50 × 25 mm y nada más.
  *
- * Lleva solo nombre, no. de ticket, teléfono y el QR. Sin precios ni artículos: va pegada al
- * trabajo y pasa por manos que no tienen por qué ver lo que se cobró.
+ * Lleva nombre, teléfono, no. de ticket, el saldo y el QR. **El QR va a la izquierda en un cuadro
+ * de 20 mm** y el texto en los ~28 mm restantes: un código necesita ser cuadrado y con 25 mm de
+ * alto no puede crecer más sin comerse los márgenes, así que se aprovecha que la etiqueta es más
+ * ancha que alta.
+ *
+ * El saldo se imprime porque al ver la caja hay que saber si falta cobrar sin abrir el sistema. La
+ * primera versión lo prohibía —"pasa por manos que no tienen por qué ver lo que se cobró"— y ese
+ * argumento no aplica a un taller de una persona: no hay manos ajenas por las que pase.
  */
 const route = useRoute()
 const pedidos = usePedidosStore()
 
 const pedido = ref<Pedido | null>(null)
 const error = ref<string | null>(null)
+
+const saldo = computed(() =>
+  pedido.value === null || pedido.value.saldo_pendiente <= 0
+    ? 'PAGADO'
+    : `SALDO: $${pedido.value.saldo_pendiente.toFixed(2)}`,
+)
 
 function imprimir() {
   window.print()
@@ -42,17 +54,18 @@ onMounted(async () => {
     <p v-if="error" class="mensaje">{{ error }}</p>
 
     <div v-else-if="pedido" class="etiqueta">
-      <div class="datos">
-        <p class="nombre">{{ pedido.cliente_nombre }}</p>
-        <p class="ticket">No. {{ pedido.numero_ticket }}</p>
-        <p class="telefono">{{ pedido.cliente_telefono }}</p>
-      </div>
       <img
         v-if="pedido.qr_entrega"
         class="qr"
         :src="pedido.qr_entrega"
         alt="Código QR del pedido"
       />
+      <div class="datos">
+        <p class="nombre">{{ pedido.cliente_nombre }}</p>
+        <p class="telefono">{{ pedido.cliente_telefono }}</p>
+        <p class="ticket">No. {{ pedido.numero_ticket }}</p>
+        <p class="saldo">{{ saldo }}</p>
+      </div>
     </div>
 
     <p v-if="pedido" class="pie-pantalla">
@@ -103,11 +116,16 @@ onMounted(async () => {
   min-width: 0;
 }
 
+/*
+ * Los cuatro renglones se recortan con puntos suspensivos antes que partirse: un renglón que se
+ * parte empuja al saldo fuera de los 25 mm de alto.
+ */
 .datos p {
   margin: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  line-height: 1.25;
 }
 
 .nombre {
@@ -115,14 +133,20 @@ onMounted(async () => {
   font-weight: 700;
 }
 
+.telefono {
+  font-size: 2.8mm;
+}
+
 .ticket {
-  font-size: 4mm;
+  font-size: 3.6mm;
   font-weight: 700;
   font-family: 'Courier New', monospace;
 }
 
-.telefono {
-  font-size: 3mm;
+/* El único dato que obliga a actuar, y por eso el último: es donde el ojo lo busca. */
+.saldo {
+  font-size: 3.2mm;
+  font-weight: 700;
 }
 
 .qr {
