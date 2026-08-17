@@ -1,19 +1,21 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ArrowLeftIcon, ShareIcon } from '@heroicons/vue/24/outline'
+import { ArrowLeftIcon, EnvelopeIcon, ShareIcon } from '@heroicons/vue/24/outline'
 import {
   useCotizacionesStore,
   type Cotizacion,
   type CotizacionPayload,
 } from '../../stores/cotizaciones'
 import { calcularTotales } from '../../lib/totalesDocumento'
+import { reaplicarDescuento } from '../../lib/lineasMostrador'
 import { mensajeDeFalla } from '../../lib/errors'
 import { useConfirmarSalida } from '../../lib/salidaCaptura'
 import AppLayout from '../../layouts/AppLayout.vue'
 import PasosMostrador from '../../components/mostrador/PasosMostrador.vue'
-import PasoArticulos from '../../components/mostrador/PasoArticulos.vue'
-import PasoClienteFiscal from '../../components/mostrador/PasoClienteFiscal.vue'
+import PasoArticulosTarjetas from '../../components/mostrador/PasoArticulosTarjetas.vue'
+import PasoClienteTarjetas from '../../components/mostrador/PasoClienteTarjetas.vue'
+import CarritoMostrador from '../../components/mostrador/CarritoMostrador.vue'
 import type { LineaEditable } from '../../components/DocumentoLineas.vue'
 import type { ClienteResultado } from '../../components/ClienteCombobox.vue'
 import { Alert, AlertDescription } from '../../components/ui/alert'
@@ -32,11 +34,12 @@ import { Label } from '../../components/ui/label'
 /**
  * Cotización capturada por pasos (ver 029-pwa-mostrador.md).
  *
- * El backend exige `cliente_id` del catálogo fiscal, así que al cliente que no está se le da de
- * alta escaneando su constancia, igual que en la factura.
+ * Cliente de una lista de tarjetas, artículos del catálogo a un toque, carrito para corregir
+ * cantidades y, al final, las dos formas de mandársela al cliente: el menú de compartir del propio
+ * aparato con el PDF, y el correo, que sí sale del servidor.
  */
 
-const PASOS = ['Cliente', 'Artículos', 'Resumen', 'Listo']
+const PASOS = ['Cliente', 'Artículos', 'Carrito', 'Listo']
 
 const router = useRouter()
 const cotizaciones = useCotizacionesStore()
@@ -50,8 +53,7 @@ const cotizacion = ref<Cotizacion | null>(null)
 const guardando = ref(false)
 const error = ref<string | null>(null)
 
-const telefono = ref('')
-const enviando = ref(false)
+const compartiendo = ref(false)
 const avisoEnvio = ref<string | null>(null)
 
 const totales = computed(() => calcularTotales(lineas.value, null, null))
@@ -64,8 +66,14 @@ const { confirmandoSalida, confirmarSalida, cancelarSalida } = useConfirmarSalid
   () => hayCaptura.value,
 )
 
-function puedeAvanzar(): boolean {
-  return paso.value === 0 ? cliente.value !== null : lineas.value.length > 0
+/**
+ * Elegir al cliente avanza solo. Si ya había artículos capturados, su descuento se reemplaza por el
+ * del cliente nuevo: lo capturado antes se pensó para otro (ver 015).
+ */
+function onClienteElegido(elegido: ClienteResultado) {
+  cliente.value = elegido
+  lineas.value = reaplicarDescuento(lineas.value, elegido.descuento_permanente)
+  paso.value = 1
 }
 
 async function guardar() {
@@ -82,7 +90,7 @@ async function guardar() {
 
   try {
     cotizacion.value = await cotizaciones.create(payload)
-    telefono.value = cotizacion.value.cliente_telefono ?? ''
+    correo.value = cotizacion.value.cliente_correo ?? ''
     paso.value = 3
   } catch (err) {
     error.value = mensajeDeFalla(err)
@@ -91,23 +99,51 @@ async function guardar() {
   }
 }
 
-/** El PDF sale del servidor y Twilio lo descarga del enlace público (ver 008-cotizaciones.md). */
-async function enviarPorWhatsapp() {
-  if (cotizacion.value === null || telefono.value.trim() === '') return
+/** El PDF sale del servidor y lo comparte el aparato: Twilio ya no participa (ver 029). */
+async function compartirPorWhatsapp() {
+  if (cotizacion.value === null) return
 
-  enviando.value = true
+  compartiendo.value = true
+  avisoEnvio.value = null
+
+  try {
+    const resultado = await cotizaciones.compartirPorWhatsapp(cotizacion.value)
+
+    if (resultado === 'descargado') {
+      avisoEnvio.value = 'PDF descargado y mensaje copiado: arrástralo a WhatsApp y pega el texto.'
+    } else if (resultado === 'compartido') {
+      avisoEnvio.value = 'Cotización compartida.'
+    }
+  } catch (err) {
+    avisoEnvio.value = mensajeDeFalla(err)
+  } finally {
+    compartiendo.value = false
+  }
+}
+
+// --- Envío por correo, que sí sale del servidor ---
+
+const enviandoCorreo = ref(false)
+const dialogoCorreo = ref(false)
+const correo = ref('')
+
+async function enviarPorCorreo() {
+  if (cotizacion.value === null || correo.value.trim() === '') return
+
+  enviandoCorreo.value = true
   avisoEnvio.value = null
 
   try {
     await cotizaciones.enviar(cotizacion.value.id, {
-      canal: 'whatsapp',
-      telefono: telefono.value.trim(),
+      canal: 'correo',
+      destinatarios: [correo.value.trim()],
     })
-    avisoEnvio.value = 'Cotización enviada.'
+    dialogoCorreo.value = false
+    avisoEnvio.value = 'Cotización enviada por correo.'
   } catch (err) {
     avisoEnvio.value = mensajeDeFalla(err)
   } finally {
-    enviando.value = false
+    enviandoCorreo.value = false
   }
 }
 
@@ -116,7 +152,7 @@ function nuevaCotizacion() {
   lineas.value = []
   cotizacion.value = null
   error.value = null
-  telefono.value = ''
+  correo.value = ''
   avisoEnvio.value = null
   paso.value = 0
 }
@@ -129,21 +165,23 @@ function nuevaCotizacion() {
 
       <PasosMostrador :pasos="PASOS" :actual="paso" />
 
-      <PasoClienteFiscal v-if="paso === 0" v-model="cliente" />
+      <PasoClienteTarjetas v-if="paso === 0" @elegido="onClienteElegido" />
 
-      <PasoArticulos
+      <PasoArticulosTarjetas
         v-else-if="paso === 1"
         v-model:lineas="lineas"
         :descuento-porcentaje="cliente?.descuento_permanente ?? 0"
+        etiqueta-terminar="Terminar cotización"
+        @terminar="paso = 2"
       />
 
       <div v-else-if="paso === 2" class="space-y-6">
         <div class="space-y-1 text-center">
-          <p class="text-foreground text-2xl font-semibold">{{ cliente?.razon_social }}</p>
-          <p class="text-muted-foreground font-mono text-lg">{{ cliente?.rfc }}</p>
+          <p class="text-foreground text-xl font-semibold">{{ cliente?.razon_social }}</p>
+          <p class="text-muted-foreground font-mono">{{ cliente?.rfc }}</p>
         </div>
 
-        <p class="text-center text-4xl font-semibold">${{ totales.total.toFixed(2) }}</p>
+        <CarritoMostrador v-model:lineas="lineas" />
 
         <Alert v-if="error" variant="destructive">
           <AlertDescription>{{ error }}</AlertDescription>
@@ -151,19 +189,17 @@ function nuevaCotizacion() {
       </div>
 
       <div v-else class="space-y-4">
-        <p class="text-center">
-          Cotización
-          <strong class="font-mono">{{ cotizacion?.folio }}</strong> guardada.
-        </p>
-
-        <div class="space-y-1.5">
-          <Label for="telefono-cotizacion">Teléfono del cliente</Label>
-          <Input
-            id="telefono-cotizacion"
-            v-model="telefono"
-            inputmode="tel"
-            class="h-12 text-base"
-          />
+        <div class="space-y-1 text-center">
+          <p class="text-muted-foreground">
+            Cotización <strong class="text-foreground font-mono">{{ cotizacion?.folio }}</strong>
+            guardada
+          </p>
+          <p class="text-foreground text-lg font-medium">{{ cotizacion?.cliente_razon_social }}</p>
+          <p class="text-muted-foreground text-sm">
+            {{ cotizacion?.lineas.length }}
+            {{ cotizacion?.lineas.length === 1 ? 'renglón' : 'renglones' }}
+          </p>
+          <p class="text-3xl font-semibold">${{ cotizacion?.total.toFixed(2) }}</p>
         </div>
 
         <Alert v-if="avisoEnvio">
@@ -172,11 +208,16 @@ function nuevaCotizacion() {
 
         <Button
           class="h-14 w-full text-base"
-          :disabled="enviando || telefono.trim() === ''"
-          @click="enviarPorWhatsapp"
+          :disabled="compartiendo"
+          @click="compartirPorWhatsapp"
         >
           <ShareIcon class="size-5" />
-          {{ enviando ? 'Enviando...' : 'Enviar por WhatsApp' }}
+          {{ compartiendo ? 'Preparando...' : 'Enviar por WhatsApp' }}
+        </Button>
+
+        <Button variant="outline" class="h-14 w-full text-base" @click="dialogoCorreo = true">
+          <EnvelopeIcon class="size-5" />
+          Enviar por correo
         </Button>
 
         <div class="flex gap-2">
@@ -189,9 +230,10 @@ function nuevaCotizacion() {
         </div>
       </div>
 
-      <div v-if="paso < 3" class="flex items-center gap-2 pt-2">
+      <!-- El paso de cliente y el de artículos se cierran solos —tocar una tarjeta, o el botón del
+           pie— así que la barra de abajo solo existe para volver y para guardar. -->
+      <div v-if="paso === 1 || paso === 2" class="flex items-center gap-2 pt-2">
         <Button
-          v-if="paso > 0"
           type="button"
           variant="outline"
           size="icon-lg"
@@ -203,26 +245,39 @@ function nuevaCotizacion() {
         </Button>
 
         <Button
-          v-if="paso < 2"
+          v-if="paso === 2"
           type="button"
           class="h-14 flex-1 text-base"
-          :disabled="!puedeAvanzar()"
-          @click="paso += 1"
-        >
-          Siguiente
-        </Button>
-
-        <Button
-          v-else
-          type="button"
-          class="h-14 flex-1 text-base"
-          :disabled="guardando"
+          :disabled="guardando || lineas.length === 0"
           @click="guardar"
         >
           {{ guardando ? 'Guardando...' : 'Guardar cotización' }}
         </Button>
       </div>
     </div>
+
+    <Dialog v-model:open="dialogoCorreo">
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Enviar por correo</DialogTitle>
+          <DialogDescription>
+            Sale del servidor con el PDF adjunto. Viene el correo del cliente; puedes cambiarlo.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div class="space-y-1.5">
+          <Label for="correo-cotizacion">Correo</Label>
+          <Input id="correo-cotizacion" v-model="correo" inputmode="email" class="h-12 text-base" />
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" @click="dialogoCorreo = false">Cancelar</Button>
+          <Button :disabled="enviandoCorreo || correo.trim() === ''" @click="enviarPorCorreo">
+            {{ enviandoCorreo ? 'Enviando...' : 'Enviar' }}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
 
     <Dialog :open="confirmandoSalida" @update:open="(v) => !v && cancelarSalida()">
       <DialogContent>

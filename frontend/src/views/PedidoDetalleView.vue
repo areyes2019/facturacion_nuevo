@@ -12,7 +12,7 @@ import {
 } from '@heroicons/vue/24/outline'
 import { usePedidosStore, type Pedido } from '../stores/pedidos'
 import { extractErrorMessage } from '../lib/errors'
-import { compartirImagen, compartirTexto, copiarTexto } from '../lib/compartir'
+import { compartirArchivo, compartirTexto, copiarTexto } from '../lib/compartir'
 import AppLayout from '../layouts/AppLayout.vue'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
@@ -124,7 +124,7 @@ async function compartirTicket() {
   aviso.value = null
 
   try {
-    const resultado = await compartirImagen(
+    const resultado = await compartirArchivo(
       ticketBlob.value,
       `ticket-${pedido.value.numero_ticket}.jpg`,
       pedido.value.mensaje_compartible ?? '',

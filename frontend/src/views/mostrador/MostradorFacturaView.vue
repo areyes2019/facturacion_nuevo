@@ -4,12 +4,14 @@ import { useRouter } from 'vue-router'
 import { ArrowLeftIcon, EnvelopeIcon } from '@heroicons/vue/24/outline'
 import { useFacturasStore, type Factura, type FacturaPayload } from '../../stores/facturas'
 import { calcularTotales } from '../../lib/totalesDocumento'
+import { reaplicarDescuento } from '../../lib/lineasMostrador'
 import { mensajeDeFalla } from '../../lib/errors'
 import { useConfirmarSalida } from '../../lib/salidaCaptura'
 import AppLayout from '../../layouts/AppLayout.vue'
 import PasosMostrador from '../../components/mostrador/PasosMostrador.vue'
-import PasoArticulos from '../../components/mostrador/PasoArticulos.vue'
-import PasoClienteFiscal from '../../components/mostrador/PasoClienteFiscal.vue'
+import PasoArticulosTarjetas from '../../components/mostrador/PasoArticulosTarjetas.vue'
+import PasoClienteTarjetas from '../../components/mostrador/PasoClienteTarjetas.vue'
+import CarritoMostrador from '../../components/mostrador/CarritoMostrador.vue'
 import type { LineaEditable } from '../../components/DocumentoLineas.vue'
 import type { ClienteResultado } from '../../components/ClienteCombobox.vue'
 import UsoCfdiCombobox from '../../components/UsoCfdiCombobox.vue'
@@ -36,7 +38,7 @@ import { Label } from '../../components/ui/label'
  * limpia antes de apretar es barato comparado con una cancelación.
  */
 
-const PASOS = ['Cliente', 'Artículos', 'Datos fiscales', 'Revisar', 'Listo']
+const PASOS = ['Cliente', 'Artículos', 'Carrito', 'Datos fiscales', 'Revisar', 'Listo']
 
 const router = useRouter()
 const facturas = useFacturasStore()
@@ -66,7 +68,7 @@ const datosFiscalesCompletos = computed(
 )
 
 const hayCaptura = computed(
-  () => paso.value < 4 && (cliente.value !== null || lineas.value.length > 0),
+  () => paso.value < 5 && (cliente.value !== null || lineas.value.length > 0),
 )
 
 const { confirmandoSalida, confirmarSalida, cancelarSalida } = useConfirmarSalida(
@@ -74,10 +76,19 @@ const { confirmandoSalida, confirmarSalida, cancelarSalida } = useConfirmarSalid
 )
 
 function puedeAvanzar(): boolean {
-  if (paso.value === 0) return cliente.value !== null
-  if (paso.value === 1) return lineas.value.length > 0
+  if (paso.value === 2) return lineas.value.length > 0
 
   return datosFiscalesCompletos.value
+}
+
+/**
+ * Elegir al cliente avanza solo. Si ya había artículos capturados, su descuento se reemplaza por el
+ * del cliente nuevo: lo capturado antes se pensó para otro (ver 015).
+ */
+function onClienteElegido(elegido: ClienteResultado) {
+  cliente.value = elegido
+  lineas.value = reaplicarDescuento(lineas.value, elegido.descuento_permanente)
+  paso.value = 1
 }
 
 /**
@@ -109,7 +120,7 @@ async function timbrar() {
 
     if (factura.value.estado === 'timbrada') {
       correo.value = factura.value.cliente_correo ?? ''
-      paso.value = 4
+      paso.value = 5
       return
     }
 
@@ -161,11 +172,19 @@ function nuevaFactura() {
 
       <PasosMostrador :pasos="PASOS" :actual="paso" />
 
-      <PasoClienteFiscal v-if="paso === 0" v-model="cliente" />
+      <PasoClienteTarjetas v-if="paso === 0" recomendar-constancia @elegido="onClienteElegido" />
 
-      <PasoArticulos v-else-if="paso === 1" v-model:lineas="lineas" />
+      <PasoArticulosTarjetas
+        v-else-if="paso === 1"
+        v-model:lineas="lineas"
+        :descuento-porcentaje="cliente?.descuento_permanente ?? 0"
+        etiqueta-terminar="Terminar factura"
+        @terminar="paso = 2"
+      />
 
-      <div v-else-if="paso === 2" class="space-y-4">
+      <CarritoMostrador v-else-if="paso === 2" v-model:lineas="lineas" />
+
+      <div v-else-if="paso === 3" class="space-y-4">
         <div class="space-y-1.5">
           <Label>Uso de CFDI</Label>
           <UsoCfdiCombobox v-model="usoCfdi" />
@@ -181,7 +200,7 @@ function nuevaFactura() {
       </div>
 
       <!-- Revisión: nombre, RFC y total, grandes y sin nada más alrededor. -->
-      <div v-else-if="paso === 3" class="space-y-6">
+      <div v-else-if="paso === 4" class="space-y-6">
         <div class="space-y-1 text-center">
           <p class="text-foreground text-2xl font-semibold">{{ cliente?.razon_social }}</p>
           <p class="text-muted-foreground font-mono text-lg">{{ cliente?.rfc }}</p>
@@ -227,9 +246,10 @@ function nuevaFactura() {
         </div>
       </div>
 
-      <div v-if="paso < 4" class="flex items-center gap-2 pt-2">
+      <!-- El paso de cliente elige tocando una tarjeta y el de artículos se cierra con el botón de
+           su pie: ninguno de los dos necesita "Siguiente". -->
+      <div v-if="paso > 0 && paso < 5" class="flex items-center gap-2 pt-2">
         <Button
-          v-if="paso > 0"
           type="button"
           variant="outline"
           size="icon-lg"
@@ -241,7 +261,7 @@ function nuevaFactura() {
         </Button>
 
         <Button
-          v-if="paso < 3"
+          v-if="paso > 1 && paso < 4"
           type="button"
           class="h-14 flex-1 text-base"
           :disabled="!puedeAvanzar()"
@@ -251,7 +271,7 @@ function nuevaFactura() {
         </Button>
 
         <Button
-          v-else
+          v-else-if="paso === 4"
           type="button"
           class="h-14 flex-1 text-base"
           :disabled="timbrando"

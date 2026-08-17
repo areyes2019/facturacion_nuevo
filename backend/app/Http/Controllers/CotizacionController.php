@@ -174,29 +174,28 @@ class CotizacionController extends Controller
     {
         abort_unless($cotizacion->user_id === $request->user()->id, 404);
 
-        if ($request->validated('canal') === 'correo') {
-            $this->envio->enviarPorCorreo($cotizacion, $request->validated('destinatarios'));
-        } else {
-            $this->envio->enviarPorWhatsApp($cotizacion, (string) $request->validated('telefono'));
-        }
+        $this->envio->enviarPorCorreo($cotizacion, $request->validated('destinatarios'));
 
-        if ($cotizacion->estado === EstadoCotizacion::Borrador) {
-            $cotizacion->update(['estado' => EstadoCotizacion::Enviada->value]);
-        }
+        $this->marcarComoEnviada($cotizacion);
 
         return response()->json(['enviado' => true]);
     }
 
     /**
-     * PDF generado al vuelo, sin autenticación de sesión: exclusivo para que Twilio lo descargue
-     * al enviar el WhatsApp (ver 008-cotizaciones.md, adición técnica 28). Protegido por firma
-     * temporal de la URL (`signed` middleware), no por `auth:sanctum`.
+     * Cierra el envío por WhatsApp, que ocurre fuera del servidor: el frontend descarga el PDF y lo
+     * comparte con el menú del propio aparato, así que sin este aviso la cotización se quedaría en
+     * borrador para siempre (ver 029-pwa-mostrador.md).
+     *
+     * Sobre una cotización que ya está enviada, pagada o entregada no hace nada y responde igual:
+     * volver a compartirle la misma cotización a un cliente es normal y no tiene por qué fallar.
      */
-    public function pdfPublico(Request $request, Cotizacion $cotizacion): Response
+    public function marcarEnviada(Request $request, Cotizacion $cotizacion): JsonResponse
     {
-        abort_unless($request->hasValidSignature(), 403);
+        abort_unless($cotizacion->user_id === $request->user()->id, 404);
 
-        return $this->envio->streamPdf($cotizacion);
+        $this->marcarComoEnviada($cotizacion);
+
+        return response()->json(['enviado' => true]);
     }
 
     public function pdf(Request $request, Cotizacion $cotizacion): Response
@@ -406,6 +405,18 @@ class CotizacionController extends Controller
     {
         $cotizacion->datos_bancarios = DatoBancario::fotoParaCotizacion();
         $cotizacion->save();
+    }
+
+    /**
+     * `borrador` → `enviada`, la única transición que dispara haber mandado la cotización. Los
+     * demás estados no retroceden: una cotización pagada que se le vuelve a mandar al cliente sigue
+     * pagada.
+     */
+    private function marcarComoEnviada(Cotizacion $cotizacion): void
+    {
+        if ($cotizacion->estado === EstadoCotizacion::Borrador) {
+            $cotizacion->update(['estado' => EstadoCotizacion::Enviada->value]);
+        }
     }
 
     /**

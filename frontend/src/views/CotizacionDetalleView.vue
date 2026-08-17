@@ -102,11 +102,15 @@ function onFacturar() {
   }
 }
 
-// Enviar por correo/WhatsApp.
+/**
+ * Enviar por correo o por WhatsApp. El correo sale del servidor con el PDF adjunto; el WhatsApp lo
+ * comparte este mismo navegador, que descarga el PDF y abre WhatsApp con el mensaje escrito (ver
+ * 029-pwa-mostrador.md). Antes lo mandaba Twilio y, sin credenciales configuradas, el botón
+ * respondía con un error del servidor.
+ */
 const mostrarEnviar = ref(false)
 const canalEnvio = ref<'correo' | 'whatsapp'>('correo')
 const destinatarios = ref('')
-const telefono = ref('')
 const enviando = ref(false)
 const errorEnviar = ref<string | null>(null)
 const enviadoOk = ref(false)
@@ -114,7 +118,6 @@ const enviadoOk = ref(false)
 function abrirEnviar() {
   canalEnvio.value = 'correo'
   destinatarios.value = cotizacion.value?.cliente_correo ?? ''
-  telefono.value = cotizacion.value?.cliente_telefono ?? ''
   errorEnviar.value = null
   enviadoOk.value = false
   mostrarEnviar.value = true
@@ -132,13 +135,12 @@ async function confirmarEnviar() {
         .map((d) => d.trim())
         .filter((d) => d.length > 0)
       await cotizacionesStore.enviar(cotizacion.value.id, { canal: 'correo', destinatarios: lista })
+      enviadoOk.value = true
     } else {
-      await cotizacionesStore.enviar(cotizacion.value.id, {
-        canal: 'whatsapp',
-        telefono: telefono.value,
-      })
+      const resultado = await cotizacionesStore.compartirPorWhatsapp(cotizacion.value)
+      enviadoOk.value = resultado !== 'cancelado'
     }
-    enviadoOk.value = true
+
     await cargar()
   } catch (err) {
     errorEnviar.value = extractErrorMessage(err)
@@ -521,16 +523,22 @@ async function onDuplicar() {
                 placeholder="correo1@ejemplo.com, correo2@ejemplo.com"
               />
             </div>
-            <div v-else class="space-y-1.5">
-              <Label for="telefono">Teléfono</Label>
-              <Input id="telefono" v-model="telefono" placeholder="5512345678" />
-            </div>
+            <p v-else class="text-muted-foreground text-sm">
+              Se descarga el PDF y se abre WhatsApp con el mensaje escrito: el contacto lo eliges
+              ahí. No hace falta capturar el teléfono.
+            </p>
           </div>
           <Alert v-if="errorEnviar" variant="destructive">
             <AlertDescription>{{ errorEnviar }}</AlertDescription>
           </Alert>
           <Alert v-if="enviadoOk" variant="success">
-            <AlertDescription>Cotización enviada correctamente.</AlertDescription>
+            <AlertDescription>
+              {{
+                canalEnvio === 'correo'
+                  ? 'Cotización enviada correctamente.'
+                  : 'PDF listo y mensaje copiado: adjúntalo en WhatsApp y pega el texto.'
+              }}
+            </AlertDescription>
           </Alert>
           <DialogFooter>
             <Button variant="outline" :disabled="enviando" @click="mostrarEnviar = false"

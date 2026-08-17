@@ -15,20 +15,22 @@ export function puedeCompartirArchivos(): boolean {
 }
 
 /**
- * Comparte una imagen con su texto.
+ * Comparte un archivo con su texto: el ticket de una venta (027) o el PDF de una cotización (029).
  *
- * - **Celular**: menú de compartir del propio aparato, con imagen y texto. Es el único camino por
- *   el que una imagen puede salir hacia WhatsApp desde una página web.
+ * - **Celular**: menú de compartir del propio aparato, con archivo y texto. Es el único camino por
+ *   el que un archivo puede salir hacia WhatsApp desde una página web.
  * - **Escritorio**: descarga el archivo y copia el texto, para arrastrarlo a WhatsApp Desktop y
- *   pegar el mensaje. A diferencia de la ficha de artículo, aquí **sí** se descarga: el ticket no
- *   existe en ningún otro lado y sin el archivo el botón no serviría de nada en el mostrador.
+ *   pegar el mensaje. A diferencia de la ficha de artículo, aquí **sí** se descarga: el archivo no
+ *   existe en ningún otro lado y sin él el botón no serviría de nada en el mostrador.
  */
-export async function compartirImagen(
-  imagen: Blob,
+export async function compartirArchivo(
+  contenido: Blob,
   nombreArchivo: string,
   texto: string,
 ): Promise<ResultadoCompartir> {
-  const archivo = new File([imagen], nombreArchivo, { type: imagen.type || 'image/jpeg' })
+  const archivo = new File([contenido], nombreArchivo, {
+    type: contenido.type || 'application/octet-stream',
+  })
 
   if (puedeCompartirArchivos() && navigator.canShare({ files: [archivo] })) {
     try {
@@ -43,7 +45,7 @@ export async function compartirImagen(
     }
   }
 
-  descargar(imagen, nombreArchivo)
+  descargar(contenido, nombreArchivo)
   await copiarTexto(texto)
 
   return 'descargado'

@@ -6,12 +6,13 @@ import { usePedidosStore, type Pedido, type PedidoPayload } from '../../stores/p
 import type { Cuenta } from '../../stores/cuentas'
 import http from '../../lib/http'
 import { calcularTotales } from '../../lib/totalesDocumento'
-import { compartirImagen } from '../../lib/compartir'
+import { compartirArchivo } from '../../lib/compartir'
 import { mensajeDeFalla } from '../../lib/errors'
 import { useConfirmarSalida } from '../../lib/salidaCaptura'
 import AppLayout from '../../layouts/AppLayout.vue'
 import PasosMostrador from '../../components/mostrador/PasosMostrador.vue'
-import PasoArticulos from '../../components/mostrador/PasoArticulos.vue'
+import PasoArticulosTarjetas from '../../components/mostrador/PasoArticulosTarjetas.vue'
+import CarritoMostrador from '../../components/mostrador/CarritoMostrador.vue'
 import type { LineaEditable } from '../../components/DocumentoLineas.vue'
 import { Alert, AlertDescription } from '../../components/ui/alert'
 import { Button } from '../../components/ui/button'
@@ -45,7 +46,7 @@ import {
  * desde la computadora como hasta hoy.
  */
 
-const PASOS = ['Cliente', 'Artículos', 'Cobro', 'Listo']
+const PASOS = ['Cliente', 'Artículos', 'Carrito', 'Cobro', 'Listo']
 
 const router = useRouter()
 const pedidos = usePedidosStore()
@@ -86,7 +87,7 @@ const clienteCompleto = computed(
 )
 
 const hayCaptura = computed(
-  () => paso.value < 3 && (clienteCompleto.value || lineas.value.length > 0),
+  () => paso.value < 4 && (clienteCompleto.value || lineas.value.length > 0),
 )
 
 const { confirmandoSalida, confirmarSalida, cancelarSalida } = useConfirmarSalida(
@@ -150,7 +151,8 @@ function aplicarSugerencia() {
 }
 
 function avanzar() {
-  if (paso.value === 1) monto.value = totales.value.total
+  // Al salir del carrito, el cobro arranca con el total ya escrito; bajarlo es registrar anticipo.
+  if (paso.value === 2) monto.value = totales.value.total
 
   paso.value += 1
 }
@@ -214,7 +216,7 @@ async function registrarCobro() {
       cuenta_id: cuentaId.value,
     })
 
-    paso.value = 3
+    paso.value = 4
     await cargarTicket()
   } catch (err) {
     errorPago.value = mensajeDeFalla(err)
@@ -244,7 +246,7 @@ async function compartirTicket() {
   avisoTicket.value = null
 
   try {
-    const resultado = await compartirImagen(
+    const resultado = await compartirArchivo(
       ticketBlob.value,
       `ticket-${pedido.value.numero_ticket}.jpg`,
       pedido.value.mensaje_compartible ?? '',
@@ -339,10 +341,18 @@ function nuevaVenta() {
       </div>
 
       <!-- Paso 2: artículos, con línea libre. -->
-      <PasoArticulos v-else-if="paso === 1" v-model:lineas="lineas" permite-linea-libre />
+      <PasoArticulosTarjetas
+        v-else-if="paso === 1"
+        v-model:lineas="lineas"
+        permite-linea-libre
+        etiqueta-terminar="Terminar venta"
+        @terminar="avanzar"
+      />
+
+      <CarritoMostrador v-else-if="paso === 2" v-model:lineas="lineas" />
 
       <!-- Paso 3: cobro. -->
-      <div v-else-if="paso === 2" class="space-y-5">
+      <div v-else-if="paso === 3" class="space-y-5">
         <div class="border-border flex items-baseline justify-between border-b pb-3">
           <span class="text-muted-foreground">Total de la venta</span>
           <span class="text-3xl font-semibold">${{ totales.total.toFixed(2) }}</span>
@@ -447,15 +457,16 @@ function nuevaVenta() {
         </div>
       </div>
 
-      <!-- Barra de avance: un solo botón grande, y el regreso discreto a su izquierda. -->
-      <div v-if="paso < 3" class="flex items-center gap-2 pt-2">
+      <!-- Barra de avance: un solo botón grande, y el regreso discreto a su izquierda. El paso de
+           artículos no aparece aquí: lo cierra el botón de su propio pie. -->
+      <div v-if="paso !== 1 && paso < 4" class="flex items-center gap-2 pt-2">
         <Button v-if="paso > 0" type="button" variant="outline" size="icon-lg" @click="retroceder">
           <ArrowLeftIcon class="size-5" />
           <span class="sr-only">Paso anterior</span>
         </Button>
 
         <Button
-          v-if="paso < 2"
+          v-if="paso === 0 || paso === 2"
           type="button"
           class="h-14 flex-1 text-base"
           :disabled="paso === 0 ? !clienteCompleto : lineas.length === 0"
@@ -465,7 +476,7 @@ function nuevaVenta() {
         </Button>
 
         <Button
-          v-else
+          v-else-if="paso === 3"
           type="button"
           class="h-14 flex-1 text-base"
           :disabled="cobrando || cuentaId === null || (monto ?? 0) <= 0"

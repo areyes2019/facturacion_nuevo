@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import http from '../lib/http'
+import { compartirArchivo, type ResultadoCompartir } from '../lib/compartir'
 import { extractErrorMessage } from '../lib/errors'
 import type { TipoDescuento, TasaIva } from './facturas'
 
@@ -170,12 +171,20 @@ export const useCotizacionesStore = defineStore('cotizaciones', {
       this.items = this.items.filter((cotizacion) => cotizacion.id !== id)
     },
 
-    async enviar(
-      id: number,
-      payload:
-        { canal: 'correo'; destinatarios: string[] } | { canal: 'whatsapp'; telefono: string },
-    ) {
+    /**
+     * Solo correo: el WhatsApp lo comparte el propio aparato con el PDF que baja `pdfBlob`, así que
+     * no hay envío que pedirle al servidor (ver 029-pwa-mostrador.md).
+     */
+    async enviar(id: number, payload: { canal: 'correo'; destinatarios: string[] }) {
       await http.post(`/cotizaciones/${id}/enviar`, payload)
+    },
+
+    /**
+     * Cierra el envío por WhatsApp, que ocurrió fuera del sistema: sin este aviso la cotización se
+     * quedaría en borrador aunque el cliente ya la tenga.
+     */
+    async marcarEnviada(id: number) {
+      await http.post(`/cotizaciones/${id}/marcar-enviada`)
     },
 
     async registrarPago(
@@ -209,11 +218,40 @@ export const useCotizacionesStore = defineStore('cotizaciones', {
       return data.data
     },
 
+    /**
+     * Manda la cotización por WhatsApp: baja el PDF con la sesión del usuario y se lo entrega al
+     * menú de compartir del aparato, que ya tiene abierta la sesión de WhatsApp del negocio (ver
+     * 029-pwa-mostrador.md). En escritorio, donde ese menú casi nunca existe, `compartirArchivo`
+     * descarga el archivo y copia el mensaje.
+     *
+     * Solo marca la cotización como enviada si el usuario **no** canceló el menú: cancelar es no
+     * haber mandado nada, y un estado que miente es peor que uno que se quedó corto.
+     */
+    async compartirPorWhatsapp(cotizacion: Cotizacion): Promise<ResultadoCompartir> {
+      const blob = await this.pdfBlob(cotizacion.id)
+
+      const resultado = await compartirArchivo(
+        blob,
+        `cotizacion-${cotizacion.folio}.pdf`,
+        `Cotización ${cotizacion.folio} por un total de $${cotizacion.total.toFixed(2)} MXN.`,
+      )
+
+      if (resultado !== 'cancelado') await this.marcarEnviada(cotizacion.id)
+
+      return resultado
+    },
+
+    /** El PDF generado al vuelo, para descargarlo o para pasárselo al menú de compartir. */
+    async pdfBlob(id: number): Promise<Blob> {
+      const { data } = await http.get(`/cotizaciones/${id}/pdf`, { responseType: 'blob' })
+
+      return data
+    },
+
     async descargarPdf(cotizacion: Cotizacion) {
-      const { data } = await http.get(`/cotizaciones/${cotizacion.id}/pdf`, {
-        responseType: 'blob',
-      })
-      descargarBlob(data, `cotizacion-${cotizacion.folio}.pdf`, 'application/pdf')
+      const blob = await this.pdfBlob(cotizacion.id)
+
+      descargarBlob(blob, `cotizacion-${cotizacion.folio}.pdf`, 'application/pdf')
     },
   },
 })

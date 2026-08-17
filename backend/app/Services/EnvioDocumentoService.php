@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Contracts\DocumentoEnviable;
+use App\Contracts\DocumentoEnviablePorWhatsApp;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Mail;
 
@@ -41,8 +42,11 @@ class EnvioDocumentoService
     /**
      * Twilio exige una URL pública para el adjunto, así que se le pasa la firmada temporal del
      * documento en vez de una ruta protegida por sesión.
+     *
+     * Solo las órdenes de compra pasan por aquí: el WhatsApp de la cotización lo comparte el propio
+     * aparato del usuario (ver 029-pwa-mostrador.md).
      */
-    public function enviarPorWhatsApp(DocumentoEnviable $documento, string $telefono): void
+    public function enviarPorWhatsApp(DocumentoEnviablePorWhatsApp $documento, string $telefono): void
     {
         $this->whatsapp->enviar($telefono, $documento->resumenWhatsApp(), $documento->urlPdfPublico());
     }

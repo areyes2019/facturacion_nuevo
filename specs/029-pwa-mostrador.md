@@ -21,8 +21,11 @@ cosas que faltan para que sirva en el mostrador:
 2. **Cuatro caminos hechos para el dedo**: tres capturas por pasos (factura, cotización, venta) y un
    escáner de etiquetas que lee el QR con la cámara sin salir de la aplicación.
 
-Es una spec **de solo frontend**. No agrega una tabla, una columna ni un endpoint: los cuatro
-caminos se arman con lo que el backend ya expone.
+Casi todo ocurre en el frontend: no se agrega ninguna tabla ni ninguna columna, y los cuatro caminos
+se arman con lo que el backend ya expone. Del servidor se toca una sola cosa, el **envío de la
+cotización por WhatsApp**, que hoy no funciona: sale por Twilio, que nunca se configuró, y la
+pantalla responde "Error del servidor". Pasa a compartirse con el menú del propio aparato, que es
+como el sistema ya manda el ticket de [027](027-venta-mostrador-ticket.md).
 
 ### Qué ya existe y no se rehace
 
@@ -34,14 +37,21 @@ caminos se arman con lo que el backend ya expone.
   (ver [016](016-constancia-situacion-fiscal-qr.md)).
 - **El alta de un cliente a partir de su constancia**: `POST clientes/constancia`, con su límite de
   10 peticiones por minuto, y el componente `ConstanciaFiscalDropzone`.
-- **El compartir del sistema**: `compartirImagen` y `compartirTexto` en `lib/compartir.ts`, que en
-  celular abren el menú del aparato (ver [020](020-imagenes-articulos.md) y
+- **El compartir del sistema**: `compartirImagen` —que aquí pasa a llamarse `compartirArchivo`— y
+  `compartirTexto` en `lib/compartir.ts`, que en celular abren el menú del aparato y en escritorio
+  descargan y copian (ver [020](020-imagenes-articulos.md) y
   [027](027-venta-mostrador-ticket.md)).
 - **La entrega por escaneo**: `PedidoEntregaView` y `POST pedidos/{pedido}/entregar`, que cobra el
   saldo, marca entregado y admite deshacerse durante diez segundos (ver
   [027](027-venta-mostrador-ticket.md)).
-- **El buscador de artículos** (`ArticuloBuscador`), el combo de clientes (`ClienteCombobox`), el
-  ticket dibujado en el servidor y la sugerencia por teléfono (`GET pedidos/por-telefono`).
+- **Las búsquedas del servidor**: `GET articulos` con `search` sobre nombre, modelo y proveedor, y
+  `GET clientes` con `search` sobre razón social, nombre comercial y RFC, los dos ya paginados. Las
+  pantallas de tarjetas del mostrador se arman sobre esos mismos endpoints; el buscador de escritorio
+  (`ArticuloBuscador`) y el combo de clientes (`ClienteCombobox`) se quedan donde están.
+- **El ticket dibujado en el servidor** y la sugerencia por teléfono (`GET pedidos/por-telefono`).
+- **El PDF de la cotización**, generado al vuelo por `EnvioDocumentoService` y servido por `GET
+  cotizaciones/{cotizacion}/pdf` (ver [008](008-cotizaciones.md) y
+  [019](019-formato-pdf-documentos.md)).
 
 ### Por qué el interruptor es la instalación y no el tamaño de la pantalla
 
@@ -60,19 +70,54 @@ adivinar por el tamaño; desinstalarla, o abrirla desde el navegador, devuelve e
 
 ## Backend (Laravel)
 
-**Ninguno.** No hay tabla, columna, endpoint ni validación nueva. Los cuatro caminos consumen lo que
-ya existe:
+Ninguna tabla y ninguna columna. Los cuatro caminos consumen lo que ya existe:
 
 | Camino     | Endpoints que usa                                                                        |
 | ---------- | ---------------------------------------------------------------------------------------- |
 | Venta      | `GET pedidos/por-telefono`, `POST pedidos`, `POST pedidos/{pedido}/pagos`, `GET pedidos/{pedido}/ticket` |
 | Factura    | `GET clientes`, `POST clientes/constancia`, `POST clientes`, `POST facturas`, `POST facturas/{factura}/timbrar`, `POST facturas/{factura}/enviar-correo` |
-| Cotización | `GET clientes`, `POST clientes/constancia`, `POST clientes`, `POST cotizaciones`, `POST cotizaciones/{cotizacion}/enviar` |
+| Cotización | `GET clientes`, `POST clientes/constancia`, `POST clientes`, `POST cotizaciones`, `GET cotizaciones/{cotizacion}/pdf`, `POST cotizaciones/{cotizacion}/marcar-enviada`, `POST cotizaciones/{cotizacion}/enviar` |
 | Escáner    | `POST pedidos/{pedido}/entregar`, `POST pedidos/{pedido}/deshacer-entrega`                |
 
-Que no haya backend nuevo es la prueba de que el modo mostrador es **otra forma de llegar** a lo que
+Que el modo mostrador no invente endpoints es la prueba de que es **otra forma de llegar** a lo que
 el sistema ya hace, y no un sistema paralelo con sus propias reglas. Las validaciones, los folios,
 los totales y el timbrado siguen siendo exactamente los mismos.
+
+Lo único que cambia del servidor es el envío por WhatsApp de la cotización, y cambia porque está
+roto.
+
+### El WhatsApp de la cotización deja de salir del servidor
+
+Hoy `POST cotizaciones/{cotizacion}/enviar` con `canal: whatsapp` le pide a Twilio que mande el
+mensaje, con el PDF colgado de una URL firmada temporal (`cotizaciones.pdf-publico`) para que la
+infraestructura de Twilio pueda descargarlo. Sin `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` y
+`TWILIO_WHATSAPP_FROM` configuradas —y nunca lo estuvieron— el servicio lanza y el usuario ve un
+error del servidor. El botón nunca mandó un solo mensaje.
+
+- **`canal` solo acepta `correo`** en `EnviarCotizacionRequest`. El canal `whatsapp` se retira junto
+  con `telefono`, que era su único parámetro.
+- **Se retiran `cotizaciones.pdf-publico` y `Cotizacion::urlPdfPublico()`**, que existían nada más
+  para que Twilio descargara el archivo. Una ruta fuera de `auth:sanctum` que ya no sirve a nadie es
+  una puerta abierta sin razón, aunque esté firmada.
+- **`TwilioWhatsAppService` se queda**: las órdenes de compra de [012](012-ordenes-compra.md) siguen
+  enviándose por ahí y no son asunto de esta spec.
+
+El PDF que el cliente recibe es el mismo de siempre, generado al vuelo por `EnvioDocumentoService`;
+lo que cambia es quién lo entrega. En vez de un número de Twilio que el cliente no reconoce, sale de
+la sesión de WhatsApp que el aparato ya tiene abierta, que es el criterio con el que
+[027](027-venta-mostrador-ticket.md) manda el ticket y [020](020-imagenes-articulos.md) la ficha del
+artículo.
+
+### `POST cotizaciones/{cotizacion}/marcar-enviada`
+
+Compartir ocurre en el teléfono, fuera del alcance del servidor. Sin avisarle, una cotización que el
+cliente ya recibió por WhatsApp se quedaría en `borrador` para siempre, y el listado del escritorio
+—que se lee por estado— mentiría.
+
+El endpoint hace una sola cosa: si la cotización está en `borrador`, la pasa a `enviada`. Sobre una
+ya `enviada` o `pagada` no hace nada y responde igual, porque compartir dos veces la misma cotización
+es normal y no tiene por qué fallar. Es exactamente la transición que `enviar` ya disparaba como
+efecto secundario, separada del envío ahora que el envío no lo hace el servidor.
 
 ## Frontend (Vue 3)
 
@@ -152,7 +197,9 @@ artículo, precio, descuento, IVA y totales al pie (`DocumentoLineas`). Está he
 ratón y una pantalla grande; en un celular hay que arrastrarla de lado para ver las columnas.
 
 El modo mostrador no la adapta: la reemplaza por **una pantalla por paso**, con un solo asunto a la
-vez, un botón grande de "Siguiente" abajo y el paso actual señalado arriba. Adaptar la tabla habría
+vez, un botón grande abajo para seguir y el paso actual señalado arriba. Donde el toque ya decide
+—elegir al cliente de la lista— no hay botón de "Siguiente": apretar un segundo botón para confirmar
+lo que se acaba de tocar es un toque que no decide nada. Adaptar la tabla habría
 dejado la peor versión de las dos cosas —una tabla incómoda que además hay que mantener en dos
 anchos—, y agrandar los campos de hoy no arregla que sean demasiados a la vez.
 
@@ -161,19 +208,83 @@ computadora.
 
 #### Lo que se comparte entre los tres
 
-- **El paso de artículos** es el mismo componente en los tres: `ArticuloBuscador` arriba, y abajo la
-  lista de lo agregado, un renglón por tarjeta con su cantidad en botones de "−" y "+", su precio y
-  un botón de quitar. Sin tabla, sin columnas y sin descuentos por renglón: el descuento fino se
-  aplica en la computadora.
+- **Elegir artículos es tocar tarjetas**, con la misma pantalla en los tres caminos, y revisarlos es
+  el **carrito** que viene después. Son dos pantallas, no una: buscar y revisar son dos trabajos
+  distintos y meterlos en la misma obliga a que uno de los dos quede apretado contra el borde.
 - **Los renglones salen del catálogo.** La factura y la cotización ya lo exigen en el backend
   (`lineas.*.articulo_id` y `lineas.*.modelo` son obligatorios), así que en esos dos no hay renglón
   libre. La venta al público sí lo admite —es la línea libre de 027— y ofrece un botón de "Artículo
   suelto" para capturar descripción y precio a mano.
+- **La factura y la cotización eligen cliente con la misma pantalla**, la de tarjetas descrita
+  abajo. La venta al público no la usa: ahí el cliente es un teléfono y un nombre, no una ficha
+  fiscal.
 - **Los totales se calculan con `lib/totalesDocumento.ts`**, el mismo módulo que ya usan los
   formularios de escritorio. No se reimplementa la aritmética: un centavo de diferencia entre las
   dos caras del sistema sería imposible de explicarle a un cliente.
 - **Se puede volver atrás** paso por paso sin perder lo capturado. Salirse de la captura a medias
   pide confirmación: en un celular el gesto de "atrás" está a un dedo de distancia todo el tiempo.
+
+#### El paso de cliente (factura y cotización)
+
+Una sola pantalla con tres caminos hacia el mismo lugar: dos botones grandes arriba —**"Subir RFC"**
+y **"Nuevo cliente"**—, el buscador debajo y la lista de clientes en tarjetas ocupando el resto.
+
+- **La lista se ve desde que abre la pantalla**, sin escribir nada: los primeros clientes por razón
+  social, y al llegar al final se carga sola la página siguiente. El combo de escritorio no muestra
+  nada hasta escribir dos letras, lo que obliga a recordar cómo empieza el nombre; una lista que se
+  recorre sirve también para el cliente que se reconoce al verlo.
+- **El buscador filtra** por razón social, nombre comercial o RFC, contra `GET clientes`, que ya
+  busca en esos tres campos.
+- **Cada tarjeta** trae la razón social en grande, el RFC en monoespaciado, el teléfono y el correo
+  si los tiene —son los datos con los que después se le manda el documento— y su descuento
+  permanente cuando es mayor a cero (ver [015](015-descuento-permanente-cliente.md)). Toda la
+  superficie es tocable, y **tocarla elige al cliente y avanza**.
+- **"Subir RFC"** abre la Constancia de Situación Fiscal por las dos vías que tiene un celular:
+  elegir el archivo —el PDF que el cliente trae en el teléfono, o una foto— con
+  `ConstanciaFiscalDropzone`, o apuntar la cámara al QR. Las dos terminan en `POST
+  clientes/constancia` y dejan al cliente dado de alta en el momento, con el camino de
+  [016](016-constancia-situacion-fiscal-qr.md). Solo con la cámara no alcanzaba: la constancia suele
+  llegar por WhatsApp y no siempre hay una hoja impresa que apuntar.
+- **"Nuevo cliente"** da de alta a mano, con los cuatro datos que el CFDI exige —RFC, razón social,
+  régimen fiscal y código postal fiscal— más teléfono y correo, que la pantalla final necesita para
+  enviar. El régimen se elige de la lista del catálogo del SAT, la misma del alta de escritorio, no
+  se escribe.
+
+  Capturar a mano en el celular sí tiene el riesgo que la versión anterior de esta spec quiso
+  evitar, pero **una cotización no se timbra**: un RFC mal escrito ahí se corrige antes de facturar y
+  no cuesta un folio ni una cancelación. A cambio, sin este botón un cliente sin constancia a la mano
+  no se puede cotizar desde el mostrador, que es justo el caso de quien llega preguntando precios.
+
+#### El paso de artículos
+
+- **Tarjetas, no renglones de una tabla.** Cada una lleva la imagen del artículo cuando la tiene
+  (ver [020](020-imagenes-articulos.md)), su nombre, su modelo y su precio unitario sin IVA. Sin
+  imagen, un recuadro con ícono: un hueco descuadraría la cuadrícula y haría dudar de si algo falló.
+- **El catálogo se ve desde el arranque**, con la página siguiente cargándose al llegar al final, y
+  el buscador lo filtra por nombre, modelo o proveedor —lo que `GET articulos` ya hace con `search`—.
+  Se puede vender recorriendo el catálogo, sin saber cómo se llama lo que se busca.
+- **Un toque suma una unidad y no sale de la pantalla.** La tarjeta ya agregada muestra su cantidad
+  encima y volver a tocarla suma otra. Así se arma una cotización de diez renglones sin salir y
+  volver diez veces; la cantidad grande se corrige después, en el carrito, que es donde se ve todo
+  junto.
+- **Una barra fija al pie** muestra "n artículos · $total" y el botón que cierra la captura
+  —"Terminar cotización", "Terminar factura", "Terminar venta"—, apagado mientras el carrito esté
+  vacío. El total a la vista mientras se agrega es lo que el cliente pregunta enfrente.
+- **La venta al público conserva "Artículo suelto"**, que factura y cotización no ofrecen porque el
+  backend les exige el artículo del catálogo.
+
+#### El carrito
+
+Es la lista de renglones que hoy vive debajo del buscador, ahora en su propia pantalla y sin
+buscador: un renglón por artículo con su descripción, su precio unitario, los botones de "−" y "+",
+el de quitar y el importe del renglón, con el total al pie.
+
+- **Se puede volver a las tarjetas** a agregar más sin perder nada, y regresar.
+- **El descuento permanente del cliente ya viene aplicado** en cada renglón, como en el formulario de
+  escritorio (ver [015](015-descuento-permanente-cliente.md)). Cambiar de cliente lo reemplaza en
+  todos los renglones ya capturados, misma regla de esa spec.
+- **Nada se guarda hasta el botón final.** Salirse a medias pide confirmación y no deja documentos a
+  medio capturar en el sistema.
 
 #### Venta al público — `/mostrador/venta`
 
@@ -182,8 +293,9 @@ Es el pedido de mostrador de [027](027-venta-mostrador-ticket.md), no un documen
 1. **Cliente** — teléfono y nombre. Al escribir el teléfono se consulta `GET pedidos/por-telefono` y,
    si ese número ya compró antes, se **ofrece** rellenar el nombre y el correo. Es una sugerencia que
    el usuario acepta con un toque, no un autocompletado que pisa lo que está escribiendo.
-2. **Artículos** — el paso compartido, con línea libre.
-3. **Cobro** — el total a la vista, el monto a cobrar ya escrito con el total (se puede bajar para
+2. **Artículos** — las tarjetas del catálogo, con el botón de "Artículo suelto".
+3. **Carrito** — los renglones y sus cantidades, y el botón que pasa al cobro.
+4. **Cobro** — el total a la vista, el monto a cobrar ya escrito con el total (se puede bajar para
    registrar un anticipo) y la cuenta ya elegida: **la caja**, que es la cuenta de efectivo activa
    más antigua. Se puede cambiar a otra cuenta con un toque.
 
@@ -193,7 +305,7 @@ Es el pedido de mostrador de [027](027-venta-mostrador-ticket.md), no un documen
    mientras que esta pantalla cobra la venta que está ocurriendo enfrente, con el cliente pagando en
    el mostrador. Ahí la caja no es una comodidad que invite a confirmar por inercia: es lo que pasa
    casi siempre.
-4. **Listo** — el ticket dibujado por el servidor, en grande, con **"Compartir por WhatsApp"**
+5. **Listo** — el ticket dibujado por el servidor, en grande, con **"Compartir por WhatsApp"**
    (`compartirImagen` con el mensaje de Configuración ya resuelto), más "Nueva venta" e "Inicio".
 
 El paso de cobro hace **dos peticiones**: crea el pedido y luego registra el pago. Si la segunda
@@ -208,16 +320,16 @@ imprime desde la computadora como hasta hoy, y es esa etiqueta la que después s
 
 #### Factura — `/mostrador/factura`
 
-1. **Cliente** — buscador sobre el catálogo. Si no está, **"Escanear su constancia"**: la cámara lee
-   el QR de la constancia de situación fiscal y el cliente queda dado de alta en el momento, con el
-   mismo camino de [016](016-constancia-situacion-fiscal-qr.md). Un CFDI exige RFC, régimen y código
-   postal correctos, y escribir esos tres a mano en un celular, con el cliente enfrente, es la
-   manera más segura de timbrar mal.
-2. **Artículos** — el paso compartido, solo del catálogo.
-3. **Datos fiscales** — uso de CFDI, forma de pago y método de pago, que el backend exige
+1. **Cliente** — la pantalla de tarjetas: elegir de la lista, subir la constancia o capturarlo a
+   mano. Para la factura, "Subir RFC" es el camino recomendado y el que la pantalla sugiere: un CFDI
+   exige RFC, régimen y código postal correctos, y escribir esos tres a mano con el cliente enfrente
+   es la manera más segura de timbrar mal.
+2. **Artículos** — las tarjetas del catálogo, sin artículo suelto.
+3. **Carrito** — los renglones y sus cantidades.
+4. **Datos fiscales** — uso de CFDI, forma de pago y método de pago, que el backend exige
    (`uso_cfdi`, `forma_pago`, `metodo_pago`). Van en su propio paso, con los mismos valores por
    omisión del formulario de escritorio, para no mezclarlos con la captura de lo que se vende.
-4. **Confirmar y timbrar** — nombre, RFC y total, grandes y sin nada más alrededor, y un solo botón:
+5. **Confirmar y timbrar** — nombre, RFC y total, grandes y sin nada más alrededor, y un solo botón:
    **"Timbrar"**.
 
 El paso de revisión no es un trámite de más. Timbrar cuesta un folio, queda registrado ante la
@@ -233,13 +345,57 @@ reintentar, que es como se comporta el timbrado del escritorio.
 
 #### Cotización — `/mostrador/cotizacion`
 
-1. **Cliente** — igual que en la factura, incluido el alta escaneando la constancia. El backend exige
-   `cliente_id` del catálogo fiscal, así que ese es el camino para cotizarle a alguien que no está.
-2. **Artículos** — el paso compartido, solo del catálogo.
-3. **Resumen y guardar** — el total y el botón de guardar.
+Los pasos se llaman **Cliente, Artículos, Carrito y Listo**, con el indicador arriba de la pantalla.
 
-La pantalla de resultado ofrece **"Enviar por WhatsApp"** (`POST cotizaciones/{cotizacion}/enviar`
-con `canal: whatsapp`, teléfono ya puesto con el del cliente), "Nueva cotización" e "Inicio".
+1. **Cliente** — la pantalla de tarjetas: elegir de la lista, subir la constancia o capturarlo a
+   mano. El backend exige `cliente_id` del catálogo fiscal, así que cotizarle a alguien que no está
+   pasa por darlo de alta, y los tres caminos terminan en un cliente del catálogo.
+2. **Artículos** — las tarjetas del catálogo, sin artículo suelto. Al pie, "Terminar cotización".
+3. **Carrito** — los renglones, sus cantidades y el botón **"Guardar cotización"**, que es donde se
+   crea el documento (`POST cotizaciones`).
+4. **Listo** — folio, cliente, número de renglones y total, con cuatro botones: **"Enviar por
+   WhatsApp"**, **"Enviar por correo"**, "Nueva cotización" e "Inicio".
+
+##### Cómo sale por WhatsApp
+
+El sistema descarga el PDF con su propia sesión (`GET cotizaciones/{cotizacion}/pdf`) y se lo entrega
+al **menú de compartir del aparato**, con el resumen de la cotización como texto. El usuario elige el
+contacto en WhatsApp y manda el PDF desde el número del negocio.
+
+Lo comparte `compartirImagen` de `lib/compartir.ts`, que ya hace exactamente esto con el ticket de
+[027](027-venta-mostrador-ticket.md) y que **pasa a llamarse `compartirArchivo`**: siempre recibió un
+`Blob`, un nombre y un texto, y su nombre viejo describía al único que la usaba, no lo que hace. Un
+PDF compartido por una función llamada "imagen" es la clase de detalle que hace dudar de si el
+archivo saldrá bien.
+
+- **No hay campo de teléfono.** El contacto se elige en el menú del aparato, que ya conoce los
+  contactos; pedir el número en la pantalla sería capturar un dato que nadie va a usar.
+- **Al volver del menú**, el sistema llama a `POST cotizaciones/{cotizacion}/marcar-enviada` y la
+  cotización pasa a "enviada". **Si el usuario cancela el menú, no se marca**: cancelar es no haber
+  mandado nada, y un estado que miente es peor que uno que se quedó corto.
+- **En escritorio**, donde ese menú casi nunca existe, se descarga el PDF y se abre `wa.me` con el
+  resumen ya escrito, para arrastrar el archivo a WhatsApp Desktop. Es el mismo reparto que
+  `compartirArchivo` ya hace: la decisión se toma preguntándole al navegador si puede compartir
+  archivos, no por el ancho de la pantalla.
+
+##### Cómo sale por correo
+
+`POST cotizaciones/{cotizacion}/enviar` con `canal: correo`, con el correo del cliente ya escrito y
+editable antes de mandar. Ese envío lo sigue haciendo el servidor, que adjunta el PDF y ya deja la
+cotización en "enviada". Un correo mandado desde el servidor queda registrado y sale del dominio del
+negocio; no hay razón para bajarlo al teléfono.
+
+### El WhatsApp de la cotización en el escritorio
+
+El modal de "Enviar" del escritorio (ver [008](008-cotizaciones.md)) tiene el mismo botón roto, por
+la misma razón. Su canal de WhatsApp deja de mandar el formulario al servidor y pasa a compartir el
+PDF igual que el mostrador: descarga y menú del aparato, o `wa.me` con el archivo descargado donde
+ese menú no existe. Con él se va el campo de teléfono del modal, que ya no tiene a quién servir; el
+canal de correo se queda exactamente como está.
+
+Es la única parte del escritorio que esta spec toca, y la toca porque **es el mismo botón**: dejarlo
+llamando a Twilio sería sostener a propósito una pantalla que responde con un error, y mantener dos
+formas distintas de mandar la misma cotización según desde dónde se abra.
 
 ### El escáner de etiquetas — `/mostrador/escanear`
 
@@ -378,7 +534,14 @@ Ninguna ruta existente cambia de dirección ni de nombre.
   inicio.
 - **Notificaciones al celular** (push).
 - **Publicar la aplicación en Google Play** o empaquetarla con Capacitor.
-- **Cambiar los formularios de escritorio** de factura, cotización o venta.
+- **Cambiar los formularios de escritorio** de factura, cotización o venta. La única excepción es el
+  botón de WhatsApp de la cotización, que está roto y comparte con el mostrador el mismo arreglo.
+- **Cambiar el envío por WhatsApp de las órdenes de compra**, que siguen saliendo por Twilio con lo
+  que eso implica: si algún día se quiere que también se compartan desde el aparato, es otra spec.
+- **Guardar el PDF de la cotización en el servidor.** Se sigue generando al vuelo en cada envío,
+  mismo criterio de [008](008-cotizaciones.md).
+- **Elegir el contacto de WhatsApp desde el sistema.** Eso lo hace el menú del aparato; el sistema
+  entrega el archivo y no sabe a quién se le mandó.
 - **La migración a `app.prosello.com.mx` con HTTPS**, que es la spec [022](022-subdominio-app.md)
   y de la que esta depende solo para poder instalarse.
 
@@ -398,26 +561,41 @@ Ninguna ruta existente cambia de dirección ni de nombre.
    permite reintentar solo el cobro, sin capturar la venta otra vez.
 7. "Generar Factura" termina en una pantalla de revisión con **nombre, RFC y total**, y desde ahí
    timbra. El resultado muestra el folio fiscal y permite enviarla por correo.
-8. "Generar Cotización" permite dar de alta a un cliente **escaneando su constancia fiscal** cuando
-   no está en el catálogo, y al guardar ofrece enviarla por WhatsApp.
-9. Ningún importe capturado en el celular difiere de lo que calcularía el formulario de escritorio con
-   los mismos datos.
-10. "Escanear etiquetas" abre la cámara dentro de la aplicación y **captura sola**, sin botón de
+8. El paso de cliente muestra tarjetas **sin escribir nada**, el buscador las filtra, y tocar una
+   elige al cliente y pasa a artículos sin apretar nada más.
+9. Al cliente que no está en el catálogo se le da de alta de tres formas desde el celular: subiendo
+   el archivo de su constancia, escaneando su QR con la cámara, o capturándolo a mano con RFC, razón
+   social, régimen y código postal.
+10. El paso de artículos muestra el catálogo en tarjetas con su imagen desde que abre, carga más al
+    llegar al final, y **tocar una tarjeta suma una unidad sin salir de la pantalla**, con el conteo
+    y el total siempre a la vista al pie.
+11. El carrito permite cambiar cantidades y quitar renglones antes de guardar, y volver a agregar
+    artículos sin perder lo capturado.
+12. "Enviar por WhatsApp" abre el menú de compartir del aparato con el **PDF de la cotización**
+    adjunto —nunca responde "Error del servidor"— y al compartir la cotización queda en "enviada".
+    Si el usuario cancela el menú, sigue en borrador.
+13. "Enviar por correo" manda el PDF al correo del cliente, que viene escrito y se puede corregir.
+14. El botón de WhatsApp del escritorio comparte el PDF de la misma forma, y ninguna pantalla del
+    sistema le pide un envío de WhatsApp a Twilio para una cotización.
+15. Ningún importe capturado en el celular difiere de lo que calcularía el formulario de escritorio con
+    los mismos datos.
+16. "Escanear etiquetas" abre la cámara dentro de la aplicación y **captura sola**, sin botón de
     disparo.
-11. Un QR que no es de una etiqueta del sistema no abre nada: avisa y el escáner sigue trabajando.
-12. Al leer una etiqueta, el pedido se cobra y se entrega igual que hoy, con su "Deshacer" de diez
+17. Un QR que no es de una etiqueta del sistema no abre nada: avisa y el escáner sigue trabajando.
+18. Al leer una etiqueta, el pedido se cobra y se entrega igual que hoy, con su "Deshacer" de diez
     segundos, y al terminar se puede escanear la siguiente sin volver al inicio.
-13. La linterna, la pantalla despierta y la vibración funcionan donde el aparato las soporta, y su
+19. La linterna, la pantalla despierta y la vibración funcionan donde el aparato las soporta, y su
     ausencia no impide escanear.
-14. Con el detector disponible pero la cámara en vivo cerrada, el escáner ofrece tomar una foto de la
+20. Con el detector disponible pero la cámara en vivo cerrada, el escáner ofrece tomar una foto de la
     etiqueta y la lee. Sin detector, dice que ese navegador no puede leer códigos y manda a abrir la
     etiqueta con la app de cámara, en vez de fallar sin explicación.
-15. Existe un botón visible para instalar la aplicación, que desaparece una vez instalada.
-16. La aplicación instalada abre siempre en los cuatro accesos.
-17. Con una versión nueva desplegada, la aplicación abierta muestra un aviso con un botón de recargar.
-18. Sin internet la aplicación abre y explica que no hay conexión, con un botón de reintentar, en vez
+21. Existe un botón visible para instalar la aplicación, que desaparece una vez instalada.
+22. La aplicación instalada abre siempre en los cuatro accesos.
+23. Con una versión nueva desplegada, la aplicación abierta muestra un aviso con un botón de recargar.
+24. Sin internet la aplicación abre y explica que no hay conexión, con un botón de reintentar, en vez
     de quedarse en blanco.
-19. ESLint y Prettier corren sin errores sobre el código nuevo; `vitest` y `npm run build` en verde.
+25. Pint y `php artisan test` en verde; ESLint y Prettier sin errores sobre el código nuevo; `vitest`
+    y `npm run build` en verde.
 
 ## Supuestos asumidos (registro completo)
 
@@ -442,9 +620,11 @@ Aprobados uno por uno con el usuario antes de redactar. Los que el usuario cambi
 7. **(Redefinido)** "Generar Factura" **no** abre el formulario de escritorio: abre una captura por
    pasos, que termina en una pantalla de revisión con nombre, RFC y total y ahí timbra. (La propuesta
    original abría `/facturas/crear` tal como está.)
-8. **(Redefinido)** "Generar Cotización" **no** abre el formulario de escritorio: abre una captura por
-   pasos, y al cliente que no está en el catálogo se le da de alta **escaneando su constancia
-   fiscal**. (La propuesta original abría `/cotizaciones/crear` tal como está.)
+8. **(Redefinido dos veces)** "Generar Cotización" **no** abre el formulario de escritorio: abre una
+   captura por pasos —cliente, artículos, carrito y listo—, con el cliente elegido de una lista de
+   tarjetas y dado de alta ahí mismo si no está. (La propuesta original abría `/cotizaciones/crear`
+   tal como está; la primera redefinición dejaba la constancia como único camino para el cliente
+   nuevo. Ver el bloque final de este registro.)
 9. **(Redefinido)** "Venta al público" sí es el pedido de mostrador de 027, pero **no** abre su
    formulario de escritorio: abre una captura por pasos que termina cobrando y compartiendo el
    ticket. La etiqueta se sigue imprimiendo desde la computadora. (La propuesta original abría
@@ -478,7 +658,9 @@ Aprobados uno por uno con el usuario antes de redactar. Los que el usuario cambi
     larga, ni una captura mínima que se termina en la computadora, ni los formularios de hoy
     agrandados.
 23. **La factura llega hasta el timbrado**, con un paso de revisión antes.
-24. **Al cliente que no está en el catálogo se le escanea la constancia fiscal.**
+24. **(Ampliado después)** Al cliente que no está en el catálogo se le escanea la constancia fiscal.
+    (Sigue siendo el camino recomendado, pero ya no es el único: ver el supuesto 48 del bloque
+    final.)
 25. **El aparato del mostrador es Android**, así que el detector de códigos del navegador está
     disponible. Sobre eso descansa que el respaldo por foto no tenga que cubrir la ausencia del
     detector.
@@ -510,8 +692,8 @@ puedan corregirse antes de implementar)
 37. **El alta por constancia también se ofrece en la factura**, no solo en la cotización: la factura
     exige los mismos datos fiscales y con más razón.
 38. **La pantalla de resultado de la factura ofrece enviarla por correo**, y la de la cotización
-    enviarla por WhatsApp, reusando endpoints que ya existen. Sin eso el cliente se iría del
-    mostrador sin recibir su documento.
+    enviarla por WhatsApp o por correo. Sin eso el cliente se iría del mostrador sin recibir su
+    documento. (El WhatsApp ya no reusa el endpoint de envío: ver el supuesto 57.)
 39. **El paso de cobro de la venta preselecciona la caja** —la cuenta de efectivo activa más
     antigua— y deja cambiarla. La pantalla de entrega de 027 no preselecciona nada, y es una
     diferencia buscada: allá se cierra un pedido que pudo pagarse por transferencia días antes, acá
@@ -527,3 +709,67 @@ puedan corregirse antes de implementar)
 44. **Instalar la aplicación en la computadora la pondría en modo mostrador.** Es la consecuencia
     aceptada de elegir la instalación como interruptor; abrirla desde el navegador devuelve el
     sistema completo.
+
+### Redefinición del flujo de cotización
+
+Aprobados uno por uno con el usuario, después de usar la primera versión del mostrador. Cambian la
+captura de la cotización —y, con ella, las pantallas que los tres caminos comparten— y arreglan el
+envío por WhatsApp, que nunca funcionó.
+
+**El paso de cliente**
+
+45. **Tocar una tarjeta elige al cliente y avanza**, sin botón de "Siguiente".
+46. **"Subir RFC" abre la constancia por las dos vías**: elegir el archivo (PDF o foto) o apuntar la
+    cámara al QR. Antes solo existía la cámara.
+47. **La lista de clientes se ve desde que abre la pantalla**, sin escribir nada, y carga más al
+    llegar al final; el buscador solo la filtra.
+48. **(Amplía el supuesto 24)** **"Nuevo cliente" da de alta a mano** con RFC, razón social, régimen
+    fiscal y código postal, más teléfono y correo. La versión anterior lo prohibía por el riesgo de
+    timbrar mal; se acepta porque una cotización no se timbra y sin ese botón no se le puede cotizar
+    a quien llega sin constancia.
+49. **La tarjeta de cliente** trae razón social, RFC, teléfono y correo si los tiene, y el descuento
+    permanente cuando es mayor a cero.
+
+**El paso de artículos**
+
+50. **Las tarjetas de artículo llevan su imagen** cuando la tienen, con nombre, modelo y precio.
+51. **El catálogo se ve desde el arranque** y el buscador lo filtra, igual que la lista de clientes.
+52. **Un toque suma una unidad y no sale de la pantalla**; la tarjeta muestra la cantidad que lleva.
+53. **Una barra fija al pie** muestra el conteo y el total, con el botón que cierra la captura.
+
+**El carrito y la pantalla final**
+
+54. **El carrito es una pantalla propia**, con "−", "+", quitar e importe por renglón: buscar y
+    revisar son dos trabajos distintos y no caben cómodos en la misma pantalla.
+55. **Se puede volver a artículos sin perder nada**, y **nada se guarda hasta el botón final**.
+56. **La pantalla final** muestra folio, cliente, renglones y total, con "Enviar por WhatsApp",
+    "Enviar por correo", "Nueva cotización" e "Inicio".
+
+**El envío por WhatsApp**
+
+57. **(Redefine el supuesto 38)** **WhatsApp deja de salir del servidor.** El PDF se descarga con la
+    sesión del usuario y se comparte con el menú del propio aparato, como el ticket de 027. La ruta
+    por Twilio nunca mandó un mensaje: sin credenciales configuradas respondía "Error del servidor".
+58. **`POST cotizaciones/{cotizacion}/marcar-enviada`**, endpoint nuevo y mínimo: el compartir ocurre
+    en el teléfono y sin avisarle al servidor la cotización se quedaría en borrador para siempre.
+59. **No hay campo de teléfono** en la pantalla final: el contacto se elige en el menú del aparato.
+60. **El correo se queda como está**, saliendo del servidor con el PDF adjunto y el correo del
+    cliente ya escrito y editable.
+61. **El arreglo alcanza al botón de WhatsApp del escritorio**, que está roto por la misma razón.
+    **Las órdenes de compra siguen con Twilio** y quedan fuera de esta spec, junto con
+    `TwilioWhatsAppService`, que se conserva para ellas.
+
+**Decisiones de detalle de esta redefinición**
+
+62. **Las pantallas nuevas las estrenan los tres caminos**: la de cliente en factura y cotización, la
+    de artículos y el carrito en los tres. Dos formas distintas de elegir un artículo en la misma
+    aplicación es lo que se quiso evitar.
+63. **`compartirImagen` pasa a llamarse `compartirArchivo`.** Siempre recibió un `Blob`; el nombre
+    describía a su único usuario, no lo que hace.
+64. **El scroll infinito se hace con `IntersectionObserver`** y el paginador que el servidor ya
+    devuelve, sin agregar ninguna librería.
+65. **Se retiran `cotizaciones.pdf-publico` y `Cotizacion::urlPdfPublico()`**, que existían solo para
+    que Twilio descargara el archivo: una ruta fuera de la sesión que ya nadie usa es una puerta
+    abierta sin razón.
+66. **Los pasos de la cotización se llaman Cliente, Artículos, Carrito y Listo**, conservando el
+    indicador de paso actual arriba.

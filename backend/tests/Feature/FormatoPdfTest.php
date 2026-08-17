@@ -444,14 +444,15 @@ test('un svg o un archivo demasiado grande se rechazan', function () {
         ->assertStatus(422);
 });
 
-test('la ruta publica firmada del pdf tambien lleva el emisor', function () {
+test('el pdf que se descarga para compartir tambien lleva el emisor', function () {
     $user = User::factory()->create();
     emisorCompleto();
     $cotizacion = cotizacionConLinea($user);
 
-    // Sin sesión: es el camino por el que Twilio descarga el adjunto de WhatsApp. El emisor entra
-    // por composer justamente para que este caso no salga sin encabezado.
-    $respuesta = $this->get($cotizacion->urlPdfPublico());
+    // Es el archivo que el frontend baja para pasárselo al menú de compartir del aparato (ver
+    // 029-pwa-mostrador.md). El emisor entra por composer justamente para que ninguna de las dos
+    // salidas del PDF quede sin encabezado.
+    $respuesta = $this->actingAs($user)->get("/api/v1/cotizaciones/{$cotizacion->id}/pdf");
 
     $respuesta->assertOk();
     expect(substr($respuesta->getContent(), 0, 4))->toBe('%PDF');

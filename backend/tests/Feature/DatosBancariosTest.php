@@ -629,13 +629,13 @@ test('cambiar el logo no cambia el PDF de una cotización ya creada', function (
         ->and($banco->fresh()->logo_ruta)->not->toBe($rutaCongelada);
 });
 
-test('el PDF público firmado lleva el mismo bloque', function () {
+test('el PDF que se descarga para compartir lleva el mismo bloque', function () {
     $user = User::factory()->create();
     DatoBancario::factory()->create(['nombre_banco' => 'BBVA']);
 
     $cotizacion = crearCotizacionPorApi($user);
 
-    // Sin sesión: la protege la firma temporal de la URL, no `auth:sanctum`. Es el camino por el
-    // que Twilio descarga el adjunto del WhatsApp, y tiene que llevar el mismo bloque.
-    $this->get($cotizacion->urlPdfPublico())->assertOk();
+    // Es el archivo que se comparte por WhatsApp desde el aparato del usuario (ver
+    // 029-pwa-mostrador.md), y tiene que llevar el mismo bloque que el que se manda por correo.
+    $this->actingAs($user)->get("/api/v1/cotizaciones/{$cotizacion->id}/pdf")->assertOk();
 });

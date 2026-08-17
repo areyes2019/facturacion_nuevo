@@ -24,12 +24,10 @@ use Illuminate\Support\Facades\Route;
 
 Route::prefix('auth')->group(base_path('routes/auth.php'));
 
-// Sin auth:sanctum: PDF de cotización protegido por firma temporal de la URL (`signed`), no por
-// sesión — exclusivo para que Twilio lo descargue al enviar el WhatsApp (ver 008-cotizaciones.md).
-Route::get('cotizaciones/{cotizacion}/pdf-publico', [CotizacionController::class, 'pdfPublico'])
-    ->name('cotizaciones.pdf-publico')
-    ->middleware('signed');
-
+// Sin auth:sanctum: PDF de orden de compra protegido por firma temporal de la URL (`signed`), no
+// por sesión — exclusivo para que Twilio lo descargue al enviar el WhatsApp (ver
+// 012-ordenes-compra.md). La cotización tenía uno igual hasta que su WhatsApp pasó a compartirse
+// desde el aparato del usuario (ver 029-pwa-mostrador.md).
 Route::get('ordenes-compra/{ordenCompra}/pdf-publico', [OrdenCompraController::class, 'pdfPublico'])
     ->name('ordenes-compra.pdf-publico')
     ->middleware('signed');
@@ -153,6 +151,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::apiResource('cotizaciones', CotizacionController::class)
         ->parameters(['cotizaciones' => 'cotizacion']);
     Route::post('cotizaciones/{cotizacion}/enviar', [CotizacionController::class, 'enviar']);
+    // Cierre del envío por WhatsApp, que ocurre en el aparato del usuario (ver 029-pwa-mostrador.md).
+    Route::post('cotizaciones/{cotizacion}/marcar-enviada', [CotizacionController::class, 'marcarEnviada']);
     Route::post('cotizaciones/{cotizacion}/pagos', [CotizacionController::class, 'pagos']);
     Route::delete('cotizaciones/{cotizacion}/pagos/{pago}', [CotizacionController::class, 'eliminarPago']);
     Route::post('cotizaciones/{cotizacion}/entregar', [CotizacionController::class, 'entregar']);

@@ -93,17 +93,20 @@ Tabla separada (permite historial de múltiples pagos, no solo un par fijo antic
 - **Correo**: genera el PDF de la cotización al vuelo (sin persistirlo, mismo criterio que 007) y
   lo adjunta a un mailable enviado vía Mailpit en desarrollo, con el correo del cliente prellenado
   (editable).
-- **WhatsApp (vía Twilio)**: mensaje de WhatsApp al teléfono del cliente (prellenado desde
-  `Cliente.telefono`, editable) con un resumen de la cotización y el PDF adjunto como media
-  (`MediaUrl` del mensaje de Twilio). Como Twilio requiere una URL **pública** para descargar el
-  media adjunto y el PDF de la cotización se genera al vuelo sin persistirse, se expone un enlace
-  temporal de un solo uso/firmado (ej. `GET /api/v1/cotizaciones/{id}/pdf-publico/{token}`, sin
-  `auth:sanctum`, token de vida corta) exclusivamente para que Twilio lo consuma al enviar.
-  Credenciales (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_FROM`) configurables
-  por variable de entorno, mismo patrón que `FACTURAPI_*` en 007; no se commitean a
-  `.env.example`.
-- Cualquiera de los dos canales, al enviarse con éxito, dispara la transición `borrador` →
-  `enviada` (o simplemente confirma que sigue `enviada` si ya lo estaba).
+- **WhatsApp (redefinido por [029](029-pwa-mostrador.md))**: el mensaje **no sale del servidor**. El
+  frontend descarga el PDF con la sesión del usuario y lo entrega al menú de compartir del aparato,
+  que lo manda desde el WhatsApp del negocio; en escritorio descarga el archivo y abre `wa.me` con
+  el resumen escrito. Al compartir, el frontend llama a `POST
+  /api/v1/cotizaciones/{id}/marcar-enviada` para la transición de estado.
+
+  La implementación original mandaba el mensaje vía Twilio, con el PDF colgado de una URL pública
+  firmada (`cotizaciones.pdf-publico`) para que Twilio pudiera descargarlo. Nunca envió un solo
+  mensaje: las credenciales `TWILIO_ACCOUNT_SID`/`TWILIO_AUTH_TOKEN`/`TWILIO_WHATSAPP_FROM` jamás se
+  configuraron y el botón respondía con un error del servidor. Con el canal se retiraron esa ruta
+  pública y `Cotizacion::urlPdfPublico()`. `TwilioWhatsAppService` sigue existiendo para las órdenes
+  de compra de [012](012-ordenes-compra.md).
+- El envío por correo, y el `marcar-enviada` del compartir, disparan la transición `borrador` →
+  `enviada` (o simplemente confirman que sigue `enviada` si ya lo estaba).
 
 ### Conversión a factura
 
@@ -186,10 +189,11 @@ del repositorio.
   registrados (`422` en cualquier otro caso, con el motivo en el mensaje). `CotizacionResource`
   expone **`puede_eliminarse`** (booleano) con esa misma regla evaluada en el servidor, para que el
   frontend decida si pinta el botón sin reimplementar la condición en TypeScript.
-- `POST /api/v1/cotizaciones/{id}/enviar` — body `{ canal: correo|whatsapp, destinatarios? o
-  telefono? }`; dispara el envío y la transición de estado descrita arriba.
-- `GET /api/v1/cotizaciones/{id}/pdf-publico/{token}` — sin autenticación, token firmado de vida
-  corta, exclusivamente para que Twilio descargue el PDF al enviar el WhatsApp.
+- `POST /api/v1/cotizaciones/{id}/enviar` — body `{ canal: correo, destinatarios }`; manda el correo
+  con el PDF adjunto y dispara la transición de estado descrita arriba.
+- `POST /api/v1/cotizaciones/{id}/marcar-enviada` — sin body; pasa `borrador` → `enviada` después de
+  que el usuario compartió el PDF desde su aparato (ver [029](029-pwa-mostrador.md)). Sobre una
+  cotización ya `enviada` o `pagada` no hace nada y responde igual.
 - `POST /api/v1/cotizaciones/{id}/pagos` — body `{ tipo, fecha_pago, monto?, forma_pago }`; para
   `tipo = saldo` o `pago_total`, `monto` es opcional y siempre se autocalcula como el saldo
   pendiente (`total - suma de pagos ya registrados`), ignorando cualquier valor enviado.
@@ -205,8 +209,8 @@ del repositorio.
 - `lineas`: array, mínimo 1 elemento; mismas reglas de `articulo_id`/`cantidad`/`descripcion`/
   `modelo`/`precio_unitario`/`descuento_tipo`/`descuento_valor`/`tasa_iva` que en 007.
 - `descuento_global_tipo`/`descuento_global_valor`: opcionales, mismas reglas que a nivel línea.
-- Envío: `canal` requerido (`correo`|`whatsapp`); si `correo`, `destinatarios` array con al menos
-  1 email válido; si `whatsapp`, `telefono` requerido.
+- Envío: `canal` requerido y solo admite `correo`, con `destinatarios` array de al menos 1 email
+  válido (ver [029](029-pwa-mostrador.md): el canal `whatsapp` y su `telefono` se retiraron).
 - Pago: `tipo` requerido (`anticipo`|`saldo`|`pago_total`); `fecha_pago` requerida; `forma_pago`
   requerida, existe en `c_FormaPago`.
   - `monto`: requerido y numérico (mayor a 0) solo si `tipo = anticipo`; para `saldo`/`pago_total`
@@ -259,9 +263,9 @@ del repositorio.
     los tres documentos, sin parametrizarse por tipo.
 - **`/cotizaciones/{id}`** (detalle): representación de la cotización con historial de pagos y
   botones:
-  - **"Enviar"**: modal con selector de canal (correo/WhatsApp); si correo, destinatarios
-    editables (prellenado con el correo del cliente); si WhatsApp, teléfono editable (prellenado
-    con el del cliente).
+  - **"Enviar"**: modal con selector de canal (correo/WhatsApp); si correo, destinatarios editables
+    (prellenado con el correo del cliente); si WhatsApp, el PDF se comparte desde el propio
+    navegador y no hay campo de teléfono que capturar (ver [029](029-pwa-mostrador.md)).
   - **"Registrar anticipo"**: visible solo si `estado = enviada` y la cotización todavía no tiene
     ningún pago `tipo = anticipo` registrado. Modal con fecha de pago, forma de pago y un monto
     libre elegido por el usuario.
@@ -326,7 +330,9 @@ Implementada el 2026-07-31.
   `cotizacion_id` a la tabla `facturas`, se usa `Cotizacion.factura_id` (FK nullable) y una
   relación `Factura::cotizacion(): HasOne` sobre esa misma columna — evita una migración adicional
   y mantiene la relación 1:1 en un solo lugar.
-- **WhatsApp vía Twilio implementado con `Http::asForm()` en vez del SDK oficial**: enviar un
+- **WhatsApp vía Twilio implementado con `Http::asForm()` en vez del SDK oficial** *(retirado por
+  [029](029-pwa-mostrador.md): las credenciales nunca se configuraron y el canal se sustituyó por el
+  compartir del aparato; el servicio sigue vivo para las órdenes de compra de 012)*: enviar un
   mensaje con un adjunto es una sola llamada POST a `Accounts/{Sid}/Messages.json`
   (`TwilioWhatsAppService`), así que no se justificó agregar la dependencia completa de
   `twilio/sdk`. **No se configuraron credenciales reales de Twilio en este entorno** (a diferencia
@@ -335,7 +341,8 @@ Implementada el 2026-07-31.
   en `.env`; el envío por WhatsApp lanzará una excepción en tiempo de ejecución hasta que se
   configuren. El test de envío por WhatsApp mockea `TwilioWhatsAppService` (Mockery), sin llamada
   de red real, así que no depende de esas credenciales.
-- **PDF público para Twilio protegido por URL firmada temporal**: `GET
+- **PDF público para Twilio protegido por URL firmada temporal** *(retirado por
+  [029](029-pwa-mostrador.md) junto con el canal que lo usaba)*: `GET
   /api/v1/cotizaciones/{cotizacion}/pdf-publico` vive fuera del grupo `auth:sanctum` (Twilio no
   manda cookies de sesión) y usa el middleware `signed` de Laravel
   (`URL::temporarySignedRoute(..., now()->addMinutes(10), ...)`), generado en el momento de
@@ -424,8 +431,9 @@ Implementada el 2026-07-31.
 1. Un usuario autenticado puede crear una cotización seleccionando un cliente y una o varias
    líneas de artículo, viendo los totales desglosados en tiempo real, quedando en estado
    `borrador`.
-2. Enviar una cotización por correo o WhatsApp adjunta/incluye el PDF generado al vuelo y cambia
-   su estado a `enviada`.
+2. Enviar una cotización por correo adjunta el PDF generado al vuelo y cambia su estado a `enviada`;
+   compartirla por WhatsApp entrega ese mismo PDF al menú del aparato y la deja igualmente
+   `enviada` (ver [029](029-pwa-mostrador.md)).
 3. Registrar un pago (anticipo, saldo o pago total) que, sumado a los pagos previos, alcance el
    total de la cotización, cambia automáticamente su estado a `pagada`; un pago parcial no lo
    hace. Ningún pago puede hacer que la suma acumulada supere el total: si el monto resultante lo
@@ -484,9 +492,10 @@ Implementada el 2026-07-31.
    `FacturaTotalesCalculator` (007), incluyendo un descuento global opcional.
 5. Los 4 estados (`borrador`, `enviada`, `pagada`, `producto_entregado`) son secuenciales y no hay
    retroceso automático entre ellos, salvo el caso del supuesto 18.
-6. **(Redefinido)** El paso `borrador` → `enviada` ocurre al enviar la cotización al cliente por
-   **correo o WhatsApp** (vía Twilio, credenciales configurables por variable de entorno, mismo
-   patrón que `FACTURAPI_*` en 007) — ambos canales están dentro del alcance de esta historia.
+6. **(Redefinido dos veces)** El paso `borrador` → `enviada` ocurre al enviar la cotización al
+   cliente por **correo o WhatsApp**, ambos dentro del alcance de esta historia. El WhatsApp salía
+   por Twilio; desde [029](029-pwa-mostrador.md) se comparte desde el aparato del usuario y el
+   estado lo mueve `marcar-enviada`.
 7. El envío por correo de la cotización adjunta un PDF generado al vuelo (sin persistirse), con el
    correo del cliente prellenado; la cotización no tiene XML (no es CFDI).
 8. El "anticipo" y el "saldo" son registros de pago capturados manualmente sobre la cotización
@@ -535,9 +544,11 @@ Implementada el 2026-07-31.
     `cotizacion_id` opcional que vincula la factura resultante de vuelta a la cotización.
 27. **(Adición técnica)** Se reutiliza la plantilla PDF de 003/007 (adaptada) para el PDF de
     cotización, y el mecanismo de envío por correo (mailable) de 007 con una plantilla propia.
-28. **(Adición técnica)** El envío por WhatsApp usa Twilio; como requiere una URL pública para el
-    PDF adjunto (que no se persiste), se expone un endpoint de descarga temporal firmado, sin
-    autenticación de sesión, exclusivo para que Twilio lo consuma al enviar el mensaje.
+28. **(Adición técnica, redefinida por [029](029-pwa-mostrador.md))** El envío por WhatsApp lo hace
+    el propio aparato del usuario, compartiendo el PDF que el sistema descarga con su sesión. La
+    versión original lo mandaba con Twilio y, para que pudiera descargar el adjunto, exponía un
+    endpoint de descarga temporal firmado sin autenticación de sesión; ese endpoint se retiró con el
+    canal.
 29. **(Adición)** Un artículo aparece como máximo en una línea por documento. Capturar dos veces el
     mismo artículo se resuelve sumando unidades a la línea que ya existe, nunca creando una segunda
     línea, porque repetir el mismo modelo en varios renglones es siempre un error de captura en este

@@ -17,7 +17,6 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Mail\Mailable;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\URL;
 
 #[Fillable([
     'cliente_id',
@@ -40,9 +39,6 @@ class Cotizacion extends Model implements DocumentoEnviable
     use HasFactory;
 
     protected $table = 'cotizaciones';
-
-    /** Vigencia de la URL firmada que Twilio usa para descargar el PDF adjunto. */
-    private const MINUTOS_URL_PUBLICA = 10;
 
     /**
      * Días sin movimiento (`updated_at`) tras los cuales una cotización en borrador o enviada se
@@ -164,11 +160,6 @@ class Cotizacion extends Model implements DocumentoEnviable
         return new CotizacionEnviadaMail($this, $pdf);
     }
 
-    public function resumenWhatsApp(): string
-    {
-        return "Cotización {$this->folio} por un total de $".number_format((float) $this->total, 2).' MXN.';
-    }
-
     /**
      * La foto congelada de datos bancarios, con el icono de cada banco ya listo para incrustarse en
      * el HTML del PDF (ver 026-datos-bancarios-cotizacion.md).
@@ -199,15 +190,6 @@ class Cotizacion extends Model implements DocumentoEnviable
 
             return $banco;
         }, $this->datos_bancarios ?? []);
-    }
-
-    public function urlPdfPublico(): string
-    {
-        return URL::temporarySignedRoute(
-            'cotizaciones.pdf-publico',
-            now()->addMinutes(self::MINUTOS_URL_PUBLICA),
-            ['cotizacion' => $this->id],
-        );
     }
 
     /**

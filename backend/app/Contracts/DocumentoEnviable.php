@@ -5,13 +5,16 @@ namespace App\Contracts;
 use Illuminate\Mail\Mailable;
 
 /**
- * Documento que se le puede mandar a alguien por correo o WhatsApp con su PDF.
+ * Documento que se le puede mandar a alguien por correo con su PDF adjunto.
  *
  * 008 escribió ese mecanismo acoplado a `Cotizacion`; 012 lo necesita idéntico para
  * `OrdenCompra`, así que se generaliza aquí en vez de duplicarlo (ver 012-ordenes-compra.md,
  * adición técnica 34). Quien implementa esta interfaz aporta lo único que cambia entre documentos:
- * qué plantilla renderiza, cómo se llama el archivo, qué mailable lo lleva, qué dice el WhatsApp y
- * de qué ruta firmada sale su PDF público.
+ * qué plantilla renderiza, cómo se llama el archivo y qué mailable lo lleva.
+ *
+ * Lo que hace falta para mandarlo por WhatsApp desde el servidor vive aparte, en
+ * `DocumentoEnviablePorWhatsApp`: la cotización dejó de necesitarlo cuando su WhatsApp pasó a
+ * compartirse desde el aparato del usuario (ver 029-pwa-mostrador.md).
  */
 interface DocumentoEnviable
 {
@@ -34,16 +37,4 @@ interface DocumentoEnviable
      * Mailable propio del documento, con el PDF ya generado listo para adjuntarse.
      */
     public function mailable(string $pdf): Mailable;
-
-    /**
-     * Texto del mensaje de WhatsApp que acompaña al PDF.
-     */
-    public function resumenWhatsApp(): string;
-
-    /**
-     * URL pública, firmada y temporal desde la que Twilio descarga el PDF adjunto: su
-     * infraestructura no manda cookies de sesión y el PDF no se persiste en disco (ver
-     * 008-cotizaciones.md, adición técnica 28).
-     */
-    public function urlPdfPublico(): string;
 }

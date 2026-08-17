@@ -2,7 +2,7 @@
 
 namespace App\Models;
 
-use App\Contracts\DocumentoEnviable;
+use App\Contracts\DocumentoEnviablePorWhatsApp;
 use App\Enums\EstadoOrdenCompra;
 use App\Enums\TipoDescuento;
 use App\Mail\OrdenCompraEnviadaMail;
@@ -39,7 +39,7 @@ use Illuminate\Support\Facades\URL;
     'cuenta_id',
     'fecha_pago',
 ])]
-class OrdenCompra extends Model implements DocumentoEnviable
+class OrdenCompra extends Model implements DocumentoEnviablePorWhatsApp
 {
     /** @use HasFactory<OrdenCompraFactory> */
     use HasFactory;

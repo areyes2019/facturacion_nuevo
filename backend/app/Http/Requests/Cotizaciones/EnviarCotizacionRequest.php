@@ -4,7 +4,6 @@ namespace App\Http\Requests\Cotizaciones;
 
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Rule;
 
 class EnviarCotizacionRequest extends FormRequest
 {
@@ -24,10 +23,13 @@ class EnviarCotizacionRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'canal' => ['required', 'in:correo,whatsapp'],
-            'destinatarios' => [Rule::requiredIf($this->input('canal') === 'correo'), 'array', 'min:1'],
+            // El canal `whatsapp` se retiró: ese envío ya no sale del servidor, lo comparte el
+            // aparato del usuario con el PDF que descarga (ver 029-pwa-mostrador.md). `canal` se
+            // conserva —en vez de quitarlo— porque el correo sigue siendo un canal entre varios
+            // posibles y el frontend ya lo manda.
+            'canal' => ['required', 'in:correo'],
+            'destinatarios' => ['required', 'array', 'min:1'],
             'destinatarios.*' => ['required', 'email'],
-            'telefono' => [Rule::requiredIf($this->input('canal') === 'whatsapp'), 'string', 'max:20'],
         ];
     }
 }

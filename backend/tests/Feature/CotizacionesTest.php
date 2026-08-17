@@ -11,7 +11,6 @@ use App\Models\Factura;
 use App\Models\Proveedor;
 use App\Models\User;
 use App\Services\FacturapiService;
-use App\Services\TwilioWhatsAppService;
 use Facturapi\Exceptions\FacturapiException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
@@ -118,22 +117,56 @@ test('enviar por correo cambia el estado de borrador a enviada', function () {
     Mail::assertSent(CotizacionEnviadaMail::class);
 });
 
-test('enviar por whatsapp usa TwilioWhatsAppService y cambia el estado a enviada', function () {
+test('el canal whatsapp ya no existe en el envio del servidor', function () {
     $user = User::factory()->create();
     [$cliente] = crearClienteYArticuloParaCotizacion($user);
     $cotizacion = Cotizacion::factory()->for($user)->for($cliente)->create();
 
-    $this->mock(TwilioWhatsAppService::class, function ($mock) {
-        $mock->shouldReceive('enviar')->once();
-    });
-
+    // Ese envío lo comparte el aparato del usuario con el PDF que descarga (029-pwa-mostrador.md).
     $response = $this->actingAs($user)->postJson("/api/v1/cotizaciones/{$cotizacion->id}/enviar", [
         'canal' => 'whatsapp',
         'telefono' => '5512345678',
     ]);
 
+    $response->assertUnprocessable();
+    $response->assertJsonValidationErrors('canal');
+    $this->assertDatabaseHas('cotizaciones', ['id' => $cotizacion->id, 'estado' => 'borrador']);
+});
+
+test('marcar-enviada cambia el estado de borrador a enviada', function () {
+    $user = User::factory()->create();
+    [$cliente] = crearClienteYArticuloParaCotizacion($user);
+    $cotizacion = Cotizacion::factory()->for($user)->for($cliente)->create();
+
+    $response = $this->actingAs($user)->postJson("/api/v1/cotizaciones/{$cotizacion->id}/marcar-enviada");
+
     $response->assertOk();
     $this->assertDatabaseHas('cotizaciones', ['id' => $cotizacion->id, 'estado' => 'enviada']);
+});
+
+test('marcar-enviada no retrocede una cotizacion ya pagada', function () {
+    $user = User::factory()->create();
+    [$cliente] = crearClienteYArticuloParaCotizacion($user);
+    $cotizacion = Cotizacion::factory()->for($user)->for($cliente)->create([
+        'estado' => EstadoCotizacion::Pagada->value,
+    ]);
+
+    // Compartirle otra vez la misma cotización a un cliente es normal y no tiene por qué fallar.
+    $response = $this->actingAs($user)->postJson("/api/v1/cotizaciones/{$cotizacion->id}/marcar-enviada");
+
+    $response->assertOk();
+    $this->assertDatabaseHas('cotizaciones', ['id' => $cotizacion->id, 'estado' => 'pagada']);
+});
+
+test('marcar-enviada de otro usuario responde 404', function () {
+    $user = User::factory()->create();
+    $otro = User::factory()->create();
+    [$cliente] = crearClienteYArticuloParaCotizacion($otro);
+    $cotizacion = Cotizacion::factory()->for($otro)->for($cliente)->create();
+
+    $this->actingAs($user)
+        ->postJson("/api/v1/cotizaciones/{$cotizacion->id}/marcar-enviada")
+        ->assertNotFound();
 });
 
 test('un pago que cubre el total marca la cotizacion como pagada', function () {
