@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import http from '../lib/http'
 import {
-  compartirArchivos,
+  compartirArchivo,
   type ArchivoCompartible,
   type ResultadoCompartir,
 } from '../lib/compartir'
@@ -58,6 +58,8 @@ export interface Factura {
   total_iva_16: number
   total_iva_0: number
   total_exento: number
+  /** Centavos que cierran el total en peso cerrado (ver specs/030-total-al-peso-cerrado.md). */
+  ajuste_al_peso: number
   total: number
   uuid_fiscal: string | null
   facturapi_serie: string | null
@@ -211,21 +213,19 @@ export const useFacturasStore = defineStore('facturas', {
     },
 
     /**
-     * Baja **el PDF y el XML**: un CFDI sin su XML no le sirve al contador del cliente (ver
-     * 029-pwa-mostrador.md). Se llama al entrar a la pantalla de resultado, no al tocar el botón: el
-     * XML viaja hasta facturapi, y esperarlo después del toque agotaría el gesto que el menú de
-     * compartir necesita (supuesto 78).
+     * Baja **solo el PDF**. El XML no puede salir por el menú del aparato —Chrome no admite `.xml`
+     * entre los tipos que comparte— así que ni siquiera se pide: una petición que viaja hasta
+     * facturapi por un archivo que nunca va a mandarse es una espera regalada. Al cliente le llega
+     * por correo (ver 029-pwa-mostrador.md, supuestos 81 y 82).
+     *
+     * Se llama al entrar a la pantalla de resultado, no al tocar el botón: esperar a la descarga
+     * después del toque agotaría el gesto que el menú de compartir necesita (supuesto 78).
      */
-    async archivosParaWhatsapp(factura: Factura): Promise<ArchivoCompartible[]> {
-      const [pdf, xml] = await Promise.all([
-        this.archivoBlob(factura.id, 'pdf'),
-        this.archivoBlob(factura.id, 'xml'),
-      ])
-
-      return [
-        { contenido: pdf, nombre: `factura-${factura.folio}.pdf` },
-        { contenido: xml, nombre: `factura-${factura.folio}.xml` },
-      ]
+    async archivoParaWhatsapp(factura: Factura): Promise<ArchivoCompartible> {
+      return {
+        contenido: await this.archivoBlob(factura.id, 'pdf'),
+        nombre: `factura-${factura.folio}.pdf`,
+      }
     },
 
     mensajeWhatsapp(factura: Factura): string {
@@ -233,17 +233,17 @@ export const useFacturasStore = defineStore('facturas', {
     },
 
     /**
-     * Entrega al menú del aparato lo que ya está bajado. Si no admite dos archivos en un mismo
-     * compartir, `compartirArchivos` cae al PDF solo, y si no hay menú abre WhatsApp con el mensaje.
+     * Entrega al menú del aparato el PDF que ya está bajado; donde no hay menú, abre WhatsApp con el
+     * mensaje y el archivo descargado.
      *
      * No cambia el estado de la factura: una timbrada ya está timbrada, y no hay un "enviada" que
      * mover como en la cotización.
      */
     async compartirPorWhatsapp(
       factura: Factura,
-      archivos: ArchivoCompartible[],
+      archivo: ArchivoCompartible,
     ): Promise<ResultadoCompartir> {
-      return compartirArchivos(archivos, this.mensajeWhatsapp(factura))
+      return compartirArchivo(archivo.contenido, archivo.nombre, this.mensajeWhatsapp(factura))
     },
   },
 })

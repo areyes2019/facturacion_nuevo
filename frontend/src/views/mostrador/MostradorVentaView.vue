@@ -80,7 +80,7 @@ const ticketBlob = ref<Blob | null>(null)
 const compartiendo = ref(false)
 const avisoTicket = ref<string | null>(null)
 
-const totales = computed(() => calcularTotales(lineas.value, null, null))
+const totales = computed(() => calcularTotales(lineas.value, null, null, true))
 
 const clienteCompleto = computed(
   () => form.cliente_nombre.trim() !== '' && form.cliente_telefono.trim() !== '',

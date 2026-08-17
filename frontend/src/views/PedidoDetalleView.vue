@@ -415,6 +415,10 @@ async function eliminarPago(pagoId: number) {
                   <span class="text-muted-foreground">IVA</span>
                   <span>${{ pedido.total_iva_16.toFixed(2) }}</span>
                 </div>
+                <div v-if="pedido.ajuste_al_peso > 0" class="flex justify-between">
+                  <span class="text-muted-foreground">Ajuste al peso</span>
+                  <span>${{ pedido.ajuste_al_peso.toFixed(2) }}</span>
+                </div>
                 <div class="flex justify-between font-semibold">
                   <span>Total</span>
                   <span>${{ pedido.total.toFixed(2) }}</span>

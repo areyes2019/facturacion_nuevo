@@ -30,6 +30,7 @@ use Illuminate\Support\Facades\Log;
     'total_iva_16',
     'total_iva_0',
     'total_exento',
+    'ajuste_al_peso',
     'total',
     'factura_id',
 ])]
@@ -207,6 +208,7 @@ class Cotizacion extends Model implements DocumentoEnviable
             'total_iva_16' => 'decimal:2',
             'total_iva_0' => 'decimal:2',
             'total_exento' => 'decimal:2',
+            'ajuste_al_peso' => 'decimal:2',
             'total' => 'decimal:2',
             // Foto de los datos bancarios con los que salió esta cotización, tomada al crearla
             // (ver 026-datos-bancarios-cotizacion.md). Fuera de #[Fillable] a propósito: no es un

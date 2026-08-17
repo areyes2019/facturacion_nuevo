@@ -57,7 +57,7 @@ const ultimaPagina = ref(1)
 const cargando = ref(false)
 const error = ref<string | null>(null)
 
-const totales = computed(() => calcularTotales(lineas.value, null, null))
+const totales = computed(() => calcularTotales(lineas.value, null, null, true))
 const unidades = computed(() => lineas.value.reduce((suma, linea) => suma + linea.cantidad, 0))
 
 async function cargar(siguiente: number) {

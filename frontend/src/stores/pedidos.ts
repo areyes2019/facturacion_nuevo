@@ -49,6 +49,8 @@ export interface Pedido {
   total_iva_16: number
   total_iva_0: number
   total_exento: number
+  /** Centavos que cierran el total en peso cerrado (ver specs/030-total-al-peso-cerrado.md). */
+  ajuste_al_peso: number
   total: number
   total_pagado: number
   saldo_pendiente: number

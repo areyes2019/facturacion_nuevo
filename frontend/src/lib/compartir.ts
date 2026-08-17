@@ -27,54 +27,41 @@ export function puedeCompartirArchivos(): boolean {
 }
 
 /**
- * Comparte un archivo con su texto: el ticket de una venta (027) o el PDF de una cotización (029).
+ * Comparte **un** archivo con su texto: el ticket de una venta (027), el PDF de una cotización o el
+ * de una factura (029).
+ *
+ * Uno y no varios a propósito. El CFDI intentó salir con su PDF y su XML juntos y el menú del
+ * aparato nunca abrió: Chrome comparte solo los tipos de archivo de una lista fija —imágenes,
+ * audio, video, texto plano y `application/pdf`— y `.xml` no está en ella. El XML le llega al
+ * cliente por correo (ver 029-pwa-mostrador.md, supuestos 81 a 83).
  */
 export async function compartirArchivo(
   contenido: Blob,
   nombreArchivo: string,
   texto: string,
 ): Promise<ResultadoCompartir> {
-  return compartirArchivos([{ contenido, nombre: nombreArchivo }], texto)
-}
+  const files = [
+    new File([contenido], nombreArchivo, {
+      type: contenido.type || 'application/octet-stream',
+    }),
+  ]
 
-/**
- * Comparte varios archivos de una vez: el PDF y el XML de un CFDI, que sin su XML no le sirve al
- * contador del cliente (ver 029-pwa-mostrador.md).
- *
- * Si el aparato no admite el grupo completo se intenta **solo con el primero**, que es el que el
- * cliente mira, antes de caer a la descarga. Mandar algo es mejor que no mandar nada porque un
- * segundo archivo no cupo.
- */
-export async function compartirArchivos(
-  archivos: ArchivoCompartible[],
-  texto: string,
-): Promise<ResultadoCompartir> {
-  const files = archivos.map(
-    ({ contenido, nombre }) =>
-      new File([contenido], nombre, { type: contenido.type || 'application/octet-stream' }),
-  )
+  if (puedeCompartirArchivos() && navigator.canShare({ files })) {
+    try {
+      await navigator.share({ text: texto, files })
 
-  if (puedeCompartirArchivos()) {
-    for (const grupo of files.length > 1 ? [files, files.slice(0, 1)] : [files]) {
-      if (!navigator.canShare({ files: grupo })) continue
+      return 'compartido'
+    } catch (err) {
+      // Cerrar el menú del sistema lanza AbortError y no es un fallo que reportar.
+      if (err instanceof DOMException && err.name === 'AbortError') return 'cancelado'
 
-      try {
-        await navigator.share({ text: texto, files: grupo })
-
-        return 'compartido'
-      } catch (err) {
-        // Cerrar el menú del sistema lanza AbortError y no es un fallo que reportar.
-        if (err instanceof DOMException && err.name === 'AbortError') return 'cancelado'
-
-        // Cualquier otro rechazo —un tipo de archivo que el navegador no acepta, un gesto que ya
-        // caducó— no deja al usuario sin documento: se sigue por el camino de abajo, que también
-        // termina en WhatsApp.
-        break
-      }
+      // Cualquier otro rechazo —un tipo de archivo que el navegador no acepta, un gesto que ya
+      // caducó— no deja al usuario sin documento: se sigue por el camino de abajo, que también
+      // termina en WhatsApp.
     }
   }
 
-  archivos.forEach(({ contenido, nombre }) => descargar(contenido, nombre))
+  descargar(contenido, nombreArchivo)
   await abrirWhatsappConTexto(texto)
 
   return 'descargado'

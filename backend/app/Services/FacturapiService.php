@@ -28,6 +28,12 @@ class FacturapiService
 
     private const CLAVE_UNIDAD_GENERICA = 'H87';
 
+    /**
+     * `ACT` (Actividad) para el concepto del ajuste al peso: no es una pieza que se entregue, es
+     * un importe. Ver 030-total-al-peso-cerrado.md.
+     */
+    private const CLAVE_UNIDAD_AJUSTE = 'ACT';
+
     private Facturapi $client;
 
     public function __construct()
@@ -133,6 +139,27 @@ class FacturapiService
                 ],
             ];
         })->all();
+
+        // Los centavos que cierran el total en peso cerrado viajan como un concepto propio y
+        // **sin traslados** (ver 030-total-al-peso-cerrado.md): con IVA encima, cada centavo de
+        // ajuste movería el total 1.16 centavos y el peso cerrado dejaría de ser alcanzable. Va al
+        // final porque es lo último que se calcula, y solo cuando hay algo que ajustar.
+        $ajuste = (float) $factura->ajuste_al_peso;
+
+        if ($ajuste > 0) {
+            $items[] = [
+                'quantity' => 1,
+                'discount' => 0,
+                'product' => [
+                    'description' => 'Ajuste al peso',
+                    'product_key' => self::CLAVE_PROD_SERV_GENERICA,
+                    'unit_key' => self::CLAVE_UNIDAD_AJUSTE,
+                    'price' => $ajuste,
+                    'tax_included' => false,
+                    'taxes' => [],
+                ],
+            ];
+        }
 
         return [
             'type' => InvoiceType::INGRESO,

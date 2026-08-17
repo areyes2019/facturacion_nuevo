@@ -16,9 +16,21 @@ use App\Enums\TipoDescuento;
  * (proporcional a su importe) antes de calcular el IVA de cada una, para que el descuento
  * reduzca la base gravable como corresponde fiscalmente, y para que `FacturapiService` pueda
  * enviar esa misma porción prorrateada dentro del `discount` de cada ítem a facturapi.io.
+ *
+ * El último eslabón es el ajuste al peso cerrado de 030-total-al-peso-cerrado.md, y solo se aplica
+ * a quien lo pide: facturas, cotizaciones y pedidos sí, órdenes de compra no.
  */
 class FacturaTotalesCalculator
 {
+    /**
+     * Franja en la que un total que ya quedó por encima de un peso cerrado se deja donde está en
+     * vez de brincar al siguiente (ver 030-total-al-peso-cerrado.md, adición técnica 14). El
+     * redondeo del precio con IVA de 024 puede caer del otro lado y empujar el total uno o dos
+     * centavos arriba del múltiplo —25 piezas de un artículo de $24.00 dan $600.01—; sin esta
+     * franja, `ceil` cobraría $601.00.
+     */
+    private const TOLERANCIA_PESO_CERRADO = 0.05;
+
     /**
      * @param  array<int, array{cantidad: int, precio_unitario: float, descuento_tipo: ?string, descuento_valor: ?float, tasa_iva: string}>  $lineas
      * @return array{
@@ -28,6 +40,7 @@ class FacturaTotalesCalculator
      *     total_iva_16: float,
      *     total_iva_0: float,
      *     total_exento: float,
+     *     ajuste_al_peso: float,
      *     total: float,
      * }
      */
@@ -35,6 +48,7 @@ class FacturaTotalesCalculator
         array $lineas,
         ?string $descuentoGlobalTipo,
         ?float $descuentoGlobalValor,
+        bool $redondearAlPeso = false,
     ): array {
         // Primera pasada: importe de cada línea neto de su propio descuento, antes del global.
         $importesPorLinea = [];
@@ -84,6 +98,7 @@ class FacturaTotalesCalculator
         $totalExento = round($ivaPorTasa[TasaIva::Exento->value], 2);
 
         $total = round($subtotal - $descuentoGlobal + $totalIva16 + $totalIva0, 2);
+        $ajusteAlPeso = $redondearAlPeso ? self::ajusteAlPeso($total) : 0.0;
 
         return [
             'lineas' => $lineasCalculadas,
@@ -92,8 +107,22 @@ class FacturaTotalesCalculator
             'total_iva_16' => $totalIva16,
             'total_iva_0' => $totalIva0,
             'total_exento' => $totalExento,
-            'total' => $total,
+            'ajuste_al_peso' => $ajusteAlPeso,
+            'total' => round($total + $ajusteAlPeso, 2),
         ];
+    }
+
+    /**
+     * Centavos que le faltan al total para quedar en un peso cerrado (ver
+     * 030-total-al-peso-cerrado.md). Nunca es negativo —el total no baja jamás por redondeo— y
+     * nunca pasa de $0.99. Un total que ya está dentro de la tolerancia por encima de un peso
+     * cerrado no se mueve, y un documento en ceros se queda en $0.00.
+     */
+    public static function ajusteAlPeso(float $total): float
+    {
+        $objetivo = ceil(round($total - self::TOLERANCIA_PESO_CERRADO, 2));
+
+        return max(0.0, round($objetivo - $total, 2));
     }
 
     /**

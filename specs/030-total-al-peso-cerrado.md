@@ -259,6 +259,23 @@ de totales del carrito de mostrador y el PDF de [019](019-formato-pdf-documentos
 - **Recalcular cotizaciones y pedidos viejos** con una migración de datos.
 - **Historial** del total previo al ajuste.
 
+## Estado de implementación
+
+Implementada el 2026-08-17, salvo la verificación en el sandbox de facturapi.io.
+
+- **El eslabón vive en un solo lugar por lado**: `FacturaTotalesCalculator::ajusteAlPeso()` y su
+  espejo `ajusteAlPeso` de `totalesDocumento.ts`. Los cuatro llamadores del calculador que sí
+  redondean lo piden con `redondearAlPeso: true`; `OrdenCompraController` e `InventarioController`
+  no se tocaron y siguen dando los mismos números.
+- **Un solo test existente cambió de números**: `DescuentoClienteTest` mandaba totales escritos a
+  mano ($985.99 y $887.39) que ahora son $986.00 y $888.00. Ninguna otra prueba de las 566 se movió,
+  que es la señal de que el eslabón no alteró subtotales, importes por línea ni IVA.
+- **El barrido corre en las dos suites** sobre las 190 cantidades y sobre los 200,000 totales de
+  $0.01 a $2,000.00. Es de donde salieron las 800 mil aserciones de la suite de PHPUnit.
+- **Falta timbrar en el sandbox** una factura con ajuste para confirmar que facturapi.io acepta el
+  concepto con `taxes: []` (criterio 11). Hasta entonces, el riesgo del supuesto 20 sigue abierto:
+  el código está escrito y probado contra el payload, no contra la respuesta real del PAC.
+
 ## Criterios de aceptación
 
 1. El total de una factura, una cotización o un pedido guardados por el sistema es un peso cerrado

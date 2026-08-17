@@ -83,10 +83,10 @@ const dialogoCorreo = ref(false)
 const compartiendo = ref(false)
 const avisoEnvio = ref<string | null>(null)
 
-/** El PDF y el XML ya bajados, listos para el menú de compartir (ver 029, supuesto 78). */
-const archivos = ref<ArchivoCompartible[] | null>(null)
+/** El PDF ya bajado, listo para el menú de compartir (ver 029, supuesto 78). */
+const archivo = ref<ArchivoCompartible | null>(null)
 
-const totales = computed(() => calcularTotales(lineas.value, null, null))
+const totales = computed(() => calcularTotales(lineas.value, null, null, true))
 
 const metodoPagoTexto = computed(
   () => METODOS_PAGO.find((metodo) => metodo.id === metodoPago.value)?.texto ?? '',
@@ -158,9 +158,8 @@ async function timbrar() {
 }
 
 /**
- * Baja el PDF y el XML en cuanto la factura queda timbrada. El XML viaja hasta facturapi, así que
- * esperarlo después del toque agotaría el gesto que el menú del aparato necesita (ver 029,
- * supuesto 78).
+ * Baja el PDF en cuanto la factura queda timbrada: al tocar el botón ya no puede haber esperas de
+ * por medio o el menú del aparato se rechaza (ver 029, supuesto 78).
  */
 async function prepararEnvio() {
   if (factura.value === null) return
@@ -169,7 +168,7 @@ async function prepararEnvio() {
   avisoEnvio.value = null
 
   try {
-    archivos.value = await facturas.archivosParaWhatsapp(factura.value)
+    archivo.value = await facturas.archivoParaWhatsapp(factura.value)
   } catch (err) {
     avisoEnvio.value = await mensajeDeFallaDeDescarga(err)
   } finally {
@@ -177,20 +176,23 @@ async function prepararEnvio() {
   }
 }
 
-/** El PDF y el XML salen del servidor y los comparte el aparato (ver 029). */
+/**
+ * Por WhatsApp va **solo el PDF**: Chrome no admite `.xml` entre los tipos que su menú comparte, y
+ * un grupo con el XML dentro se rechaza entero. El XML sale por correo, que es el botón de abajo
+ * (ver 029, supuestos 81 y 82).
+ */
 async function compartirPorWhatsapp() {
-  if (factura.value === null || archivos.value === null) return
+  if (factura.value === null || archivo.value === null) return
 
   avisoEnvio.value = null
 
   try {
-    const resultado = await facturas.compartirPorWhatsapp(factura.value, archivos.value)
+    const resultado = await facturas.compartirPorWhatsapp(factura.value, archivo.value)
 
     if (resultado === 'descargado') {
-      avisoEnvio.value =
-        'PDF y XML descargados: adjúntalos en la ventana de WhatsApp que acaba de abrirse.'
+      avisoEnvio.value = 'PDF descargado: adjúntalo en la ventana de WhatsApp que acaba de abrirse.'
     } else if (resultado === 'compartido') {
-      avisoEnvio.value = 'Factura compartida.'
+      avisoEnvio.value = 'Factura compartida. El XML va por correo.'
     }
   } catch (err) {
     avisoEnvio.value = mensajeDeFalla(err)
@@ -229,7 +231,7 @@ function nuevaFactura() {
   error.value = null
   correo.value = ''
   avisoEnvio.value = null
-  archivos.value = null
+  archivo.value = null
   paso.value = 0
 }
 </script>

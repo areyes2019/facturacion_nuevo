@@ -129,6 +129,9 @@ class AutofacturaService
             'total_iva_16' => $pedido->total_iva_16,
             'total_iva_0' => $pedido->total_iva_0,
             'total_exento' => $pedido->total_exento,
+            // El ajuste viaja con los demás totales para que la factura diga exactamente el mismo
+            // total que el ticket que se llevó el cliente (ver 030-total-al-peso-cerrado.md).
+            'ajuste_al_peso' => $pedido->ajuste_al_peso,
             'total' => $pedido->total,
         ]);
 

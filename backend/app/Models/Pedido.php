@@ -40,6 +40,7 @@ use Illuminate\Support\Str;
     'total_iva_16',
     'total_iva_0',
     'total_exento',
+    'ajuste_al_peso',
     'total',
     'entregado_en',
     'factura_id',
@@ -256,6 +257,7 @@ class Pedido extends Model
             'total_iva_16' => 'decimal:2',
             'total_iva_0' => 'decimal:2',
             'total_exento' => 'decimal:2',
+            'ajuste_al_peso' => 'decimal:2',
             'total' => 'decimal:2',
             'entregado_en' => 'datetime',
         ];

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath, URL } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
-import { calcularTotales, prorratear, type LineaCalculable } from './totalesDocumento'
+import { ajusteAlPeso, calcularTotales, prorratear, type LineaCalculable } from './totalesDocumento'
 import type { TipoDescuento } from '../stores/facturas'
 
 /**
@@ -16,12 +16,14 @@ interface CasoDelFixture {
   lineas: LineaCalculable[]
   descuento_global_tipo: TipoDescuento | null
   descuento_global_valor: number | null
+  redondear_al_peso: boolean
   esperado: {
     subtotal: number
     total_descuento: number
     total_iva_16: number
     total_iva_0: number
     total_exento: number
+    ajuste_al_peso: number
     total: number
     lineas: { importe: number; iva_importe: number }[]
   }
@@ -42,6 +44,7 @@ describe('totales del documento contra el fixture compartido', () => {
       caso.lineas,
       caso.descuento_global_tipo,
       caso.descuento_global_valor,
+      caso.redondear_al_peso,
     )
 
     expect(totales.subtotal).toBe(caso.esperado.subtotal)
@@ -49,6 +52,7 @@ describe('totales del documento contra el fixture compartido', () => {
     expect(totales.total_iva_16).toBe(caso.esperado.total_iva_16)
     expect(totales.total_iva_0).toBe(caso.esperado.total_iva_0)
     expect(totales.total_exento).toBe(caso.esperado.total_exento)
+    expect(totales.ajuste_al_peso).toBe(caso.esperado.ajuste_al_peso)
     expect(totales.total).toBe(caso.esperado.total)
 
     expect(totales.lineas).toHaveLength(caso.esperado.lineas.length)
@@ -56,6 +60,66 @@ describe('totales del documento contra el fixture compartido', () => {
       expect(totales.lineas[i].importe).toBe(lineaEsperada.importe)
       expect(totales.lineas[i].iva_importe).toBe(lineaEsperada.iva_importe)
     })
+  })
+})
+
+/**
+ * Barrido de specs/030-total-al-peso-cerrado.md, espejo del de PHPUnit: con un artículo cuyo precio
+ * con IVA es un peso cerrado, cualquier cantidad hasta 190 piezas da un total que es exactamente el
+ * múltiplo de ese precio.
+ */
+describe('ajuste al peso cerrado', () => {
+  it('el total ajustado es el multiplo exacto del precio con IVA hasta 190 piezas', () => {
+    const precioSinIva = 175.86
+    const precioConIva = 204.0
+
+    for (let cantidad = 1; cantidad <= 190; cantidad++) {
+      const totales = calcularTotales(
+        [
+          {
+            cantidad,
+            precio_unitario: precioSinIva,
+            descuento_tipo: null,
+            descuento_valor: null,
+            tasa_iva: '16',
+          },
+        ],
+        null,
+        null,
+        true,
+      )
+
+      expect(totales.total).toBe(Math.round(cantidad * precioConIva * 100) / 100)
+      expect(totales.ajuste_al_peso).toBeGreaterThanOrEqual(0)
+      expect(totales.ajuste_al_peso).toBeLessThan(1)
+    }
+  })
+
+  it('nunca baja el total ni pasa de un peso', () => {
+    for (let centavos = 0; centavos <= 200000; centavos++) {
+      const total = Math.round(centavos) / 100
+      const ajuste = ajusteAlPeso(total)
+
+      expect(ajuste).toBeGreaterThanOrEqual(0)
+      expect(ajuste).toBeLessThan(1)
+
+      const centavosFinales = Math.round((total + ajuste) * 100) % 100
+
+      expect(centavosFinales === 0 || centavosFinales <= 5).toBe(true)
+    }
+  })
+
+  it('sin pedirlo, el total no se mueve', () => {
+    const linea: LineaCalculable = {
+      cantidad: 3,
+      precio_unitario: 175.86,
+      descuento_tipo: null,
+      descuento_valor: null,
+      tasa_iva: '16',
+    }
+
+    expect(calcularTotales([linea], null, null).total).toBe(611.99)
+    expect(calcularTotales([linea], null, null).ajuste_al_peso).toBe(0)
   })
 })
 

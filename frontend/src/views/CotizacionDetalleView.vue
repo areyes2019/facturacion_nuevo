@@ -115,14 +115,14 @@ const destinatarios = ref('')
 const enviando = ref(false)
 const errorEnviar = ref<string | null>(null)
 const enviadoOk = ref(false)
-const archivos = ref<ArchivoCompartible[] | null>(null)
+const archivo = ref<ArchivoCompartible | null>(null)
 
 function abrirEnviar() {
   canalEnvio.value = 'correo'
   destinatarios.value = cotizacion.value?.cliente_correo ?? ''
   errorEnviar.value = null
   enviadoOk.value = false
-  archivos.value = null
+  archivo.value = null
   mostrarEnviar.value = true
 }
 
@@ -132,7 +132,7 @@ function abrirEnviar() {
  * 029-pwa-mostrador.md, supuesto 78).
  */
 watch([canalEnvio, mostrarEnviar], async ([canal, abierto]) => {
-  if (!abierto || canal !== 'whatsapp' || archivos.value !== null || cotizacion.value === null) {
+  if (!abierto || canal !== 'whatsapp' || archivo.value !== null || cotizacion.value === null) {
     return
   }
 
@@ -140,7 +140,7 @@ watch([canalEnvio, mostrarEnviar], async ([canal, abierto]) => {
   errorEnviar.value = null
 
   try {
-    archivos.value = await cotizacionesStore.archivosParaWhatsapp(cotizacion.value)
+    archivo.value = await cotizacionesStore.archivoParaWhatsapp(cotizacion.value)
   } catch (err) {
     errorEnviar.value = await mensajeDeFallaDeDescarga(err)
   } finally {
@@ -162,11 +162,11 @@ async function confirmarEnviar() {
       await cotizacionesStore.enviar(cotizacion.value.id, { canal: 'correo', destinatarios: lista })
       enviadoOk.value = true
     } else {
-      if (archivos.value === null) return
+      if (archivo.value === null) return
 
       const resultado = await cotizacionesStore.compartirPorWhatsapp(
         cotizacion.value,
-        archivos.value,
+        archivo.value,
       )
       enviadoOk.value = resultado !== 'cancelado'
     }
@@ -514,6 +514,9 @@ async function onDuplicar() {
             </div>
             <div class="flex justify-between">
               <span>IVA 16%</span><span>${{ cotizacion.total_iva_16.toFixed(2) }}</span>
+            </div>
+            <div v-if="cotizacion.ajuste_al_peso > 0" class="flex justify-between">
+              <span>Ajuste al peso</span><span>${{ cotizacion.ajuste_al_peso.toFixed(2) }}</span>
             </div>
             <div class="text-foreground flex justify-between border-t pt-1 text-base font-semibold">
               <span>Total</span><span>${{ cotizacion.total.toFixed(2) }}</span>

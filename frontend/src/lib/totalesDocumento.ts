@@ -31,6 +31,7 @@ export interface TotalesDocumento {
   total_iva_16: number
   total_iva_0: number
   total_exento: number
+  ajuste_al_peso: number
   total: number
   /** Monto monetario del descuento global, para mostrarlo por separado en el resumen. */
   descuento_global: number
@@ -38,6 +39,22 @@ export interface TotalesDocumento {
 
 export function redondeo2(valor: number): number {
   return Math.round(valor * 100) / 100
+}
+
+/**
+ * Franja en la que un total que ya quedó por encima de un peso cerrado se deja donde está en vez de
+ * brincar al siguiente (ver specs/030-total-al-peso-cerrado.md, adición técnica 14).
+ */
+const TOLERANCIA_PESO_CERRADO = 0.05
+
+/**
+ * Centavos que le faltan al total para quedar en un peso cerrado. Nunca es negativo y nunca pasa de
+ * $0.99; un documento en ceros se queda en $0.00.
+ */
+export function ajusteAlPeso(total: number): number {
+  const objetivo = Math.ceil(redondeo2(total - TOLERANCIA_PESO_CERRADO))
+
+  return Math.max(0, redondeo2(objetivo - total))
 }
 
 function tasa(tasaIva: TasaIva): number {
@@ -92,6 +109,7 @@ export function calcularTotales(
   lineas: LineaCalculable[],
   descuentoGlobalTipo: TipoDescuento | null,
   descuentoGlobalValor: number | null,
+  redondearAlPeso = false,
 ): TotalesDocumento {
   // Primera pasada: importe de cada línea neto de su propio descuento, antes del global.
   const importesPorLinea: number[] = []
@@ -136,6 +154,9 @@ export function calcularTotales(
   totalIva0 = redondeo2(totalIva0)
   totalExento = redondeo2(totalExento)
 
+  const total = redondeo2(subtotal - descuentoGlobal + totalIva16 + totalIva0)
+  const ajuste = redondearAlPeso ? ajusteAlPeso(total) : 0
+
   return {
     lineas: lineasCalculadas,
     subtotal,
@@ -143,7 +164,8 @@ export function calcularTotales(
     total_iva_16: totalIva16,
     total_iva_0: totalIva0,
     total_exento: totalExento,
-    total: redondeo2(subtotal - descuentoGlobal + totalIva16 + totalIva0),
+    ajuste_al_peso: ajuste,
+    total: redondeo2(total + ajuste),
     descuento_global: descuentoGlobal,
   }
 }

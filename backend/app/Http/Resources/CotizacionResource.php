@@ -33,6 +33,7 @@ class CotizacionResource extends JsonResource
             'total_iva_16' => (float) $this->total_iva_16,
             'total_iva_0' => (float) $this->total_iva_0,
             'total_exento' => (float) $this->total_exento,
+            'ajuste_al_peso' => (float) $this->ajuste_al_peso,
             'total' => (float) $this->total,
             'total_pagado' => (float) $this->totalPagado(),
             'saldo_pendiente' => (float) max(0, $this->total - $this->totalPagado()),

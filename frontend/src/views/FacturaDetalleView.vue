@@ -329,6 +329,9 @@ async function confirmarComplemento() {
             <div class="flex justify-between">
               <span>IVA 16%</span><span>${{ factura.total_iva_16.toFixed(2) }}</span>
             </div>
+            <div v-if="factura.ajuste_al_peso > 0" class="flex justify-between">
+              <span>Ajuste al peso</span><span>${{ factura.ajuste_al_peso.toFixed(2) }}</span>
+            </div>
             <div class="text-foreground flex justify-between border-t pt-1 text-base font-semibold">
               <span>Total</span><span>${{ factura.total.toFixed(2) }}</span>
             </div>

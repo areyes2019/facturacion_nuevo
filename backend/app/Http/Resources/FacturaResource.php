@@ -33,6 +33,7 @@ class FacturaResource extends JsonResource
             'total_iva_16' => (float) $this->total_iva_16,
             'total_iva_0' => (float) $this->total_iva_0,
             'total_exento' => (float) $this->total_exento,
+            'ajuste_al_peso' => (float) $this->ajuste_al_peso,
             'total' => (float) $this->total,
             'uuid_fiscal' => $this->uuid_fiscal,
             'facturapi_serie' => $this->facturapi_serie,

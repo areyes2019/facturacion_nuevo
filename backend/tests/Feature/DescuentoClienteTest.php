@@ -242,7 +242,7 @@ test('el precio de facturacion pliega el descuento de linea dentro del precio', 
     $response = $this->actingAs($user)->postJson('/api/v1/cotizaciones', [
         'cliente_id' => $cliente->id,
         'lineas' => [lineaConDescuento($articulo)],
-        'total' => 985.99,
+        'total' => 986.0,
     ]);
 
     $response->assertCreated();
@@ -318,7 +318,7 @@ test('la factura precargada desde la cotizacion paga el mismo total sin mostrar 
     $cotizacion = $this->actingAs($user)->postJson('/api/v1/cotizaciones', [
         'cliente_id' => $cliente->id,
         'lineas' => [lineaConDescuento($articulo)],
-        'total' => 985.99,
+        'total' => 986.0,
     ])->json('data');
 
     $this->mock(FacturapiService::class, function ($mock) {
@@ -343,7 +343,7 @@ test('la factura precargada desde la cotizacion paga el mismo total sin mostrar 
             'descuento_valor' => null,
             'tasa_iva' => '16',
         ]],
-        'total' => 985.99,
+        'total' => 986.0,
     ]);
 
     $factura->assertCreated();
@@ -365,7 +365,7 @@ test('el descuento global de la cotizacion si viaja visible a la factura', funct
         'lineas' => [lineaConDescuento($articulo)],
         'descuento_global_tipo' => 'porcentaje',
         'descuento_global_valor' => 10,
-        'total' => 887.39,
+        'total' => 888.0,
     ])->json('data');
 
     $this->mock(FacturapiService::class, function ($mock) {
@@ -390,7 +390,7 @@ test('el descuento global de la cotizacion si viaja visible a la factura', funct
         ]],
         'descuento_global_tipo' => 'porcentaje',
         'descuento_global_valor' => 10,
-        'total' => 887.39,
+        'total' => 888.0,
     ]);
 
     $factura->assertCreated();

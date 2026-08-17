@@ -1,6 +1,6 @@
 {
-  "descripcion": "Casos del calculo de totales de un documento (factura, cotizacion u orden de compra), ver specs/012-ordenes-compra.md. Definicion ejecutable compartida: la consumen PHPUnit sobre FacturaTotalesCalculator y Vitest sobre frontend/src/lib/totalesDocumento.ts, de modo que cambiar una implementacion sin la otra rompe la suite del lado no tocado. Todos los montos van en MXN.",
-  "algoritmo": "Dos pasadas. Primera: importe de cada linea = redondeo2(cantidad * precio_unitario) menos su propio descuento; subtotal = suma de esos importes. Segunda: el descuento global se convierte a monto y se prorratea entre las lineas proporcional a su importe (la ultima absorbe el residuo), y el IVA de cada linea se calcula sobre su importe ya neto de esa parte. total = subtotal - descuento_global + total_iva_16 + total_iva_0. El importe que se persiste por linea es el neto ANTES del descuento global; solo el IVA lo refleja.",
+  "descripcion": "Casos del calculo de totales de un documento (factura, cotizacion, pedido u orden de compra), ver specs/012-ordenes-compra.md y specs/030-total-al-peso-cerrado.md. Definicion ejecutable compartida: la consumen PHPUnit sobre FacturaTotalesCalculator y Vitest sobre frontend/src/lib/totalesDocumento.ts, de modo que cambiar una implementacion sin la otra rompe la suite del lado no tocado. Todos los montos van en MXN.",
+  "algoritmo": "Dos pasadas y un ajuste final. Primera: importe de cada linea = redondeo2(cantidad * precio_unitario) menos su propio descuento; subtotal = suma de esos importes. Segunda: el descuento global se convierte a monto y se prorratea entre las lineas proporcional a su importe (la ultima absorbe el residuo), y el IVA de cada linea se calcula sobre su importe ya neto de esa parte. total = subtotal - descuento_global + total_iva_16 + total_iva_0. El importe que se persiste por linea es el neto ANTES del descuento global; solo el IVA lo refleja. Al final, si redondear_al_peso es true, ajuste_al_peso = max(0, ceil(total - 0.05) - total) y el total lo incluye: el total sube al peso cerrado, nunca baja, y un total que ya quedo hasta cinco centavos por encima de un peso cerrado se deja donde esta.",
   "casos": [
     {
       "descripcion": "sin descuentos: dos piezas a 100 con IVA del 16%",
@@ -15,12 +15,14 @@
       ],
       "descuento_global_tipo": null,
       "descuento_global_valor": null,
+      "redondear_al_peso": false,
       "esperado": {
         "subtotal": 200.0,
         "total_descuento": 0.0,
         "total_iva_16": 32.0,
         "total_iva_0": 0.0,
         "total_exento": 0.0,
+        "ajuste_al_peso": 0.0,
         "total": 232.0,
         "lineas": [{ "importe": 200.0, "iva_importe": 32.0 }]
       }
@@ -38,12 +40,14 @@
       ],
       "descuento_global_tipo": "monto",
       "descuento_global_valor": 500.0,
+      "redondear_al_peso": false,
       "esperado": {
         "subtotal": 1000.0,
         "total_descuento": 500.0,
         "total_iva_16": 80.0,
         "total_iva_0": 0.0,
         "total_exento": 0.0,
+        "ajuste_al_peso": 0.0,
         "total": 580.0,
         "lineas": [{ "importe": 1000.0, "iva_importe": 80.0 }]
       }
@@ -68,12 +72,14 @@
       ],
       "descuento_global_tipo": "monto",
       "descuento_global_valor": 500.0,
+      "redondear_al_peso": false,
       "esperado": {
         "subtotal": 1000.0,
         "total_descuento": 500.0,
         "total_iva_16": 80.0,
         "total_iva_0": 0.0,
         "total_exento": 0.0,
+        "ajuste_al_peso": 0.0,
         "total": 580.0,
         "lineas": [
           { "importe": 700.0, "iva_importe": 56.0 },
@@ -108,12 +114,14 @@
       ],
       "descuento_global_tipo": "monto",
       "descuento_global_valor": 100.0,
+      "redondear_al_peso": false,
       "esperado": {
         "subtotal": 300.0,
         "total_descuento": 100.0,
         "total_iva_16": 32.01,
         "total_iva_0": 0.0,
         "total_exento": 0.0,
+        "ajuste_al_peso": 0.0,
         "total": 232.01,
         "lineas": [
           { "importe": 100.0, "iva_importe": 10.67 },
@@ -149,12 +157,14 @@
       ],
       "descuento_global_tipo": null,
       "descuento_global_valor": null,
+      "redondear_al_peso": false,
       "esperado": {
         "subtotal": 705.0,
         "total_descuento": 45.0,
         "total_iva_16": 64.8,
         "total_iva_0": 0.0,
         "total_exento": 0.0,
+        "ajuste_al_peso": 0.0,
         "total": 769.8,
         "lineas": [
           { "importe": 405.0, "iva_importe": 64.8 },
@@ -183,12 +193,14 @@
       ],
       "descuento_global_tipo": "porcentaje",
       "descuento_global_valor": 10.0,
+      "redondear_al_peso": false,
       "esperado": {
         "subtotal": 1500.0,
         "total_descuento": 150.0,
         "total_iva_16": 144.0,
         "total_iva_0": 0.0,
         "total_exento": 0.0,
+        "ajuste_al_peso": 0.0,
         "total": 1494.0,
         "lineas": [
           { "importe": 1000.0, "iva_importe": 144.0 },
@@ -209,12 +221,14 @@
       ],
       "descuento_global_tipo": null,
       "descuento_global_valor": null,
+      "redondear_al_peso": false,
       "esperado": {
         "subtotal": 123.32,
         "total_descuento": 10.0,
         "total_iva_16": 19.73,
         "total_iva_0": 0.0,
         "total_exento": 0.0,
+        "ajuste_al_peso": 0.0,
         "total": 143.05,
         "lineas": [{ "importe": 123.32, "iva_importe": 19.73 }]
       }
@@ -232,14 +246,208 @@
       ],
       "descuento_global_tipo": null,
       "descuento_global_valor": null,
+      "redondear_al_peso": false,
       "esperado": {
         "subtotal": 0.21,
         "total_descuento": 0.0,
         "total_iva_16": 0.03,
         "total_iva_0": 0.0,
         "total_exento": 0.0,
+        "ajuste_al_peso": 0.0,
         "total": 0.24,
         "lineas": [{ "importe": 0.21, "iva_importe": 0.03 }]
+      }
+    },
+    {
+      "descripcion": "ajuste al peso: 3 sellos de 204.00 con IVA suben de 611.99 a 612.00",
+      "lineas": [
+        {
+          "cantidad": 3,
+          "precio_unitario": 175.86,
+          "descuento_tipo": null,
+          "descuento_valor": null,
+          "tasa_iva": "16"
+        }
+      ],
+      "descuento_global_tipo": null,
+      "descuento_global_valor": null,
+      "redondear_al_peso": true,
+      "esperado": {
+        "subtotal": 527.58,
+        "total_descuento": 0.0,
+        "total_iva_16": 84.41,
+        "total_iva_0": 0.0,
+        "total_exento": 0.0,
+        "ajuste_al_peso": 0.01,
+        "total": 612.0,
+        "lineas": [{ "importe": 527.58, "iva_importe": 84.41 }]
+      }
+    },
+    {
+      "descripcion": "ajuste al peso: 6 piezas de 234.00 con IVA suben de 1403.97 a 1404.00",
+      "lineas": [
+        {
+          "cantidad": 6,
+          "precio_unitario": 201.72,
+          "descuento_tipo": null,
+          "descuento_valor": null,
+          "tasa_iva": "16"
+        }
+      ],
+      "descuento_global_tipo": null,
+      "descuento_global_valor": null,
+      "redondear_al_peso": true,
+      "esperado": {
+        "subtotal": 1210.32,
+        "total_descuento": 0.0,
+        "total_iva_16": 193.65,
+        "total_iva_0": 0.0,
+        "total_exento": 0.0,
+        "ajuste_al_peso": 0.03,
+        "total": 1404.0,
+        "lineas": [{ "importe": 1210.32, "iva_importe": 193.65 }]
+      }
+    },
+    {
+      "descripcion": "ajuste al peso: un total que ya es peso cerrado no se mueve",
+      "lineas": [
+        {
+          "cantidad": 1,
+          "precio_unitario": 201.72,
+          "descuento_tipo": null,
+          "descuento_valor": null,
+          "tasa_iva": "16"
+        }
+      ],
+      "descuento_global_tipo": null,
+      "descuento_global_valor": null,
+      "redondear_al_peso": true,
+      "esperado": {
+        "subtotal": 201.72,
+        "total_descuento": 0.0,
+        "total_iva_16": 32.28,
+        "total_iva_0": 0.0,
+        "total_exento": 0.0,
+        "ajuste_al_peso": 0.0,
+        "total": 234.0,
+        "lineas": [{ "importe": 201.72, "iva_importe": 32.28 }]
+      }
+    },
+    {
+      "descripcion": "ajuste al peso: con descuento de linea el ajuste llega a 41 centavos",
+      "lineas": [
+        {
+          "cantidad": 1,
+          "precio_unitario": 175.86,
+          "descuento_tipo": "porcentaje",
+          "descuento_valor": 10.0,
+          "tasa_iva": "16"
+        }
+      ],
+      "descuento_global_tipo": null,
+      "descuento_global_valor": null,
+      "redondear_al_peso": true,
+      "esperado": {
+        "subtotal": 158.27,
+        "total_descuento": 17.59,
+        "total_iva_16": 25.32,
+        "total_iva_0": 0.0,
+        "total_exento": 0.0,
+        "ajuste_al_peso": 0.41,
+        "total": 184.0,
+        "lineas": [{ "importe": 158.27, "iva_importe": 25.32 }]
+      }
+    },
+    {
+      "descripcion": "ajuste al peso: un total un centavo arriba del peso cerrado se queda ahi (25 piezas de 24.00)",
+      "lineas": [
+        {
+          "cantidad": 25,
+          "precio_unitario": 20.69,
+          "descuento_tipo": null,
+          "descuento_valor": null,
+          "tasa_iva": "16"
+        }
+      ],
+      "descuento_global_tipo": null,
+      "descuento_global_valor": null,
+      "redondear_al_peso": true,
+      "esperado": {
+        "subtotal": 517.25,
+        "total_descuento": 0.0,
+        "total_iva_16": 82.76,
+        "total_iva_0": 0.0,
+        "total_exento": 0.0,
+        "ajuste_al_peso": 0.0,
+        "total": 600.01,
+        "lineas": [{ "importe": 517.25, "iva_importe": 82.76 }]
+      }
+    },
+    {
+      "descripcion": "ajuste al peso: una linea exenta tambien cierra en pesos",
+      "lineas": [
+        {
+          "cantidad": 1,
+          "precio_unitario": 100.5,
+          "descuento_tipo": null,
+          "descuento_valor": null,
+          "tasa_iva": "exento"
+        }
+      ],
+      "descuento_global_tipo": null,
+      "descuento_global_valor": null,
+      "redondear_al_peso": true,
+      "esperado": {
+        "subtotal": 100.5,
+        "total_descuento": 0.0,
+        "total_iva_16": 0.0,
+        "total_iva_0": 0.0,
+        "total_exento": 0.0,
+        "ajuste_al_peso": 0.5,
+        "total": 101.0,
+        "lineas": [{ "importe": 100.5, "iva_importe": 0.0 }]
+      }
+    },
+    {
+      "descripcion": "ajuste al peso: un documento sin lineas se queda en cero, no sube a un peso",
+      "lineas": [],
+      "descuento_global_tipo": null,
+      "descuento_global_valor": null,
+      "redondear_al_peso": true,
+      "esperado": {
+        "subtotal": 0.0,
+        "total_descuento": 0.0,
+        "total_iva_16": 0.0,
+        "total_iva_0": 0.0,
+        "total_exento": 0.0,
+        "ajuste_al_peso": 0.0,
+        "total": 0.0,
+        "lineas": []
+      }
+    },
+    {
+      "descripcion": "sin ajuste al peso los mismos 3 sellos se quedan en 611.99 (orden de compra)",
+      "lineas": [
+        {
+          "cantidad": 3,
+          "precio_unitario": 175.86,
+          "descuento_tipo": null,
+          "descuento_valor": null,
+          "tasa_iva": "16"
+        }
+      ],
+      "descuento_global_tipo": null,
+      "descuento_global_valor": null,
+      "redondear_al_peso": false,
+      "esperado": {
+        "subtotal": 527.58,
+        "total_descuento": 0.0,
+        "total_iva_16": 84.41,
+        "total_iva_0": 0.0,
+        "total_exento": 0.0,
+        "ajuste_al_peso": 0.0,
+        "total": 611.99,
+        "lineas": [{ "importe": 527.58, "iva_importe": 84.41 }]
       }
     }
   ]

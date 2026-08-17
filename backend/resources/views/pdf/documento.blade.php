@@ -224,6 +224,14 @@
             <td class="num">${{ number_format($documento->total_iva_0 + $documento->total_exento, 2) }}</td>
         </tr>
     @endif
+    {{-- Los centavos que cierran el total en peso cerrado (030-total-al-peso-cerrado.md). Una orden
+         de compra no redondea y no tiene la columna, así que este renglón nunca le sale. --}}
+    @if ((float) ($documento->ajuste_al_peso ?? 0) > 0)
+        <tr>
+            <td><strong>Ajuste al peso</strong></td>
+            <td class="num">${{ number_format($documento->ajuste_al_peso, 2) }}</td>
+        </tr>
+    @endif
     <tr class="total">
         <td><strong>Total</strong></td>
         <td class="num"><strong>${{ number_format($documento->total, 2) }} {{ $moneda }}</strong></td>

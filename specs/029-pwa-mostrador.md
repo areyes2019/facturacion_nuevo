@@ -77,7 +77,7 @@ Ninguna tabla y ninguna columna. Los cuatro caminos consumen lo que ya existe:
 | Camino     | Endpoints que usa                                                                        |
 | ---------- | ---------------------------------------------------------------------------------------- |
 | Venta      | `GET pedidos/por-telefono`, `POST pedidos`, `POST pedidos/{pedido}/pagos`, `GET pedidos/{pedido}/ticket` |
-| Factura    | `GET clientes`, `POST clientes/constancia`, `POST clientes`, `GET catalogos/usos-cfdi`, `GET catalogos/formas-pago`, `POST facturas`, `POST facturas/{factura}/timbrar`, `GET facturas/{factura}/pdf`, `GET facturas/{factura}/xml`, `POST facturas/{factura}/enviar-correo` |
+| Factura    | `GET clientes`, `POST clientes/constancia`, `POST clientes`, `GET catalogos/usos-cfdi`, `GET catalogos/formas-pago`, `POST facturas`, `POST facturas/{factura}/timbrar`, `GET facturas/{factura}/pdf`, `POST facturas/{factura}/enviar-correo` |
 | Cotización | `GET clientes`, `POST clientes/constancia`, `POST clientes`, `POST cotizaciones`, `GET cotizaciones/{cotizacion}/pdf`, `POST cotizaciones/{cotizacion}/marcar-enviada`, `POST cotizaciones/{cotizacion}/enviar` |
 | Escáner    | `POST pedidos/{pedido}/entregar`, `POST pedidos/{pedido}/deshacer-entrega`                |
 
@@ -232,8 +232,11 @@ computadora.
   abajo. La venta al público no la usa: ahí el cliente es un teléfono y un nombre, no una ficha
   fiscal.
 - **Los totales se calculan con `lib/totalesDocumento.ts`**, el mismo módulo que ya usan los
-  formularios de escritorio. No se reimplementa la aritmética: un centavo de diferencia entre las
-  dos caras del sistema sería imposible de explicarle a un cliente.
+  formularios de escritorio, **pidiéndole el ajuste al peso** de
+  [030](030-total-al-peso-cerrado.md) igual que ellos. No se reimplementa la aritmética: un centavo
+  de diferencia entre las dos caras del sistema sería imposible de explicarle a un cliente. El total
+  que se ve en la barra del carrito ya viene en peso cerrado, que es el número que el cliente
+  escucha en el mostrador.
 - **Se puede volver atrás** paso por paso sin perder lo capturado. Salirse de la captura a medias
   pide confirmación: en un celular el gesto de "atrás" está a un dedo de distancia todo el tiempo.
 
@@ -384,11 +387,18 @@ cliente ya escrito en su diálogo), "Nueva factura" e "Inicio" —la misma panta
 cotización—. Sin esos botones, el cliente se iría del mostrador con su factura timbrada y sin
 recibirla.
 
-Por WhatsApp se comparten **el PDF y el XML juntos**: un CFDI sin XML no le sirve al contador del
-cliente. Si el aparato no admite dos archivos en un mismo compartir, va solo el PDF, que es lo que el
-cliente mira, en vez de fallar sin mandar nada. Los dos archivos se bajan **al entrar a esta
-pantalla**, con las reglas de "El compartir del aparato": el XML viaja hasta facturapi y volver a por
-él después del toque agotaría el gesto que el menú necesita.
+Por WhatsApp va **solo el PDF**. El XML no puede salir por ahí: Chrome en Android comparte
+únicamente los tipos de archivo de una lista fija —imágenes, audio, video, texto plano y
+`application/pdf`— y **`.xml` no está en ella**, con ningún tipo MIME. No es que el aparato prefiera
+un archivo a dos: es que el XML nunca va a pasar por ese menú (ver "El XML no cabe en el menú del
+aparato").
+
+**El XML le llega al cliente por correo**, que es el otro botón de esta misma pantalla y que sale del
+servidor con los dos archivos adjuntos. Es el camino que el contador necesita, y era el que ya
+existía. Desde la computadora se sigue bajando con su propio botón en el detalle de la factura.
+
+El PDF se baja **al entrar a esta pantalla**, con las reglas de "El compartir del aparato": esperar a
+la descarga después del toque agotaría el gesto que el menú necesita.
 
 **Compartir no cambia el estado de la factura.** Una factura timbrada ya está timbrada, y no hay un
 "enviada" que mover como en la cotización, así que aquí no hace falta ningún `marcar-enviada`.
@@ -431,10 +441,12 @@ negocio; no hay razón para bajarlo al teléfono.
 
 ### El compartir del aparato
 
-Lo hace `compartirArchivo` de `lib/compartir.ts` —y `compartirArchivos`, su versión de varios
-archivos, para el CFDI—, la misma función con la que [027](027-venta-mostrador-ticket.md) manda el
-ticket. Se llamaba `compartirImagen`: siempre recibió un `Blob`, un nombre y un texto, y ese nombre
-describía a su único usuario, no lo que hace.
+Lo hace `compartirArchivo` de `lib/compartir.ts`, la misma función con la que
+[027](027-venta-mostrador-ticket.md) manda el ticket. Se llamaba `compartirImagen`: siempre recibió
+un `Blob`, un nombre y un texto, y ese nombre describía a su único usuario, no lo que hace.
+
+**Comparte un archivo, no varios.** Los tres documentos mandan uno solo —el ticket, el PDF de la
+cotización, el PDF de la factura— desde que el XML dejó de intentarlo.
 
 Tres reglas, y las tres existen porque sin ellas el botón falla de maneras que no se explican solas:
 
@@ -637,8 +649,8 @@ Ninguna ruta existente cambia de dirección ni de nombre.
 7. "Generar Factura" pide uso de CFDI, forma de pago y método de pago **en tres pantallas
    distintas**, cada una con un toque que elige y avanza y ninguna con opción preseleccionada, y
    termina en una pantalla de revisión con **nombre, RFC, total y esos tres datos**, desde donde
-   timbra. El resultado muestra el folio fiscal y permite mandarla por WhatsApp —con el PDF y el
-   XML— o por correo.
+   timbra. El resultado muestra el folio fiscal y permite mandarla por WhatsApp —con el PDF— o por
+   correo, que es por donde va el XML.
 8. El paso de cliente muestra tarjetas **sin escribir nada**, el buscador las filtra, y tocar una
    elige al cliente y pasa a artículos sin apretar nada más.
 9. Al cliente que no está en el catálogo se le da de alta de tres formas desde el celular: subiendo
@@ -882,9 +894,9 @@ datos fiscales de la factura y cierran su pantalla de resultado como la de la co
 74. **La pantalla final de la factura queda como la de la cotización**: "Enviar por WhatsApp",
     "Enviar por correo" en su diálogo, "Nueva factura" e "Inicio". El correo deja de ser un campo
     suelto en la pantalla.
-75. **Por WhatsApp van el PDF y el XML juntos**, y solo el PDF cuando el aparato no admite dos
-    archivos: un CFDI sin XML no le sirve al contador del cliente, pero mandar algo es mejor que
-    fallar.
+75. **Por WhatsApp va solo el PDF**, y el XML sale por correo. Chrome en Android no admite `.xml`
+    entre los tipos que su menú de compartir acepta, así que un CFDI completo por esa vía no es
+    posible (ver el bloque final de este registro).
 76. **Compartir no cambia el estado de la factura.** Una timbrada ya está timbrada y no hay un
     "enviada" que mover, así que no hace falta ningún `marcar-enviada` de su lado.
 77. **Uso de CFDI y forma de pago son el mismo componente** con otra lista: escritas dos veces se
@@ -908,3 +920,27 @@ documentos.
 80. **Los errores de las descargas se leen aunque la respuesta venga como `blob`.** Pedir un archivo
     envuelve también el JSON de error del servidor, así que sin desenvolverlo un 404 o un 502 se ven
     como un "error inesperado" que no dice nada de lo que pasó.
+
+### El XML no cabe en el menú del aparato
+
+Al compartir una factura desde la aplicación instalada, el menú del aparato **no abría**: los dos
+archivos se descargaban y se abría WhatsApp, que es el camino de respaldo. El ticket y la cotización
+sí abrían el menú. La diferencia era el XML, y no se arregla con código: es un límite del navegador.
+
+Chrome comparte únicamente los tipos de archivo de una **lista fija** —imágenes, audio, video, texto
+plano y `application/pdf`—. **`.xml` no está en esa lista**, con ningún tipo MIME, así que el sistema
+operativo rechaza el envío completo. Lo que lo hacía difícil de ver es que `navigator.canShare()`
+**no comprueba el tipo de archivo**: contesta que sí y es `navigator.share()` quien falla después,
+con un "permiso denegado" que no dice cuál de los dos archivos estorbaba.
+
+81. **El XML se retira del compartir.** No se intenta mandar y ni siquiera se descarga al abrir la
+    pantalla de resultado: una petición que viaja hasta facturapi para un archivo que nunca va a
+    salir por ahí es una espera regalada.
+82. **El XML le llega al cliente por correo**, que es el otro botón de la misma pantalla y que ya
+    adjuntaba los dos archivos. El contador sigue recibiendo el CFDI completo; lo que cambia es por
+    dónde. Desde la computadora se sigue bajando con su botón del detalle de la factura.
+83. **`compartirArchivos` desaparece y queda solo `compartirArchivo`.** Existía para mandar el PDF y
+    el XML juntos, con un respaldo que reintentaba con el primer archivo si el grupo entero no se
+    admitía. Ese respaldo nunca corrió —esperaba un `canShare` en falso que Chrome no da— y sin el
+    XML ya no hay nada que agrupar. Se quita en vez de arreglarse: un camino que ningún documento
+    recorre es un camino que se rompe sin que nadie se entere.

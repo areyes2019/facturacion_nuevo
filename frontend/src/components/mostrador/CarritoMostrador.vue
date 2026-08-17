@@ -21,7 +21,7 @@ import { Button } from '../ui/button'
 
 const lineas = defineModel<LineaEditable[]>('lineas', { required: true })
 
-const totales = computed(() => calcularTotales(lineas.value, null, null))
+const totales = computed(() => calcularTotales(lineas.value, null, null, true))
 
 function cambiarCantidad(indice: number, delta: number) {
   const linea = lineas.value[indice]

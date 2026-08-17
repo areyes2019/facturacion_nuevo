@@ -58,9 +58,9 @@ const compartiendo = ref(false)
 const avisoEnvio = ref<string | null>(null)
 
 /** El PDF ya bajado, listo para el menú de compartir (ver 029, supuesto 78). */
-const archivos = ref<ArchivoCompartible[] | null>(null)
+const archivo = ref<ArchivoCompartible | null>(null)
 
-const totales = computed(() => calcularTotales(lineas.value, null, null))
+const totales = computed(() => calcularTotales(lineas.value, null, null, true))
 
 const hayCaptura = computed(
   () => paso.value < 3 && (cliente.value !== null || lineas.value.length > 0),
@@ -115,7 +115,7 @@ async function prepararEnvio() {
   avisoEnvio.value = null
 
   try {
-    archivos.value = await cotizaciones.archivosParaWhatsapp(cotizacion.value)
+    archivo.value = await cotizaciones.archivoParaWhatsapp(cotizacion.value)
   } catch (err) {
     avisoEnvio.value = await mensajeDeFallaDeDescarga(err)
   } finally {
@@ -125,12 +125,12 @@ async function prepararEnvio() {
 
 /** El PDF sale del servidor y lo comparte el aparato: Twilio ya no participa (ver 029). */
 async function compartirPorWhatsapp() {
-  if (cotizacion.value === null || archivos.value === null) return
+  if (cotizacion.value === null || archivo.value === null) return
 
   avisoEnvio.value = null
 
   try {
-    const resultado = await cotizaciones.compartirPorWhatsapp(cotizacion.value, archivos.value)
+    const resultado = await cotizaciones.compartirPorWhatsapp(cotizacion.value, archivo.value)
 
     if (resultado === 'descargado') {
       avisoEnvio.value = 'PDF descargado: adjúntalo en la ventana de WhatsApp que acaba de abrirse.'
@@ -175,7 +175,7 @@ function nuevaCotizacion() {
   error.value = null
   correo.value = ''
   avisoEnvio.value = null
-  archivos.value = null
+  archivo.value = null
   paso.value = 0
 }
 </script>

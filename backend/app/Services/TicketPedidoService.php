@@ -144,8 +144,13 @@ class TicketPedidoService
                 $filas[] = $this->texto($renglon, self::TAM_NORMAL, 'l');
             }
 
+            // El precio va CON IVA: es el que el cliente conoce y el único con el que puede
+            // comprobar el total que lee abajo (ver 030-total-al-peso-cerrado.md). Con el precio
+            // sin IVA, la multiplicación del renglón no daba su propio importe.
+            $precioConIva = round((float) $linea->precio_unitario * (1 + $linea->tasa_iva->tasa()), 2);
+
             $filas[] = $this->par(
-                $linea->cantidad.' x '.$this->dinero((float) $linea->precio_unitario),
+                $linea->cantidad.' x '.$this->dinero($precioConIva),
                 $this->dinero((float) $linea->importe + (float) $linea->iva_importe),
                 self::TAM_CHICO,
             );
@@ -158,6 +163,9 @@ class TicketPedidoService
             $filas[] = $this->par('Descuento', '-'.$this->dinero((float) $pedido->total_descuento), self::TAM_CHICO);
         }
         $filas[] = $this->par('IVA', $this->dinero((float) $pedido->total_iva_16), self::TAM_CHICO);
+        if ((float) $pedido->ajuste_al_peso > 0) {
+            $filas[] = $this->par('Ajuste al peso', $this->dinero((float) $pedido->ajuste_al_peso), self::TAM_CHICO);
+        }
         $filas[] = $this->par('TOTAL', $this->dinero((float) $pedido->total), self::TAM_NORMAL, negrita: true);
 
         $filas[] = $this->separador();

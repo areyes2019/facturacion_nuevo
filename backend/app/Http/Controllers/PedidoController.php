@@ -424,6 +424,7 @@ class PedidoController extends Controller
             'total_iva_16' => $calculo['total_iva_16'],
             'total_iva_0' => $calculo['total_iva_0'],
             'total_exento' => $calculo['total_exento'],
+            'ajuste_al_peso' => $calculo['ajuste_al_peso'],
             'total' => $calculo['total'],
         ];
     }
@@ -437,6 +438,7 @@ class PedidoController extends Controller
      *     total_iva_16: float,
      *     total_iva_0: float,
      *     total_exento: float,
+     *     ajuste_al_peso: float,
      *     total: float,
      * }
      */
@@ -446,6 +448,7 @@ class PedidoController extends Controller
             $datos['lineas'],
             $datos['descuento_global_tipo'] ?? null,
             $datos['descuento_global_valor'] ?? null,
+            redondearAlPeso: true,
         );
 
         if (abs($calculo['total'] - (float) $datos['total']) > 0.01) {

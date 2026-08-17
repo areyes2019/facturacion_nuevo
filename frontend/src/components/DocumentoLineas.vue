@@ -63,6 +63,11 @@ const props = withDefaults(
      * precio escritos a mano. Solo la venta de mostrador la usa (ver 027).
      */
     permiteLineaLibre?: boolean
+    /**
+     * Cierra el total en peso cerrado (ver 030-total-al-peso-cerrado.md). Lo piden factura,
+     * cotizacion y pedido; la orden de compra no, porque paga lo que cobra el proveedor.
+     */
+    redondearAlPeso?: boolean
   }>(),
   {
     origenPrecio: 'venta',
@@ -71,6 +76,7 @@ const props = withDefaults(
     errorLineas: null,
     descuentoPorDefectoPorcentaje: 0,
     permiteLineaLibre: false,
+    redondearAlPeso: false,
   },
 )
 
@@ -85,7 +91,12 @@ const etiquetaPrecio = computed(() =>
 )
 
 const totales = computed(() =>
-  calcularTotales(lineas.value, descuentoGlobalTipo.value, descuentoGlobalValor.value),
+  calcularTotales(
+    lineas.value,
+    descuentoGlobalTipo.value,
+    descuentoGlobalValor.value,
+    props.redondearAlPeso,
+  ),
 )
 
 /**
@@ -323,6 +334,9 @@ function quitarLinea(indice: number) {
           </div>
           <div class="flex justify-between">
             <span>IVA 16%</span><span>${{ totales.total_iva_16.toFixed(2) }}</span>
+          </div>
+          <div v-if="totales.ajuste_al_peso > 0" class="flex justify-between">
+            <span>Ajuste al peso</span><span>${{ totales.ajuste_al_peso.toFixed(2) }}</span>
           </div>
           <div class="text-foreground flex justify-between border-t pt-1 text-base font-semibold">
             <span>Total</span><span>${{ totales.total.toFixed(2) }}</span>

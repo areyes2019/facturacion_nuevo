@@ -165,6 +165,7 @@ async function onSubmit() {
           v-model:descuento-global-valor="form.descuento_global_valor"
           :error-lineas="erroresPorCampo.lineas"
           :descuento-por-defecto-porcentaje="descuentoClienteActual"
+          redondear-al-peso
         />
 
         <div class="flex justify-end gap-2">
