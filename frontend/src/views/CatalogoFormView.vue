@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useCatalogosStore, type CatalogoPayload, type ImpactoArticulo } from '../stores/catalogos'
 import { extractErrorMessage, extractFieldErrors } from '../lib/errors'
+import { porcentajeUtilidadAlto } from '../lib/precioArticulo'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Input } from '../components/ui/input'
@@ -44,10 +45,9 @@ const form = reactive({
   utilidad_porcentaje: '0' as string,
 })
 
-// Aviso no bloqueante por encima del 200% (ver 011-precio-proveedor-utilidad.md): a partir de ahí
-// es más probable un dedazo que un markup real, pero el markup alto es legítimo y sí se guarda.
-const UMBRAL_PORCENTAJE_ALTO = 200
-const porcentajeAlto = computed(() => parseFloat(form.utilidad_porcentaje) > UMBRAL_PORCENTAJE_ALTO)
+// Aviso no bloqueante de utilidad alta (ver 011-precio-proveedor-utilidad.md y
+// 032-umbral-aviso-utilidad-alta.md): el markup alto es legítimo y sí se guarda.
+const porcentajeAlto = computed(() => porcentajeUtilidadAlto(parseFloat(form.utilidad_porcentaje)))
 const multiplicador = computed(() => (1 + parseFloat(form.utilidad_porcentaje) / 100).toFixed(2))
 
 // El proveedor es fijo desde la creación del catálogo (ver 009-catalogos.md); en edición se

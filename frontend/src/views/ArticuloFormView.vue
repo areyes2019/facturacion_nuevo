@@ -10,7 +10,13 @@ import {
 import { useCatalogosStore } from '../stores/catalogos'
 import { useConfiguracionStore } from '../stores/configuracion'
 import { extractErrorMessage, extractFieldErrors } from '../lib/errors'
-import { calcularCadena, factorIva, precioConIva, redondeo2 } from '../lib/precioArticulo'
+import {
+  calcularCadena,
+  factorIva,
+  porcentajeUtilidadAlto,
+  precioConIva,
+  redondeo2,
+} from '../lib/precioArticulo'
 import { etiquetaGoma, SIN_GOMA, TAMANOS_GOMA } from '../lib/tamanoGoma'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
@@ -141,10 +147,11 @@ const ivaMonto = computed(() =>
 )
 const ajusteRedondeo = computed(() => redondeo2(precioFinal.value - precioCrudoConIva.value))
 
-// Aviso no bloqueante: por encima de este porcentaje es mucho más probable un dedazo (1000 en vez
-// de 100) que un markup real, pero el markup alto es legítimo y no se impide guardar.
-const UMBRAL_PORCENTAJE_ALTO = 200
-const porcentajeAlto = computed(() => utilidadEfectiva.value > UMBRAL_PORCENTAJE_ALTO)
+// Aviso no bloqueante de utilidad alta (ver 032-umbral-aviso-utilidad-alta.md): por encima del
+// umbral es más probable un dedazo (1000 en vez de 100) que un markup real, pero el markup alto es
+// legítimo y no se impide guardar. Se mide sobre la utilidad efectiva, así que un artículo que
+// hereda la del catálogo avisa por lo que realmente se le va a aplicar.
+const porcentajeAlto = computed(() => porcentajeUtilidadAlto(utilidadEfectiva.value))
 
 function pesos(valor: number): string {
   return valor.toFixed(2)
@@ -482,9 +489,7 @@ async function onSubmit() {
                 <template v-if="causaIva">
                   <div class="flex justify-between gap-4 border-t py-0.5 pt-1.5">
                     <dt class="text-muted-foreground">Precio de venta sin IVA</dt>
-                    <dd class="tabular-nums">
-                      ${{ pesos(cadena.precio_venta_crudo_sin_iva) }}
-                    </dd>
+                    <dd class="tabular-nums">${{ pesos(cadena.precio_venta_crudo_sin_iva) }}</dd>
                   </div>
                   <div class="flex justify-between gap-4 py-0.5">
                     <dt class="text-muted-foreground">IVA (16%)</dt>
@@ -498,9 +503,7 @@ async function onSubmit() {
                 <template v-else>
                   <div class="flex justify-between gap-4 border-t py-0.5 pt-1.5">
                     <dt class="text-muted-foreground">Precio de venta</dt>
-                    <dd class="tabular-nums">
-                      ${{ pesos(cadena.precio_venta_crudo_sin_iva) }}
-                    </dd>
+                    <dd class="tabular-nums">${{ pesos(cadena.precio_venta_crudo_sin_iva) }}</dd>
                   </div>
                 </template>
                 <!-- El renglón del ajuste solo aparece cuando el redondeo movió algo, para no

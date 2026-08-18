@@ -5,11 +5,13 @@ import { describe, expect, it } from 'vitest'
 import {
   calcularCadena,
   factorIva,
+  porcentajeUtilidadAlto,
   precioConIva,
   precioVentaSinIva,
   redondearAPesoEntero,
   redondeo2,
   techo2,
+  UMBRAL_PORCENTAJE_ALTO,
 } from './precioArticulo'
 
 /**
@@ -178,5 +180,26 @@ describe('precioVentaSinIva', () => {
         )
       }
     }
+  })
+})
+
+describe('porcentajeUtilidadAlto', () => {
+  it('deja pasar en silencio los márgenes normales del negocio', () => {
+    for (const porcentaje of [0, 25, 55, 150, 200, 250, 300, 399.99]) {
+      expect(porcentajeUtilidadAlto(porcentaje), `${porcentaje}%`).toBe(false)
+    }
+  })
+
+  it('avisa sólo por encima del umbral, que no lo incluye', () => {
+    expect(porcentajeUtilidadAlto(UMBRAL_PORCENTAJE_ALTO)).toBe(false)
+    expect(porcentajeUtilidadAlto(UMBRAL_PORCENTAJE_ALTO + 0.01)).toBe(true)
+    expect(porcentajeUtilidadAlto(450)).toBe(true)
+    expect(porcentajeUtilidadAlto(999.99)).toBe(true)
+  })
+
+  it('no avisa sobre un campo a medio escribir', () => {
+    expect(porcentajeUtilidadAlto(parseFloat(''))).toBe(false)
+    expect(porcentajeUtilidadAlto(parseFloat('abc'))).toBe(false)
+    expect(porcentajeUtilidadAlto(Infinity)).toBe(false)
   })
 })

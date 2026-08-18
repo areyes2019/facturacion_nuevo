@@ -302,16 +302,17 @@ compartido descrito arriba.
   Precio de venta con IVA            $261.00
   ```
 
-- **Advertencia de porcentaje alto**: al superar el 200% el formulario muestra un aviso visual **no
+- **Advertencia de porcentaje alto**: al superar el 400% el formulario muestra un aviso visual **no
   bloqueante** junto al campo, para que un dedazo del tipo "1000" en vez de "100" salte a la vista
-  sin impedir un markup legítimamente alto.
+  sin impedir un markup legítimamente alto. El umbral vive en `lib/precioArticulo.ts` (ver
+  [032](032-umbral-aviso-utilidad-alta.md)).
 - Los mensajes de error de validación por campo siguen el patrón de 006 (`Input`/`Alert`),
   incluyendo el rango del porcentaje (0 a 999.99) y el precio del proveedor mayor a 0.
 
 ### `/catalogos/crear` y `/catalogos/:id/editar`
 
 - Campo **`utilidad_porcentaje`** (`Input` numérico, precargado en `0`, editable), junto al
-  `descuento` ya existente, con la misma advertencia no bloqueante sobre 200%.
+  `descuento` ya existente, con la misma advertencia no bloqueante sobre 400%.
 - **Diálogo de confirmación antes de guardar** cuando cambia `descuento` o `utilidad_porcentaje` en
   una edición: antes de enviar el `PUT`, el formulario consulta
   `GET /api/v1/catalogos-proveedor/{catalogo}/impacto-precios` con los valores nuevos y muestra el
@@ -413,7 +414,7 @@ ya no existen. Se cierra por dos vías:
 15. El formulario de artículo muestra en vivo la cadena completa de cálculo (precio de lista →
     descuento → costo → utilidad → precio de venta → IVA → precio final), actualizándose al cambiar
     cualquier campo capturado y también al cambiar de catálogo.
-16. Capturar un porcentaje mayor a 200 muestra una advertencia visual que **no** impide guardar.
+16. Capturar un porcentaje mayor a 400 muestra una advertencia visual que **no** impide guardar.
 17. Si el precio que devuelve el servidor al guardar no coincide con el que mostró el formulario, la
     aplicación lo advierte con el valor real en vez de navegar en silencio.
 18. Importar un CSV con las columnas
@@ -473,7 +474,7 @@ ya no existen. Se cierra por dos vías:
     manual" que congele el precio de venta.
 16. El porcentaje de utilidad va de 0 a 999.99, el tope natural de una columna `decimal(5,2)`. Se
     permite vender exactamente a costo (0%); no se permiten porcentajes negativos, por lo que la
-    utilidad nunca es negativa por captura. Por encima de 200% hay una advertencia visual, pero no
+    utilidad nunca es negativa por captura. Por encima de 400% hay una advertencia visual, pero no
     un bloqueo: el límite es de captura errónea, no de negocio.
 17. El recálculo en bloque se dispara con `descuento` **y** con `utilidad_porcentaje` del catálogo,
     y va **precedido de un diálogo de confirmación** que indica cuántos artículos van a cambiar de

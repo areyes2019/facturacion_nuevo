@@ -160,3 +160,23 @@ export function calcularCadena(
     utilidad: utilidad(precioVenta, costo),
   }
 }
+
+/**
+ * Umbral del aviso no bloqueante de utilidad alta (ver specs/032-umbral-aviso-utilidad-alta.md).
+ *
+ * Márgenes de 200% a 400% son operación normal de este negocio, así que el aviso empieza donde de
+ * verdad huele a un cero de más. Vive aquí y no en cada formulario porque lo consultan dos pantallas
+ * —artículo y catálogo— y un valor duplicado admite que mañana una quede en 400 y la otra no.
+ *
+ * No confundir con el límite duro de 999.99% que valida el backend: ese rechaza, éste solo avisa.
+ */
+export const UMBRAL_PORCENTAJE_ALTO = 400
+
+/**
+ * ¿El porcentaje de utilidad merece el aviso? Estrictamente mayor que el umbral: 400% exacto no
+ * avisa. Un valor no numérico —el `NaN` de un campo a medio escribir— devuelve `false`, para que el
+ * aviso no parpadee mientras se teclea.
+ */
+export function porcentajeUtilidadAlto(utilidadPorcentaje: number): boolean {
+  return Number.isFinite(utilidadPorcentaje) && utilidadPorcentaje > UMBRAL_PORCENTAJE_ALTO
+}
