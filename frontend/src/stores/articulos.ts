@@ -121,11 +121,10 @@ interface PaginationMeta {
  * Columnas numéricas ordenables del listado (ver 011-precio-proveedor-utilidad.md). El costo que se
  * muestra y por el que se ordena es el total, aparato + goma (ver 014-costo-elaboracion-goma.md).
  *
- * `id` es el orden de captura: ascendente devuelve los artículos en el orden en que se crearon, que
- * para una importación masiva es el orden de las filas del archivo
- * (ver 025-filtros-columna-listado-articulos.md).
+ * Son las únicas tres. El orden de captura no se elige: es el que trae el listado cuando `sort` va
+ * vacío, y al que se vuelve al quitar la ordenación (ver 025-filtros-columna-listado-articulos.md).
  */
-export type ArticuloSort = 'id' | 'costo_total' | 'precio_unitario_sin_iva' | 'utilidad'
+export type ArticuloSort = 'costo_total' | 'precio_unitario_sin_iva' | 'utilidad'
 export type SortDirection = 'asc' | 'desc'
 
 /**
@@ -136,7 +135,6 @@ export type SortDirection = 'asc' | 'desc'
  * catálogo es la excepción: sale de un selector, no de un campo.
  */
 export interface ArticuloFiltros {
-  id: string
   nombre: string
   modelo: string
   catalogoId: number | null
@@ -153,7 +151,6 @@ export type ArticuloFiltroTexto = Exclude<keyof ArticuloFiltros, 'catalogoId'>
 
 export function filtrosVacios(): ArticuloFiltros {
   return {
-    id: '',
     nombre: '',
     modelo: '',
     catalogoId: null,
@@ -206,7 +203,6 @@ export const useArticulosStore = defineStore('articulos', {
         search: this.search || undefined,
         sort: this.sort ?? undefined,
         direction: this.sort ? this.direction : undefined,
-        filtro_id: filtros.id || undefined,
         filtro_nombre: filtros.nombre || undefined,
         filtro_modelo: filtros.modelo || undefined,
         filtro_catalogo_id: filtros.catalogoId ?? undefined,

@@ -506,18 +506,9 @@ async function confirmarImportar() {
                     @change="alternarTodos"
                   />
                 </TableHead>
-                <!-- El id es el orden de captura: ordenado ascendente devuelve los artículos en el
-                     orden del archivo importado (ver 025-filtros-columna-listado-articulos.md). -->
-                <TableHead class="w-16">
-                  <ColumnaOrdenable
-                    etiqueta="id"
-                    class="w-full justify-end"
-                    :activa="articulos.sort === 'id'"
-                    :direccion="articulos.direction"
-                    @ordenar="articulos.toggleSort('id')"
-                  />
-                </TableHead>
-                <!-- Nombre es la única sin ancho: se queda con lo que sobre. -->
+                <!-- Nombre es la única sin ancho: se queda con lo que sobre, incluido el que dejó
+                     libre la columna del número interno, que es donde más se nota
+                     (ver 025-filtros-columna-listado-articulos.md). -->
                 <TableHead>Nombre</TableHead>
                 <TableHead class="w-32">Modelo</TableHead>
                 <TableHead class="w-44">Catálogo</TableHead>
@@ -541,19 +532,6 @@ async function confirmarImportar() {
                    los esperados (ver 025-filtros-columna-listado-articulos.md). -->
               <TableRow class="hover:bg-transparent">
                 <TableHead class="h-auto py-2"></TableHead>
-                <TableHead class="h-auto py-2">
-                  <!-- Texto y no `number`: las flechitas del control nativo se comen un tercio de
-                       una celda tan angosta, y lo que no sea un número el backend ya lo ignora en
-                       silencio (ver 025-filtros-columna-listado-articulos.md). -->
-                  <Input
-                    :model-value="articulos.filtros.id"
-                    inputmode="numeric"
-                    placeholder="="
-                    aria-label="Filtrar por id"
-                    class="h-8 px-2 text-xs"
-                    @update:model-value="(v) => onFiltro('id', v)"
-                  />
-                </TableHead>
                 <TableHead class="h-auto py-2">
                   <Input
                     :model-value="articulos.filtros.nombre"
@@ -601,7 +579,10 @@ async function confirmarImportar() {
                   </Select>
                 </TableHead>
                 <!-- Rango desde–hasta, con cada extremo independiente: en dinero nadie busca un
-                     valor exacto, busca un tramo, y la mitad de las veces con un solo número. -->
+                     valor exacto, busca un tramo, y la mitad de las veces con un solo número.
+                     Son campos de texto y no `number`: las flechitas del control nativo se comen un
+                     tercio de una celda tan angosta, y lo que no sea un número el backend ya lo
+                     ignora en silencio (ver 025-filtros-columna-listado-articulos.md). -->
                 <TableHead
                   v-for="columna in columnasNumericas"
                   :key="columna.clave"
@@ -632,7 +613,7 @@ async function confirmarImportar() {
             </TableHeader>
             <TableBody>
               <TableRow v-if="!articulos.loading && articulos.items.length === 0">
-                <TableCell colspan="9" class="text-muted-foreground py-10 text-center">
+                <TableCell colspan="8" class="text-muted-foreground py-10 text-center">
                   {{
                     articulos.hayFiltros || articulos.search
                       ? 'Ningún artículo coincide con los filtros aplicados.'
@@ -649,9 +630,6 @@ async function confirmarImportar() {
                     :value="articulo.id"
                     :aria-label="`Seleccionar ${articulo.nombre}`"
                   />
-                </TableCell>
-                <TableCell class="text-muted-foreground text-right tabular-nums">
-                  {{ articulo.id }}
                 </TableCell>
                 <TableCell>
                   <!-- El nombre es el enlace a la ficha. No hay miniatura en la tabla: las fotos

@@ -49,12 +49,10 @@ class ArticuloController extends Controller
      * total ni la utilidad están persistidos, así que se ordena por la expresión que los define
      * (ver 014-costo-elaboracion-goma.md).
      *
-     * `id` es el orden de captura: ascendente reproduce el orden del archivo de una importación
-     * masiva, que es lo único que permite revisar lo recién cargado sin recorrer el catálogo entero
+     * Son las únicas tres: el orden de captura no se pide, es el que sale cuando no se pide nada
      * (ver 025-filtros-columna-listado-articulos.md).
      */
     private const ORDENACIONES = [
-        'id' => 'id',
         'costo_total' => 'costo_con_descuento + costo_goma',
         'precio_unitario_sin_iva' => 'precio_unitario_sin_iva',
         'utilidad' => 'precio_unitario_sin_iva - (costo_con_descuento + costo_goma)',
@@ -450,8 +448,16 @@ class ArticuloController extends Controller
     }
 
     /**
-     * Aplica ?sort= y ?direction= sobre las columnas numéricas del listado. Un `sort` no reconocido
-     * se ignora y se cae al orden por defecto por nombre (ver 011-precio-proveedor-utilidad.md).
+     * Aplica ?sort= y ?direction= sobre las columnas numéricas del listado
+     * (ver 011-precio-proveedor-utilidad.md).
+     *
+     * Sin `sort` —o con uno que no se reconoce— el listado sale en **orden de captura**: `id`
+     * ascendente, que para una importación masiva es el orden de las filas del archivo. Es el orden
+     * base y no se pide, porque un orden que hubiera que pedir cada vez no resuelve "quiero ver lo
+     * que subí" (ver 025-filtros-columna-listado-articulos.md).
+     *
+     * El desempate también es por `id` y no por `nombre`: dos artículos del mismo precio salen en el
+     * orden en que se cargaron, igual que salen cuando no hay ninguna ordenación pedida.
      *
      * @param  Builder<Articulo>  $query
      * @return Builder<Articulo>
@@ -461,12 +467,12 @@ class ArticuloController extends Controller
         $expresion = self::ORDENACIONES[$request->string('sort')->toString()] ?? null;
 
         if ($expresion === null) {
-            return $query->orderBy('nombre');
+            return $query->orderBy('id');
         }
 
         $direccion = $request->string('direction')->lower()->toString() === 'desc' ? 'desc' : 'asc';
 
-        return $query->orderByRaw("$expresion $direccion")->orderBy('nombre');
+        return $query->orderByRaw("$expresion $direccion")->orderBy('id');
     }
 
     /**
@@ -505,9 +511,6 @@ class ArticuloController extends Controller
      */
     private function filtrarPorColumna(Builder $query, Request $request): Builder
     {
-        // Un id es un id, no un prefijo: igualdad exacta.
-        $query->when($request->integer('filtro_id') > 0, fn ($query) => $query->where('id', $request->integer('filtro_id')));
-
         foreach (self::FILTROS_TEXTO as $parametro => $columna) {
             $valor = $request->string($parametro)->trim()->toString();
 

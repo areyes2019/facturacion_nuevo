@@ -4,10 +4,9 @@ import { ChevronDownIcon, ChevronUpIcon } from '@heroicons/vue/24/outline'
 /**
  * Cabecera que ordena por su columna (ver 011-precio-proveedor-utilidad.md).
  *
- * Se extrajo al agregarse la columna `id` (ver 025-filtros-columna-listado-articulos.md): `id` va al
- * principio de la tabla y las columnas de dinero al final, así que el mismo control tenía que
- * dibujarse en dos lugares del `<thead>` y duplicar el marcado habría dejado dos aria-sort que
- * mantener en sincronía.
+ * Vive aparte para que el `<thead>` del listado no cargue con el estado del control —qué flecha va,
+ * qué dice `aria-sort`— repartido entre sus columnas
+ * (ver 025-filtros-columna-listado-articulos.md).
  */
 defineProps<{ etiqueta: string; activa: boolean; direccion: 'asc' | 'desc' }>()
 

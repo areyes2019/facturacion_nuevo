@@ -658,7 +658,7 @@ test('el listado ordena por las columnas numericas en ambas direcciones', functi
     'utilidad' => ['utilidad', ['Barato', 'Caro', 'Rentable']],
 ]);
 
-test('un sort no reconocido se ignora y el listado cae al orden por nombre', function () {
+test('un sort no reconocido se ignora y el listado cae al orden de captura', function () {
     $user = User::factory()->create();
     $catalogo = Catalogo::factory()->for($user)->create();
     Articulo::factory()->for($user)->for($catalogo)->create(['nombre' => 'Zeta']);
@@ -667,10 +667,10 @@ test('un sort no reconocido se ignora y el listado cae al orden por nombre', fun
     $response = $this->actingAs($user)->getJson('/api/v1/articulos?sort=precio_secreto&direction=desc');
 
     $response->assertOk();
-    expect(collect($response->json('data'))->pluck('nombre')->all())->toBe(['Alfa', 'Zeta']);
+    expect(collect($response->json('data'))->pluck('nombre')->all())->toBe(['Zeta', 'Alfa']);
 });
 
-test('la clave de orden retirada costo_con_descuento cae al orden por nombre', function () {
+test('la clave de orden retirada costo_con_descuento cae al orden de captura', function () {
     // Se retiró en favor de costo_total, que es lo que muestra el listado
     // (ver 014-costo-elaboracion-goma.md). Degrada sin error, como cualquier sort no reconocido.
     $user = User::factory()->create();
@@ -681,7 +681,7 @@ test('la clave de orden retirada costo_con_descuento cae al orden por nombre', f
     $response = $this->actingAs($user)->getJson('/api/v1/articulos?sort=costo_con_descuento&direction=asc');
 
     $response->assertOk();
-    expect(collect($response->json('data'))->pluck('nombre')->all())->toBe(['Alfa', 'Zeta']);
+    expect(collect($response->json('data'))->pluck('nombre')->all())->toBe(['Zeta', 'Alfa']);
 });
 
 test('el listado ordena por costo total y no por el costo del aparato', function () {
@@ -1027,7 +1027,7 @@ function articulosParaRangos(User $user): void
     ]);
 }
 
-test('el listado ordena por id, que es el orden de captura', function () {
+test('sin pedir nada el listado sale en orden de captura', function () {
     $user = User::factory()->create();
     $catalogo = Catalogo::factory()->for($user)->create();
 
@@ -1037,38 +1037,50 @@ test('el listado ordena por id, que es el orden de captura', function () {
         Articulo::factory()->for($user)->for($catalogo)->create(['nombre' => $nombre]);
     }
 
-    $asc = $this->actingAs($user)->getJson('/api/v1/articulos?sort=id&direction=asc');
-    $asc->assertOk();
-    expect(collect($asc->json('data'))->pluck('nombre')->all())->toBe($nombres);
-
-    $desc = $this->actingAs($user)->getJson('/api/v1/articulos?sort=id&direction=desc');
-    $desc->assertOk();
-    expect(collect($desc->json('data'))->pluck('nombre')->all())->toBe(array_reverse($nombres));
-});
-
-test('sin sort el listado sigue saliendo alfabetico por nombre', function () {
-    $user = User::factory()->create();
-    $catalogo = Catalogo::factory()->for($user)->create();
-    foreach (['Zeta', 'Alfa', 'Mu'] as $nombre) {
-        Articulo::factory()->for($user)->for($catalogo)->create(['nombre' => $nombre]);
-    }
-
     $response = $this->actingAs($user)->getJson('/api/v1/articulos');
 
     $response->assertOk();
-    expect(collect($response->json('data'))->pluck('nombre')->all())->toBe(['Alfa', 'Mu', 'Zeta']);
+    expect(collect($response->json('data'))->pluck('nombre')->all())->toBe($nombres);
 });
 
-test('el filtro de id devuelve a lo sumo un articulo', function () {
+test('no hay forma de pedir un orden distinto del de captura', function (string $query) {
+    // El orden de captura no se pide: es lo que sale cuando no se pide nada. Ni `sort=id` ni
+    // `sort=nombre` son claves reconocidas, así que degradan a ese mismo orden en vez de invertirlo
+    // o de devolver el alfabético (ver 025-filtros-columna-listado-articulos.md).
     $user = User::factory()->create();
     $catalogo = Catalogo::factory()->for($user)->create();
-    $buscado = Articulo::factory()->for($user)->for($catalogo)->create(['nombre' => 'Buscado']);
-    Articulo::factory()->for($user)->for($catalogo)->create(['nombre' => 'Otro']);
+    $nombres = ['Zeta', 'Alfa', 'Mu'];
+    foreach ($nombres as $nombre) {
+        Articulo::factory()->for($user)->for($catalogo)->create(['nombre' => $nombre]);
+    }
 
-    $response = $this->actingAs($user)->getJson("/api/v1/articulos?filtro_id={$buscado->id}");
+    $response = $this->actingAs($user)->getJson("/api/v1/articulos?$query");
 
     $response->assertOk();
-    expect(collect($response->json('data'))->pluck('nombre')->all())->toBe(['Buscado']);
+    expect(collect($response->json('data'))->pluck('nombre')->all())->toBe($nombres);
+})->with([
+    'id ascendente' => ['sort=id&direction=asc'],
+    'id descendente' => ['sort=id&direction=desc'],
+    'alfabetico por nombre' => ['sort=nombre&direction=asc'],
+]);
+
+test('las ordenaciones de dinero desempatan por orden de captura', function () {
+    $user = User::factory()->create();
+    $catalogo = Catalogo::factory()->for($user)->create(['descuento' => 0, 'utilidad_porcentaje' => 0]);
+
+    // Mismo precio los tres: lo único que decide es el orden en que se cargaron.
+    $nombres = ['Zeta', 'Alfa', 'Mu'];
+    foreach ($nombres as $nombre) {
+        Articulo::factory()->for($user)->for($catalogo)->create([
+            'nombre' => $nombre, 'costo_con_descuento' => 100, 'costo_goma' => 0,
+            'precio_unitario_sin_iva' => 200,
+        ]);
+    }
+
+    $response = $this->actingAs($user)->getJson('/api/v1/articulos?sort=precio_unitario_sin_iva&direction=desc');
+
+    $response->assertOk();
+    expect(collect($response->json('data'))->pluck('nombre')->all())->toBe($nombres);
 });
 
 test('los filtros de texto buscan por contenido sin distinguir mayusculas', function (string $parametro, string $valor, array $esperados) {
@@ -1083,9 +1095,9 @@ test('los filtros de texto buscan por contenido sin distinguir mayusculas', func
     $response->assertOk();
     expect(collect($response->json('data'))->pluck('nombre')->all())->toBe($esperados);
 })->with([
-    'nombre a media palabra' => ['filtro_nombre', 'printer', ['Sello Printer 10', 'Sello Printer 38']],
+    'nombre a media palabra' => ['filtro_nombre', 'printer', ['Sello Printer 38', 'Sello Printer 10']],
     'nombre completo' => ['filtro_nombre', 'Almohadilla', ['Almohadilla']],
-    'modelo parcial' => ['filtro_modelo', 'p-', ['Sello Printer 10', 'Sello Printer 38']],
+    'modelo parcial' => ['filtro_modelo', 'p-', ['Sello Printer 38', 'Sello Printer 10']],
     'modelo exacto' => ['filtro_modelo', 'A-01', ['Almohadilla']],
 ]);
 
@@ -1103,7 +1115,7 @@ test('el filtro de catalogo deja solo los articulos de ese catalogo', function (
     // Sin el parámetro vuelven los dos: es el estado "Todos los catálogos" del selector.
     $todos = $this->actingAs($user)->getJson('/api/v1/articulos');
     expect(collect($todos->json('data'))->pluck('nombre')->all())
-        ->toBe(['Del catalogo otro', 'Del catalogo uno']);
+        ->toBe(['Del catalogo uno', 'Del catalogo otro']);
 });
 
 test('los rangos filtran por el valor que muestra la columna, con cada extremo independiente', function (string $query, array $esperados) {
@@ -1116,11 +1128,11 @@ test('los rangos filtran por el valor que muestra la columna, con cada extremo i
     expect(collect($response->json('data'))->pluck('nombre')->all())->toBe($esperados);
 })->with([
     'costo con los dos extremos' => ['costo_min=150&costo_max=250', ['Medio']],
-    'costo solo minimo' => ['costo_min=200', ['Caro', 'Medio']],
+    'costo solo minimo' => ['costo_min=200', ['Medio', 'Caro']],
     'costo solo maximo' => ['costo_max=200', ['Barato', 'Medio']],
     'costo con extremos inclusivos' => ['costo_min=100&costo_max=100', ['Barato']],
     'precio con los dos extremos' => ['precio_min=200&precio_max=300', ['Medio']],
-    'precio solo minimo' => ['precio_min=260', ['Caro', 'Medio']],
+    'precio solo minimo' => ['precio_min=260', ['Medio', 'Caro']],
     'utilidad con los dos extremos' => ['utilidad_min=50&utilidad_max=100', ['Medio']],
     'utilidad solo maximo' => ['utilidad_max=60', ['Barato', 'Medio']],
 ]);
@@ -1142,15 +1154,16 @@ test('un filtro vacio, no numerico o negativo se ignora en silencio', function (
     $response = $this->actingAs($user)->getJson("/api/v1/articulos?$query");
 
     $response->assertOk();
-    expect(collect($response->json('data'))->pluck('nombre')->all())->toBe(['Barato', 'Caro', 'Medio']);
+    expect(collect($response->json('data'))->pluck('nombre')->all())->toBe(['Barato', 'Medio', 'Caro']);
 })->with([
     'rango vacio' => ['costo_min=&costo_max='],
     'rango no numerico' => ['costo_min=abc&precio_max=mucho'],
     'rango negativo' => ['costo_min=-50'],
-    'id vacio' => ['filtro_id='],
-    'id no numerico' => ['filtro_id=abc'],
     'texto vacio' => ['filtro_nombre=&filtro_modelo='],
     'catalogo vacio' => ['filtro_catalogo_id='],
+    // El filtro por id se retiró con la columna: sin el número a la vista nadie puede saber cuál
+    // escribir (ver 025-filtros-columna-listado-articulos.md).
+    'filtro por id retirado' => ['filtro_id=1'],
 ]);
 
 test('los filtros de columna se combinan entre si y con el buscador global', function () {
@@ -1198,7 +1211,7 @@ test('los filtros se combinan con la ordenacion', function () {
     $user = User::factory()->create();
     articulosParaRangos($user);
 
-    $response = $this->actingAs($user)->getJson('/api/v1/articulos?costo_min=150&sort=id&direction=desc');
+    $response = $this->actingAs($user)->getJson('/api/v1/articulos?costo_min=150&sort=costo_total&direction=desc');
 
     $response->assertOk();
     expect(collect($response->json('data'))->pluck('nombre')->all())->toBe(['Caro', 'Medio']);
@@ -1227,7 +1240,7 @@ test('una peticion sin los filtros nuevos responde lo mismo y proveedor_id sigue
 
     $todos = $this->actingAs($user)->getJson('/api/v1/articulos');
     expect(collect($todos->json('data'))->pluck('nombre')->all())
-        ->toBe(['De otro proveedor', 'Del proveedor']);
+        ->toBe(['Del proveedor', 'De otro proveedor']);
 
     $acotado = $this->actingAs($user)->getJson("/api/v1/articulos?proveedor_id={$proveedor->id}");
     $acotado->assertOk();
