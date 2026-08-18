@@ -47,6 +47,10 @@ desktop.ini
 # entran al sistema subiendolas, no versionandolas.
 /catalogo/
 
+# El guion que las renombra es una nota de trabajo local: se ajusta a mano en
+# cada tanda y no describe al sistema, asi que vive fuera del control de versiones.
+/specs/renombrar.md
+
 # --- Respaldos y temporales --------------------------------------------------
 *.bak
 *.orig
