@@ -682,6 +682,26 @@ Implementada el 2026-08-08.
   la casilla obligatoria cuando el SAT está caído y la constancia es una foto, y el aviso de cliente
   ya registrado con sus dos botones.
 
+### El camino del PDF nunca funcionó en producción (2026-08-19)
+
+Al probarlo con una constancia real, soltar un **PDF** dejaba la zona de carga en *"Leyendo el
+documento…"* para siempre. No era un fallo de esta historia: **el servidor servía el *worker* de
+`pdfjs-dist` con el tipo equivocado**, y el navegador se niega a ejecutar un módulo que no llega
+como JavaScript. Está diagnosticado y corregido en
+[018](018-despliegue-hostinger.md#el-tipo-de-los-módulos-mjs), donde vive todo lo que es del
+servidor.
+
+Tres consecuencias que sí son de esta historia:
+
+- **Solo afectaba a los PDF.** Una constancia en JPG o PNG no pasa por `renderizarPrimeraPagina`, así
+  que ese camino siempre estuvo bien. Es la asimetría que hacía difícil de leer el síntoma.
+- **El fallo no llegaba a ser un error.** `procesar()` atrapa lo que se lance y muestra "No se pudo
+  leer el documento", pero aquí no se lanzaba nada: la promesa simplemente no se resolvía, y el
+  estado se quedaba en `preparando`. Un flujo que depende de una librería que se carga sola desde la
+  red puede quedarse esperando, y el `try/catch` no cubre eso.
+- **No se puede cambiar de librería para esquivarlo.** `pdfjs-dist` publica su worker únicamente en
+  `.mjs`; no hay una variante `.js` a la que apuntar. El arreglo tenía que ser del servidor.
+
 ### Contraste con constancias reales (2026-08-10)
 
 Se subieron constancias de verdad —una de persona física y una de persona moral— y se contrastó

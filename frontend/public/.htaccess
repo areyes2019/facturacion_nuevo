@@ -11,13 +11,19 @@
 # tipo equivocado hay navegadores que descartan el manifest —y sin manifest no hay instalación.
 <IfModule mod_mime.c>
     AddType application/manifest+json .webmanifest
+
+    # Apache tampoco trae mapeada la extensión .mjs y la sirve como text/plain, y un navegador se
+    # niega a ejecutar un módulo que no llega con un tipo de JavaScript. El único .mjs del build es
+    # el worker de pdfjs-dist —que solo se publica con esa extensión—, así que sin esta línea la
+    # lectura de una constancia en PDF se queda esperando para siempre, sin dar error.
+    AddType text/javascript .mjs
 </IfModule>
 
 <IfModule mod_headers.c>
     # Solo los archivos con hash de contenido en el nombre son inmutables. Se hace por patrón de
     # nombre y no por extensión, porque favicon.svg e icons.svg viven en la raíz sin hash y sí
     # necesitan revalidarse.
-    <FilesMatch "-[A-Za-z0-9_-]{8,}\.(js|css)$">
+    <FilesMatch "-[A-Za-z0-9_-]{8,}\.(js|mjs|css)$">
         Header set Cache-Control "public, max-age=31536000, immutable"
     </FilesMatch>
 

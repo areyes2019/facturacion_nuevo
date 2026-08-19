@@ -103,6 +103,40 @@ say "PWA"
 comprobar "manifest.webmanifest disponible"       200 "$(codigo "$SITE_URL/manifest.webmanifest")"
 comprobar "sw.js disponible"                      200 "$(codigo "$SITE_URL/sw.js")"
 
+say "Módulos JavaScript (.mjs)"
+
+# El .htaccess del docroot es el único artefacto de producción que ningún script
+# despliega: se sube a mano una vez. Es, por lo tanto, el que puede quedarse
+# viejo en el servidor sin que nada lo delate — y lo que se rompe cuando le falta
+# el AddType de .mjs no es un error visible, es una pantalla que se queda
+# pensando (ver specs/018-despliegue-hostinger.md).
+#
+# No se puede usar una ruta fija: los assets llevan hash de contenido en el
+# nombre. Se toma el primer .mjs del build y se le pide esa URL al servidor.
+MJS="$(ls "$(dirname "${BASH_SOURCE[0]}")/../frontend/dist/assets"/*.mjs 2>/dev/null | head -1)"
+
+if [ -z "$MJS" ]; then
+    warn "no hay ningún .mjs en frontend/dist/assets — corre 'npm run build' primero."
+    warn "Comprobaciones de módulos OMITIDAS."
+else
+    MJS_CABECERAS="$(curl -s -o /dev/null -D - "$SITE_URL/assets/$(basename "$MJS")" | tr -d '\r')"
+    MJS_TIPO="$(printf '%s' "$MJS_CABECERAS" | sed -n 's/^[Cc]ontent-[Tt]ype: //p')"
+    MJS_CACHE="$(printf '%s' "$MJS_CABECERAS" | sed -n 's/^[Cc]ache-[Cc]ontrol: //p')"
+
+    case "$MJS_TIPO" in
+        */javascript*) ok ".mjs se sirve como JavaScript ($MJS_TIPO)" ;;
+        *) warn ".mjs llega como '$MJS_TIPO' — falta 'AddType text/javascript .mjs' en el .htaccess."
+           warn "  Un navegador no ejecuta un módulo con ese tipo: la lectura de constancias en PDF se cuelga."
+           FALLOS=$((FALLOS + 1)) ;;
+    esac
+
+    case "$MJS_CACHE" in
+        *immutable*) ok ".mjs con hash se cachea como inmutable" ;;
+        *) warn ".mjs trae Cache-Control '$MJS_CACHE' — debería incluir immutable"
+           FALLOS=$((FALLOS + 1)) ;;
+    esac
+fi
+
 say "Cabeceras de caché"
 CACHE_INDEX="$(curl -s -o /dev/null -D - "$SITE_URL/" | tr -d '\r' | sed -n 's/^[Cc]ache-[Cc]ontrol: //p')"
 case "$CACHE_INDEX" in

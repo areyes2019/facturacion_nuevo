@@ -129,6 +129,45 @@ El `.htaccess` del docroot. Reúne, en este orden:
 
 Con `DirectoryIndex index.html`, la raíz sirve el SPA.
 
+#### El tipo de los módulos `.mjs`
+
+*Agregado el 2026-08-19.*
+
+```apache
+AddType text/javascript .mjs
+```
+
+Es exactamente la misma clase de problema que el `.webmanifest` que ya estaba en el punto 5, y se
+descubrió del mismo modo: por un fallo que no se parecía en nada a su causa. **Apache en Hostinger no
+trae mapeada la extensión `.mjs` y la sirve como `text/plain`**, y un navegador **se niega a ejecutar
+un módulo que no llega con un tipo de JavaScript**. El archivo se descarga completo, con `200`, y no
+corre.
+
+Quien lo destapó fue la lectura de la Constancia de Situación Fiscal
+([016](016-constancia-situacion-fiscal-qr.md)). `pdfjs-dist` publica su *worker* **solo** en `.mjs`
+—no hay variante `.js` entre la que elegir— y dibujar la primera página del PDF es lo primero que
+ocurre al soltar el archivo. En producción, la zona de carga se quedaba en *"Leyendo el
+documento…"* indefinidamente: el worker no arrancaba, y el fallo ni siquiera llegaba a ser un error
+que la pantalla pudiera contar.
+
+Tres cosas hicieron que esto viviera meses sin que nadie lo notara, y las tres conviene tenerlas
+presentes porque volverán a pasar:
+
+- **En local no falla.** El servidor de desarrollo de Vite manda el tipo correcto. El bug solo
+  existe en producción.
+- **Ninguna prueba podía verlo.** El `.mjs` no lo carga el código: lo carga el navegador, por una
+  importación diferida, contra un servidor real. Ni Vitest ni `npm run build` ni Pest tocan ese
+  camino.
+- **El único `.mjs` del build es ese.** Es una extensión que aparece una sola vez, en un archivo que
+  nadie escribió, dentro de una funcionalidad que se usa de vez en cuando.
+
+**El patrón de caché inmutable tampoco lo cubría.** `<FilesMatch "-[hash]\.(js|css)$">` no incluía
+`mjs`, así que el worker —1.2 MB, con hash en el nombre y por lo tanto inmutable por definición— se
+revalidaba en cada carga. Se agrega la extensión a la lista.
+
+Las dos correcciones van **en los dos archivos**, que esta misma spec declara copia íntegra uno del
+otro: `deploy/hostinger/htaccess-public_html` y `frontend/public/.htaccess`.
+
 ### `deploy/hostinger/env.production.example`
 
 Plantilla del `.env` de producción, sin secretos, con los valores que difieren de
@@ -297,6 +336,25 @@ El script remoto exporta ahora `LC_ALL=C` en su primera línea, con lo que `find
 comparten el mismo orden. Se eligió eso sobre ordenar en la collation del servidor porque el orden
 de bytes es el único que no depende de cómo esté configurada una máquina que no controlamos.
 
+### `deploy/verify.sh` comprueba el tipo de los `.mjs`
+
+*Agregado el 2026-08-19.*
+
+El `.htaccess` del docroot es **el único artefacto de producción que ningún script despliega**: se
+sube a mano una vez, en el paso 4 de la instalación inicial. Es, por lo tanto, exactamente el archivo
+que puede quedarse viejo en el servidor sin que nada lo delate — y el efecto de que le falte esta
+línea es una pantalla que se queda pensando, no un error.
+
+Por eso la comprobación se agrega al verificador, y no basta con haber arreglado el archivo:
+
+- Toma **el primer `.mjs` de `frontend/dist/assets/`** y le pide esa URL al servidor. No se puede
+  usar una ruta fija porque los assets llevan hash de contenido en el nombre.
+- Pasa si el `Content-Type` es cualquier tipo de JavaScript: `text/javascript`,
+  `application/javascript` o el heredado `application/x-javascript`, que es el que Hostinger devuelve
+  hoy para los `.js`.
+- Si no hay build en `frontend/dist/`, **lo dice y sigue** sin contarlo como fallo. `verify.sh` se
+  puede correr sin haber compilado, y una comprobación que no se pudo hacer no es una que falló.
+
 ### Nada más
 
 `config/cors.php` no se toca. Con un solo origen el navegador no manda `Origin` en peticiones del
@@ -432,11 +490,41 @@ anotado en `deploy/hostinger/README.md` como advertencia junto a la línea.
     clave de unidad devuelven resultados, los `<select>` de régimen fiscal y forma de pago vienen
     poblados, y guardar un artículo con una clave válida no es rechazado por la validación. El
     `md5sum` de `storage/app/sat-catalogos.sqlite` en el servidor coincide con el de local.
+15. Un archivo `.mjs` del build se sirve con un tipo de JavaScript, no con `text/plain`, y llega con
+    `Cache-Control: immutable` como cualquier otro asset con hash.
+16. Soltar el PDF de una Constancia de Situación Fiscal en `/clientes/crear` **avanza más allá de**
+    *"Leyendo el documento…"*: llega a buscar el QR y termina con datos o con un mensaje, nunca
+    esperando para siempre.
+17. `verify.sh` falla —no avisa: falla— si el `.htaccess` del servidor pierde el mapeo de `.mjs`.
 
 ## Estado de implementación
 
 Implementada el 2026-08-11, fecha en que se verificaron en el servidor las restricciones registradas
 en `deploy/README.md`. El host cambió después; ver [022-subdominio-app.md](022-subdominio-app.md).
+
+### El `AddType` de los `.mjs` (2026-08-19)
+
+- **Archivos modificados**: `deploy/hostinger/htaccess-public_html`, `frontend/public/.htaccess`
+  —los dos, porque el primero incorpora al segundo íntegro— y `deploy/verify.sh`.
+- **Antes de sobrescribir el `.htaccess` del servidor se comprobó que era byte a byte el del
+  repositorio.** Es un archivo que se sube a mano y que nadie versiona desde el servidor, así que
+  bien podía traer un ajuste hecho ahí y nunca traído de vuelta. No lo traía; de haberlo traído, el
+  `scp` lo habría borrado sin dejar rastro.
+- **La comprobación nueva se probó fallando primero.** Con el `.htaccess` viejo todavía en el
+  servidor, `verify.sh` marcó los dos problemas —`text/plain` y la falta de `immutable`— y terminó
+  con `2 comprobación(es) fallaron`. Una comprobación que solo se ha visto pasar no ha demostrado
+  nada.
+- **Aplicado en producción** con el `scp` del paso 4 de la instalación inicial. `verify.sh` pasa
+  completo: `.mjs se sirve como JavaScript (text/javascript)` y `.mjs con hash se cachea como
+  inmutable`.
+- **No hizo falta redesplegar el SPA.** El `.htaccess` de `frontend/public/` viaja a `dist/` pero el
+  despliegue lo excluye a propósito; el que manda en producción es el otro, y ese ya está arriba.
+
+#### Pendiente de verificación visual
+
+Falta que alguien suelte un PDF de constancia real en `/clientes/crear` y confirme que el flujo pasa
+de *"Leyendo el documento…"*. Lo que está comprobado es que la causa desapareció: el worker se sirve
+con el tipo correcto. Lo que no está comprobado es que no hubiera, detrás de esta, una segunda causa.
 
 ## Supuestos asumidos (registro completo)
 
@@ -463,3 +551,11 @@ en `deploy/README.md`. El host cambió después; ver [022-subdominio-app.md](022
 16. `backend/storage/app/sat-catalogos.sqlite` sigue fuera de git y se sincroniza por checksum desde
     la máquina de desarrollo. Es la única excepción a "el despliegue no toca `storage/`", y lo es
     porque ese archivo es un artefacto de la aplicación, no estado del servidor.
+17. **(Agregado el 2026-08-19)** El servidor **no** conoce todas las extensiones que produce un build
+    moderno, y las que no conoce las sirve como `text/plain`. Ya había pasado con `.webmanifest`;
+    pasó otra vez con `.mjs`. La regla que queda es que **cada extensión nueva que aparezca en
+    `dist/` necesita su `AddType`**, y que el lugar donde se comprueba es `verify.sh`, no la memoria
+    de quien despliega.
+18. **(Agregado el 2026-08-19)** Un fallo que solo existe en producción y que ninguna prueba puede
+    alcanzar se atrapa **desde fuera, con `curl`**, que es lo que `verify.sh` ya hacía para todo lo
+    demás. No se agrega ninguna prueba de navegador ni ningún entorno de staging para cubrirlo.
