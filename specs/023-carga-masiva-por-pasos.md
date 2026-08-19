@@ -1,5 +1,14 @@
 # Spec: Carga masiva en un solo modal por pasos
 
+> **Superada en parte el 2026-08-18.** El modal fusionado que describe esta historia —un solo
+> `Dialog`, un catálogo para los dos pasos y el candado del paso 2 en catálogo vacío— **se deshizo**:
+> las dos cargas masivas volvieron a ser dos pantallas independientes. Lo vigente está en
+> [020](020-imagenes-articulos.md), sección *Las dos cargas masivas son dos pantallas aparte*.
+>
+> Lo que **sigue vigente de esta spec** es todo lo que no dependía de la fusión: el `modelo` en la
+> fila rechazada del CSV, el botón "Copiar reporte", el encabezado del reporte cuando ninguna imagen
+> empareja, y `CatalogoSelect.vue` exponiendo el catálogo elegido completo.
+
 ## Historia de usuario
 
 Como usuario del sistema que no lo construyó, quiero que la pantalla me diga en qué orden se cargan

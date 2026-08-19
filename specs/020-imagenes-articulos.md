@@ -6,6 +6,10 @@ Como usuario único del sistema, quiero subir masivamente las imágenes de mis p
 una se asocie sola al artículo que le corresponde, para que al abrir la lista de precios pueda ver
 la foto de cada producto sin haberlas capturado una por una.
 
+*Ampliada el 2026-08-18:* y quiero que **la subida de artículos y la de imágenes sean dos procesos
+separados**, cada uno con su archivo y su pantalla, en vez de dos pasos de uno solo donde el segundo
+depende de que el primero se haya hecho.
+
 ## Objetivo / Alcance
 
 Agregar una imagen por artículo sobre la estructura ya existente de `Articulo`
@@ -15,9 +19,18 @@ empareja archivos con artículos por el nombre del archivo, y una **ficha visual
 abre desde el listado `/articulos` — que es la lista de precios del sistema (ver
 [011](011-precio-proveedor-utilidad.md), supuesto 1).
 
-La carga masiva de **artículos** ya existe y no cambia: es la importación CSV por catálogo de
+La carga masiva de **artículos** ya existe: es la importación CSV por catálogo de
 [009](009-catalogos.md). Esta historia agrega la mitad que falta, la de las imágenes, y el lugar
 donde se ven.
+
+**Revisión del 2026-08-18 — las dos cargas masivas se separan.** El emparejamiento, el formato de
+salida, el disco privado y la ficha visual se quedan exactamente como estaban: **el backend no
+cambia en nada**. Lo que cambia es dónde se hace cada carga.
+[023](023-carga-masiva-por-pasos.md) las había fusionado en un solo modal, con el catálogo elegido
+una vez y dos pasos numerados, y con un candado que impedía subir fotos a un catálogo que todavía no
+tenía artículos. Ahora son **dos pantallas independientes**, cada una con su propio catálogo, y el
+candado se vuelve un aviso que se puede ignorar. Está todo en *Las dos cargas masivas son dos
+pantallas aparte*, más abajo.
 
 No se agrega ningún campo de datos nuevo al artículo, ni las imágenes aparecen en los PDF de
 [019](019-formato-pdf-documentos.md).
@@ -295,21 +308,132 @@ La decisión se toma comprobando en tiempo real si el navegador puede compartir 
 
 El texto compartido es, en ambos casos: `{nombre} — Modelo {modelo} — ${precio con IVA}`.
 
-### Modal de carga masiva de imágenes
+### Las dos cargas masivas son dos pantallas aparte
 
-Botón nuevo en `/articulos`, junto al de "Importar CSV" que ya existe, que abre un modal con:
+*Revisión del 2026-08-18.* Esta sección reemplaza al modal fusionado de
+[023](023-carga-masiva-por-pasos.md) y a la que esta misma spec traía antes bajo el título "Modal de
+carga masiva de imágenes".
 
-1. **Selector de catálogo** destino, el mismo `CatalogoSelect.vue` de [009](009-catalogos.md).
-2. **Selección de archivos**: o varias imágenes a la vez, o un `.zip`.
-3. **Barra de avance** mientras se mandan las tandas, indicando cuántos archivos van de cuántos. Sin
-   esto, una carga de 300 fotos parece colgada durante minutos. Con tandas de 20, una carga de 300
-   fotos son 15 peticiones seguidas, y sin barra no habría forma de distinguirla de un cuelgue.
-4. **Un solo reporte al terminar**, aunque hayan sido varias tandas: cuántas imágenes se asociaron y
-   la lista de archivo + motivo de las que no.
+#### Qué se deshace y qué se rescata
 
-El modal sigue las mismas reglas de layout que el de importación CSV
-([006](006-gestion-articulos.md)): contenedores con `min-w-0` y el `<input type="file">` truncado,
-para que no lo desborde un nombre de archivo largo.
+[023](023-carga-masiva-por-pasos.md) juntó las dos cargas porque el orden —CSV primero, fotos
+después— **no es una preferencia sino un requisito**: una foto que no encuentra artículo se descarta,
+y quien subía las fotos primero no recibía un aviso, recibía doscientos errores idénticos. La
+observación era correcta y **sigue siéndolo**; lo que cambia es quién carga con ella.
+
+El modal fusionado hizo que **una sola pantalla tuviera dos trabajos**: dos archivos, dos botones,
+dos reportes largos capaces de estar en pantalla al mismo tiempo, y un cuerpo con scroll propio para
+que el pie no se fuera de la vista. Y el candado del paso 2 —el que se apagaba con el catálogo
+vacío— resolvía un caso a costa de volver imposible un acto que el usuario podía tener razones para
+querer: mandar el ZIP y leer el reporte.
+
+Se separan, entonces, y **lo que 023 dejó de útil no se pierde**, porque nunca dependió de que las
+dos cargas vivieran juntas:
+
+- El **`modelo` en la fila rechazada del CSV**, que es lo que permite cruzar los dos reportes: el de
+  imágenes nombra archivos y el del CSV nombraba solo renglones.
+- El botón **"Copiar reporte"** en ambas pantallas, porque el reporte sigue siendo efímero y no hay
+  ninguna otra pantalla donde volver a verlo.
+- El **encabezado del reporte cuando ninguna imagen emparejó**, que interpreta el resultado en vez
+  de enumerarlo doscientas veces.
+
+#### El botón de la barra
+
+`/articulos` quedaría con cuatro entradas —importar, subir fotos, exportar y dar de alta— y esa
+barra ya se apretó cuando el mostrador entró al celular ([029](029-pwa-mostrador.md),
+[031](031-mostrador-consulta.md)). Se resuelve con **un solo botón, "Archivos", que despliega tres
+opciones**:
+
+- **Importar artículos (CSV)**
+- **Subir imágenes (ZIP)**
+- **Exportar CSV**
+
+Se usa el `DropdownMenu` del design system ([003](003-design-system-tailwind.md)), que ya está en el
+proyecto.
+
+**"Nuevo artículo" se queda suelto y a la vista.** Es la acción de todos los días y la única que no
+tiene que ver con archivos; esconderla detrás de un menú sería pagar el desorden de la barra con la
+tarea más frecuente.
+
+**"Exportar CSV" entra al menú** aunque sea una salida y no una entrada, y aunque
+[023](023-carga-masiva-por-pasos.md) lo hubiera dejado deliberadamente fuera de su modal. Ahí la
+razón era que el modal ordenaba dos actos en secuencia y exportar no tiene orden respecto de nada;
+un menú no ordena nada, solo agrupa. Y lo que agrupa a las tres no es la dirección en que viaja el
+archivo, sino que ninguna de las tres es aquello a lo que se entra a esta pantalla el resto del
+tiempo.
+
+#### Dos pantallas que no se conocen
+
+Cada opción del menú abre **su propio `Dialog`**, con su propio selector de catálogo, su propio
+archivo, su propio botón y su propio reporte. **Ninguna de las dos hereda nada de la otra**: el
+selector arranca vacío en ambas, elegir catálogo en una no lo elige en la otra, y ninguna ofrece al
+terminar continuar hacia la otra.
+
+Que el catálogo no se herede es deliberado y **es lo que hace que las pantallas sean de verdad
+independientes**. Un selector que llega con algo puesto obliga a leerlo antes de usarlo; uno que
+llega vacío obliga a llenarlo, que es más trabajo pero no admite el error de no haberlo mirado.
+
+- **Importar artículos (CSV)**: selector de catálogo, las columnas esperadas, el `<input
+  type="file">` y el reporte de [009](009-catalogos.md) —`importados` y una línea por fila
+  rechazada, con su número de fila, su **modelo** y su motivo.
+- **Subir imágenes (ZIP)**: selector de catálogo, la elección de archivos —**un `.zip` o varias
+  imágenes a la vez**, las dos formas que ya existían—, la **barra de avance** mientras se mandan
+  las tandas de 20, y **un solo reporte al terminar** aunque hayan sido varias tandas.
+
+Los dos modales siguen las reglas de layout de [003](003-design-system-tailwind.md) y
+[006](006-gestion-articulos.md): contenedores con `min-w-0`, las columnas del CSV en un `<code>` con
+`overflow-x-auto`, los `<input type="file">` truncados y **el cuerpo con scroll propio**, con el
+selector de catálogo y el pie siempre visibles. Cada modal carga ahora con un solo reporte en vez de
+dos, pero un reporte de cien archivos rechazados sigue siendo capaz de empujar el botón de cerrar
+fuera de la pantalla.
+
+**Cambiar de catálogo reinicia la pantalla**: archivo elegido, errores y reporte. Un reporte que
+sobrevive al cambio de catálogo afirma algo cierto sobre un catálogo que ya no es el que está en
+pantalla.
+
+#### El hueco que 023 había cerrado, y dónde se cierra ahora
+
+Dos selectores independientes vuelven posible **importar el CSV a un catálogo y las fotos a otro**.
+El sistema hace exactamente lo que se le pidió, el reporte dice "0 imágenes asociadas" y nada en la
+pantalla se parece a un error. Es el mismo hueco que la fusión de 023 había tapado, y separar las
+pantallas lo vuelve a abrir. No se pretende lo contrario.
+
+Se cierra en los dos únicos momentos en que es detectable sin estorbar: **antes de mandar el ZIP**,
+con el aviso del catálogo vacío, y **después**, con el encabezado del reporte cuando ninguna imagen
+emparejó. El primero atrapa el caso más común —el catálogo cuyo CSV todavía no se importó— y el
+segundo atrapa el resto, incluido el catálogo equivocado que sí tenía artículos.
+
+#### El aviso del catálogo vacío
+
+El candado de [023](023-carga-masiva-por-pasos.md) —el paso 2 deshabilitado con el mensaje "empieza
+por el paso 1"— **se quita**. En su lugar, elegir en la pantalla de imágenes un catálogo **sin
+ningún artículo** muestra, junto al selector y antes de mandar nada:
+
+> **Sellos Colop no tiene ningún artículo.** Ninguna de estas fotos va a encontrar a quién
+> pertenecer. Empieza por importar los artículos.
+
+El botón de subir **sigue habilitado** y dice **"Subir de todos modos"**.
+
+Tres razones para avisar en vez de bloquear:
+
+- **El mensaje del candado ya no apunta a nada.** Dentro del modal fusionado, "empieza por el paso
+  1" señalaba algo que estaba ahí, dos centímetros más arriba. Con las pantallas separadas señala
+  otra pantalla, y un bloqueo que remite a un lugar que no se ve es una puerta cerrada con un
+  letrero que hay que ir a buscar.
+- **El aviso dice exactamente lo mismo que decía el candado, pero no necesita tener razón.** El
+  conteo puede venir de hace un minuto; el usuario puede querer ver el reporte; puede estar
+  probando. Un bloqueo apuesta a que el sistema sabe más que quien lo usa, y aquí no es cierto.
+- **Lo que se pierde por equivocarse es una subida, no un dato.** El ZIP sigue en su carpeta y
+  ninguna foto llegó a escribirse en el servidor. El aviso protege del desperdicio, no de una
+  pérdida.
+
+**El aviso no dice cuántas fotos se van a descartar.** Con un `.zip` el navegador no puede saber
+cuántas imágenes trae adentro sin abrirlo, así que un aviso que prometiera un número tendría que
+callarse justo en el caso principal, o decirlo solo a veces. Dice qué va a pasar, no a cuántas.
+
+El conteo sale de `articulos_count`, que ya viaja en el listado de catálogos que
+`CatalogoSelect.vue` consulta ([023](023-carga-masiva-por-pasos.md)); **no hace falta ningún
+endpoint nuevo**.
 
 ### Formulario de artículo (`/articulos/crear` y `/articulos/:id/editar`)
 
@@ -339,11 +463,28 @@ un artículo ya creado, y hacerlo de otro modo obligaría a sostener archivos hu
   [006](006-gestion-articulos.md)/[009](009-catalogos.md).
 - **Emparejar por un campo distinto de `modelo`**, o por una columna del CSV que nombre el archivo.
 - **Descargar la foto desde el botón Compartir en escritorio.**
+- **Guardar las fotos que no encontraron artículo** para pegarlas después, cuando el artículo exista.
+  Se evaluó y se descartó: una foto sin dueño tendría que vivir en algún lado, aparecer en alguna
+  pantalla para poder borrarla, caducar en algún plazo y decidir qué hacer cuando el modelo que
+  esperaba se importa mal escrito. Todo eso para ahorrar volver a arrastrar un ZIP que sigue en su
+  carpeta.
+- **Que una foto sin artículo dé de alta un artículo en blanco** con solo el modelo. El CSV es la
+  única puerta de alta masiva y sigue siéndolo.
+- **Un solo archivo que traiga el CSV y las fotos juntos**, o una pantalla que reciba los dos y los
+  procese en orden con un solo botón.
+- **Que una pantalla herede el catálogo de la otra**, o que al terminar ofrezca continuar en la otra.
+- **Un tercer acto de "emparejar" con su propio botón.** El emparejamiento ocurre dentro de la
+  subida de imágenes, como siempre; no es un paso que el usuario dispare.
+- **Que el servidor rechace una carga de imágenes a un catálogo vacío.** El aviso es del navegador y
+  se puede ignorar a propósito; el servidor reporta archivo por archivo, como con cualquier otro
+  catálogo.
 - Roles/permisos diferenciados o multiempresa, como en todas las historias anteriores.
 
 ## Estado de implementación
 
-Implementada el 2026-08-12.
+Implementada el 2026-08-12; la revisión que separa las dos cargas masivas, el 2026-08-18. Lo que
+sigue describe primero la implementación original —vigente en todo lo que la revisión no toca— y
+después la revisión.
 
 - **Entorno verificado antes de escribir código**, como pedía la sección de requisitos: PHP 8.3.30
   con `gd` (WebP Support activo, `imagewebp` e `imagecreatefromwebp` disponibles), `zip` y
@@ -381,6 +522,38 @@ Implementada el 2026-08-12.
   (misma limitación de entorno que el resto de las historias) — falta abrir `/articulos` para
   confirmar el modal de ficha, el botón "Compartir" en un celular real, la barra de avance de la
   carga masiva y el bloque de imagen del formulario.
+
+### Cargas separadas (2026-08-18)
+
+- **Un solo archivo modificado**: `frontend/src/views/ArticulosListView.vue`. **El backend no se
+  tocó** —ni un controlador, ni un servicio, ni un request, ni una migración, ni una prueba de
+  Pest— y `CatalogoSelect.vue` tampoco hizo falta: desde [023](023-carga-masiva-por-pasos.md) ya
+  expone el catálogo elegido completo, que es de donde sale `articulos_count`.
+- **El conteo se refresca solo, sin código.** [023](023-carga-masiva-por-pasos.md) necesitaba
+  `catalogoSelect.recargar()` tras importar, porque el modal fusionado seguía abierto con el mismo
+  `CatalogoSelect` montado. Con las pantallas separadas, `DialogContent` va dentro de un
+  `DialogPortal` que se desmonta al cerrar, así que el `CatalogoSelect` de la pantalla de imágenes se
+  monta cada vez que se abre y pide el listado entonces. Se quitó la llamada y el `ref` que la
+  sostenía; `defineExpose({ recargar })` se deja en el componente, que no es de esta pantalla.
+- **El botón de la barra avisa que está exportando.** Exportar dejó de ser un botón con texto propio
+  y pasó a ser una opción de un menú que se cierra al elegirla, así que el "Exportando..." se quedó
+  sin dónde vivir. Se pasó al disparador del menú, que además se deshabilita mientras tanto: sin eso,
+  exportar sería la única de las tres operaciones sin ninguna señal de que arrancó.
+- **Un separador entre las dos entradas y la salida** dentro del menú. La spec no lo fijaba; agrupa
+  sin ordenar, que es justo lo que se le pide al menú.
+- **La cuenta de artículos del catálogo se muestra solo en la pantalla de imágenes**, debajo del
+  selector, y solo cuando no es cero —cuando es cero, su lugar lo ocupa el aviso—. En la pantalla del
+  CSV no se muestra: ahí el dato no decide nada y quedaría viejo en cuanto la importación terminara.
+- **Verificación**: Prettier y ESLint limpios sobre el archivo modificado, `npm run build` compila la
+  SPA con `vue-tsc` sin errores, los 89 tests de Vitest pasan y la suite de Pest pasa completa (571
+  tests) **sin haber tocado ninguna prueba**, que es la comprobación de que el backend quedó igual.
+
+#### Pendiente de verificación visual
+
+**No se pudo verificar en un navegador real** (misma limitación de entorno que el resto de las
+historias) — falta abrir `/articulos` para confirmar el menú "Archivos" en escritorio y en móvil, que
+los dos modales arrancan sin catálogo, el aviso del catálogo vacío con su botón "Subir de todos
+modos", y que el scroll del cuerpo deja alcanzable el pie con un reporte largo.
 
 ## Criterios de aceptación
 
@@ -426,6 +599,41 @@ Implementada el 2026-08-12.
 20. Pint y ESLint/Prettier corren sin errores sobre el código nuevo, y `npm run build` compila la
     SPA completa.
 
+### De la revisión del 2026-08-18
+
+21. `/articulos` muestra un botón "Archivos" que despliega tres opciones —importar artículos, subir
+    imágenes y exportar CSV— y "Nuevo artículo" sigue suelto y a la vista. En la barra ya no queda
+    ningún botón "Carga masiva", "Importar CSV", "Subir imágenes" ni "Exportar CSV".
+22. Cada opción del menú abre su propio modal, con su propio selector de catálogo, su propio archivo
+    y su propio reporte. Ningún modal muestra los dos pasos numerados de
+    [023](023-carga-masiva-por-pasos.md).
+23. Los dos selectores arrancan sin catálogo elegido, y elegir un catálogo en una pantalla no lo
+    elige en la otra, ni en el momento ni al abrirla después.
+24. Ninguna de las dos pantallas ofrece continuar hacia la otra al terminar, ni deja nada marcado
+    como pendiente al cerrarse.
+25. Cambiar el catálogo con un archivo ya elegido o un reporte en pantalla limpia esa pantalla.
+26. Elegir en la pantalla de imágenes un catálogo **sin artículos** muestra el aviso junto al
+    selector **sin deshabilitar nada**: el archivo se puede elegir y el botón, que pasa a decir
+    "Subir de todos modos", se puede apretar.
+27. El aviso no menciona cuántos archivos se van a descartar.
+28. Subir imágenes a un catálogo vacío se completa y termina con el reporte de cero asociadas,
+    encabezado por la línea que señala el catálogo y los nombres de archivo como causa probable.
+29. Elegir un catálogo con al menos un artículo no muestra el aviso, y el botón dice "Subir
+    imágenes".
+30. Importar el CSV a un catálogo que estaba vacío y abrir después la pantalla de imágenes ya no
+    muestra el aviso para ese catálogo.
+31. Cada reporte conserva su botón "Copiar", y el del CSV sigue incluyendo el modelo de cada fila
+    rechazada, como quedó en [023](023-carga-masiva-por-pasos.md).
+32. Las dos formas de subir fotos siguen funcionando igual: el `.zip` y la selección múltiple en
+    tandas de 20 con su barra de avance y su reporte único.
+33. Cada modal se muestra completo dentro de los límites del `Dialog`, sin desbordar ni requerir
+    scroll horizontal, en escritorio (≥1280px) y en móvil, incluso con un reporte de cien archivos
+    rechazados; con ese reporte en pantalla, el pie del modal sigue alcanzable.
+34. La barra de `/articulos` cabe en el ancho de un celular sin desbordarse.
+35. **Ningún endpoint cambia**: la importación CSV y la carga de imágenes responden exactamente lo
+    mismo que antes de esta revisión, y la suite de Pest pasa **sin haber tocado ninguna prueba de
+    backend**. ESLint, Prettier y `npm run build` corren limpios sobre el frontend modificado.
+
 ## Supuestos asumidos (registro completo)
 
 1. "Subir masivamente artículos" se resuelve extendiendo la importación CSV que ya existe, no con un
@@ -435,8 +643,10 @@ Implementada el 2026-08-12.
 3. La importación de artículos sigue dando de alta solamente; una fila con el nombre de un artículo
    que ya existe en ese proveedor se reporta como duplicado y no lo actualiza.
 4. El CSV no cambia de columnas: la imagen no se referencia dentro del CSV.
-5. Las imágenes se suben en una operación aparte de la del CSV: primero los artículos, después las
-   fotos.
+5. **(Precisado 2026-08-18)** Las imágenes se suben en una operación aparte de la del CSV, y el
+   orden —primero los artículos, después las fotos— **sigue siendo un requisito del sistema**, porque
+   la foto que no encuentra artículo se descarta. Lo que cambió es que la pantalla ya no lo impone:
+   lo avisa cuando puede detectarlo y lo explica en el reporte cuando no.
 6. **(Redefinido)** Se suben muchas de una vez, por **selección múltiple de archivos o por un
    `.zip`**. El ZIP debe venir **plano**: si trae carpetas dentro, se rechaza el archivo completo
    con un mensaje que pide volver a comprimirlo. Se prefirió el rechazo explícito a que el sistema
@@ -515,3 +725,37 @@ Implementada el 2026-08-12.
     (`{articulo_id}-{8 caracteres al azar}.webp`); el nombre original solo sirve para emparejar y se
     reporta en el resultado. `ArticuloResource` expone `imagen_version` para que el navegador nunca
     muestre una foto reemplazada.
+
+### De la revisión del 2026-08-18
+
+34. **(Redefinido)** Las dos cargas masivas son **dos pantallas independientes**, cada una con su
+    archivo, su botón y su reporte. Reemplaza al modal único con dos pasos numerados de
+    [023](023-carga-masiva-por-pasos.md).
+35. **(Redefinido)** **Cada pantalla pregunta su propio catálogo y arranca vacía.** Se acepta a
+    sabiendas el riesgo que [023](023-carga-masiva-por-pasos.md) había cerrado —importar el CSV a un
+    catálogo y subir las fotos a otro— a cambio de que ninguna pantalla dependa de la otra. Se
+    compensa con el aviso del catálogo vacío antes de subir y con el encabezado del reporte cuando
+    ninguna imagen empareja.
+36. La foto que no encuentra artículo **se sigue descartando**, como en el supuesto 14: no se guarda
+    esperando a que su artículo exista, ni da de alta un artículo en blanco. Las dos alternativas se
+    evaluaron y se descartaron.
+37. Por lo anterior, **el orden sigue importando** y el sistema sigue sin poder hacerlo indiferente;
+    lo único que cambia es que ya no lo impone con un candado.
+38. El emparejamiento **no es un acto con botón propio**: ocurre dentro de la subida de imágenes,
+    como siempre.
+39. **(Redefinido)** El catálogo vacío **avisa, no bloquea**, y el botón pasa a decir "Subir de
+    todos modos". El candado duro de [023](023-carga-masiva-por-pasos.md) desaparece.
+40. El aviso **no dice cuántos archivos se van a descartar**, porque con un `.zip` el navegador no
+    puede saber cuántas imágenes trae sin abrirlo.
+41. **Se conservan las dos formas de subir fotos** —`.zip` y selección múltiple— aunque la historia
+    se pidió en términos de ZIP: la selección múltiple ya funciona y resuelve el caso de unas pocas
+    fotos sueltas sin obligar a comprimir.
+42. **(Adición técnica)** **El backend no se toca en nada.** Ni endpoints, ni formatos, ni reglas de
+    emparejamiento, ni pruebas de backend.
+43. **(Adición técnica)** El conteo del que sale el aviso es `articulos_count`, que ya viaja en el
+    listado de catálogos que consulta `CatalogoSelect.vue`; no hace falta ningún endpoint nuevo.
+44. **(Adición técnica)** La barra usa el `DropdownMenu` del design system
+    ([003](003-design-system-tailwind.md)), que ya está en el proyecto.
+45. **(Adición técnica)** De [023](023-carga-masiva-por-pasos.md) sobreviven el botón "Copiar
+    reporte", el **modelo** en la fila rechazada del CSV y el encabezado del reporte cuando ninguna
+    imagen empareja. Ninguno de los tres dependía de que las dos cargas vivieran en el mismo modal.
