@@ -121,45 +121,34 @@ interface PaginationMeta {
  * Columnas numéricas ordenables del listado (ver 011-precio-proveedor-utilidad.md). El costo que se
  * muestra y por el que se ordena es el total, aparato + goma (ver 014-costo-elaboracion-goma.md).
  *
- * Son las únicas tres. El orden de captura no se elige: es el que trae el listado cuando `sort` va
- * vacío, y al que se vuelve al quitar la ordenación (ver 025-filtros-columna-listado-articulos.md).
+ * Son las únicas dos: la utilidad se quedó sin columna, y con ella sin cabecera donde hacer clic.
+ * El servidor sigue sabiendo ordenar por ella, pero este tipo describe lo que la pantalla puede
+ * pedir. El orden de captura no se elige: es el que trae el listado cuando `sort` va vacío, y al
+ * que se vuelve al quitar la ordenación (ver 025-filtros-columna-listado-articulos.md).
  */
-export type ArticuloSort = 'costo_total' | 'precio_unitario_sin_iva' | 'utilidad'
+export type ArticuloSort = 'costo_total' | 'precio_unitario_sin_iva'
 export type SortDirection = 'asc' | 'desc'
 
 /**
- * Filtros de la fila de cabeceras del listado (ver 025-filtros-columna-listado-articulos.md).
+ * Filtros de la fila de cabeceras del listado: los dos de texto, y ninguno más
+ * (ver 025-filtros-columna-listado-articulos.md).
  *
- * Van como texto y no como número porque vienen de campos donde la cadena vacía es un estado
- * legítimo —"este filtro no está puesto"— y `0` es un valor que sí se puede querer filtrar. El
- * catálogo es la excepción: sale de un selector, no de un campo.
+ * El servidor sigue atendiendo el filtro de catálogo y los rangos de dinero, pero aquí no quedan sus
+ * campos: uno que ninguna caja de la pantalla puede llenar viajaría vacío en cada consulta y haría
+ * perder el tiempo a quien viniera a buscar dónde se escribe.
  */
 export interface ArticuloFiltros {
   nombre: string
   modelo: string
-  catalogoId: number | null
-  costoMin: string
-  costoMax: string
-  precioMin: string
-  precioMax: string
-  utilidadMin: string
-  utilidadMax: string
 }
 
-/** Los filtros que se teclean, que son todos menos el catálogo: los de texto y los de rango. */
-export type ArticuloFiltroTexto = Exclude<keyof ArticuloFiltros, 'catalogoId'>
+/** Los filtros que se teclean. Hoy son todos, y por eso el alias sigue valiendo la pena. */
+export type ArticuloFiltroTexto = keyof ArticuloFiltros
 
 export function filtrosVacios(): ArticuloFiltros {
   return {
     nombre: '',
     modelo: '',
-    catalogoId: null,
-    costoMin: '',
-    costoMax: '',
-    precioMin: '',
-    precioMax: '',
-    utilidadMin: '',
-    utilidadMax: '',
   }
 }
 
@@ -181,12 +170,7 @@ export const useArticulosStore = defineStore('articulos', {
      * propia forma de vaciarse (ver 025-filtros-columna-listado-articulos.md).
      */
     hayFiltros(state): boolean {
-      return (
-        state.filtros.catalogoId !== null ||
-        (Object.entries(state.filtros) as [keyof ArticuloFiltros, unknown][]).some(
-          ([clave, valor]) => clave !== 'catalogoId' && valor !== '',
-        )
-      )
+      return Object.values(state.filtros).some((valor) => valor !== '')
     },
   },
 
@@ -205,13 +189,6 @@ export const useArticulosStore = defineStore('articulos', {
         direction: this.sort ? this.direction : undefined,
         filtro_nombre: filtros.nombre || undefined,
         filtro_modelo: filtros.modelo || undefined,
-        filtro_catalogo_id: filtros.catalogoId ?? undefined,
-        costo_min: filtros.costoMin || undefined,
-        costo_max: filtros.costoMax || undefined,
-        precio_min: filtros.precioMin || undefined,
-        precio_max: filtros.precioMax || undefined,
-        utilidad_min: filtros.utilidadMin || undefined,
-        utilidad_max: filtros.utilidadMax || undefined,
       }
     },
 

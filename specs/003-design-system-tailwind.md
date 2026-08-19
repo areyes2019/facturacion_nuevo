@@ -231,7 +231,10 @@ Implementada el 2026-07-30.
 
   1. `AppLayout` acepta una prop `ancho` (`normal` por omisión, `amplio` para listados densos). La
      clase ensancha la barra superior, el menú móvil y el `<main>` **a la vez**: ensanchar solo el
-     contenido deja la tabla descuadrada respecto de su encabezado.
+     contenido deja la tabla descuadrada respecto de su encabezado. El listado de artículos volvió a
+     `normal` el 2026-08-19, al quedarse en cuatro columnas de datos, así que hoy **ninguna pantalla
+     pide `amplio`**: la prop se queda como capacidad del layout para el siguiente listado denso, no
+     como resto de aquella.
   2. Una tabla de listado con muchas columnas va con **ancho fijo** (`table-fixed`) y un ancho
      declarado por columna, dejando sin declarar solo la columna que deba quedarse con el sobrante.
      Sin ancho fijo, el ancho de la tabla lo decide el dato más largo que haya cargado, y "cabe" pasa

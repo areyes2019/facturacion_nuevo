@@ -272,13 +272,17 @@ compartido descrito arriba.
 
 ### `/articulos` (listado)
 
-- **Columnas**: nombre, modelo, catálogo, **costo con descuento**, **precio de venta** y **utilidad
-  ($)**. El precio de lista del proveedor y el porcentaje quedan solo en el formulario, para no
-  revivir el desborde de tabla corregido en 006 el 2026-08-03.
-- **Ordenación por columna numérica**: costo con descuento, precio de venta y utilidad son
-  ordenables (ascendente/descendente) haciendo clic en su encabezado, alimentando `?sort=` y
-  `?direction=`. Las columnas de texto no son ordenables en esta historia.
-- La celda de catálogo mantiene el truncado con elipsis y `title` de 006.
+- **Columnas**: nombre, modelo, **costo con descuento** y **precio de venta**. El precio de lista
+  del proveedor, el porcentaje y la **utilidad en pesos** quedan solo en el formulario, donde salen
+  con la cadena de cálculo completa que los explica. Es lo que evita revivir el desborde de tabla
+  corregido en 006 el 2026-08-03, y por lo que la tabla volvió a acortarse en
+  [025](025-filtros-columna-listado-articulos.md) el 2026-08-19, cuando el catálogo y la utilidad
+  perdieron su columna.
+- **Ordenación por columna numérica**: costo con descuento y precio de venta son ordenables
+  (ascendente/descendente) haciendo clic en su encabezado, alimentando `?sort=` y `?direction=`. Las
+  columnas de texto no son ordenables. El servidor también sabe ordenar por utilidad, pero sin
+  columna no hay dónde pedirlo desde la pantalla.
+- Las celdas de texto mantienen el truncado con elipsis y `title` de 006.
 - El buscador `?search=` no cambia.
 
 ### `/articulos/crear` y `/articulos/:id/editar`
@@ -479,9 +483,9 @@ ya no existen. Se cierra por dos vías:
 17. El recálculo en bloque se dispara con `descuento` **y** con `utilidad_porcentaje` del catálogo,
     y va **precedido de un diálogo de confirmación** que indica cuántos artículos van a cambiar de
     precio.
-18. El listado `/articulos` muestra nombre, modelo, catálogo, costo con descuento, precio de venta y
-    utilidad en pesos. El precio de lista y el porcentaje quedan solo en el formulario, para no
-    revivir el desborde de tabla corregido en 006.
+18. El listado `/articulos` muestra nombre, modelo, costo con descuento y precio de venta. El precio
+    de lista, el porcentaje y la utilidad en pesos quedan solo en el formulario, para no revivir el
+    desborde de tabla corregido en 006.
 19. El formulario de artículo muestra la **cadena de cálculo completa**, siempre visible y en vivo.
 20. Al mover un artículo de catálogo, **conserva su porcentaje propio** si lo tiene; solo cambia su
     costo, porque cambia el descuento aplicable.
@@ -536,7 +540,9 @@ ya no existen. Se cierra por dos vías:
 36. **(Adición técnica)** `ArticuloFactory` recibe precio de lista y porcentaje y deriva el resto de
     la cadena; los tests de 007/008/009 que crean artículos se expresan en términos de costo y
     markup, y existe una batería que cubre la cadena completa.
-37. **(Adición técnica)** El listado `/articulos` ordena por sus tres columnas numéricas (costo con
-    descuento, precio de venta y utilidad) vía `?sort=` y `?direction=`; ordenar por utilidad se
-    traduce a un `ORDER BY` sobre la expresión `precio_unitario_sin_iva - costo_con_descuento`, ya
-    que no está persistida. No se extiende la ordenación al resto de los listados de la app.
+37. **(Adición técnica)** El listado `/articulos` ordena por sus columnas de dinero vía `?sort=` y
+    `?direction=`. El servidor entiende las tres —costo con descuento, precio de venta y utilidad—,
+    y ordenar por utilidad se traduce a un `ORDER BY` sobre la expresión
+    `precio_unitario_sin_iva - costo_con_descuento`, ya que no está persistida; desde
+    [025](025-filtros-columna-listado-articulos.md) la pantalla solo expone las dos primeras. No se
+    extiende la ordenación al resto de los listados de la app.

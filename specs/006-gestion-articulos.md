@@ -327,11 +327,13 @@ Implementada el 2026-07-31.
     desbordar contenido ni requerir scroll horizontal) en viewports de escritorio estándar
     (≥1280px), tanto con el listado de columnas de la descripción como con un archivo seleccionado
     cuyo nombre sea largo (ej. más de 40 caracteres).
-16. En el listado `/articulos`, un artículo cuyo proveedor tiene un `nombre_comercial` largo (ej.
-    más de 40 caracteres) muestra ese nombre truncado con elipsis en su celda y el nombre completo
-    en un tooltip (atributo `title`) al pasar el mouse; el botón "Eliminar" de esa fila permanece
-    dentro del área visible de la tabla, sin requerir scroll horizontal, en viewports de escritorio
-    estándar (≥1280px).
+16. En el listado `/articulos`, toda celda de texto con un valor largo (ej. más de 40 caracteres)
+    lo muestra truncado con elipsis y completo en un tooltip (atributo `title`) al pasar el mouse; el
+    botón "Eliminar" de esa fila permanece dentro del área visible de la tabla, sin requerir scroll
+    horizontal, en viewports de escritorio estándar (≥1280px). Las columnas concretas de la tabla
+    cambiaron después —proveedor dio paso a catálogo en [011](011-precio-proveedor-utilidad.md), y
+    la tabla quedó en nombre, modelo, costo y precio de venta en
+    [025](025-filtros-columna-listado-articulos.md)—; lo que no cambia es la regla.
 
 ## Supuestos asumidos (registro completo)
 

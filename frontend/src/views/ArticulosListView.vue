@@ -20,7 +20,6 @@ import {
   type ImagenesReporte,
 } from '../stores/articulos'
 import type { Catalogo } from '../stores/catalogos'
-import http from '../lib/http'
 import { extractErrorMessage } from '../lib/errors'
 import AppLayout from '../layouts/AppLayout.vue'
 import CatalogoSelect from '../components/CatalogoSelect.vue'
@@ -31,13 +30,6 @@ import { Card, CardContent } from '../components/ui/card'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
 import { Alert, AlertDescription } from '../components/ui/alert'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../components/ui/select'
 import {
   Table,
   TableBody,
@@ -170,55 +162,27 @@ function recargarConRebote() {
 }
 
 /**
- * Columnas numéricas del listado: ordenables (ver 011-precio-proveedor-utilidad.md) y filtrables por
- * rango desde–hasta (ver 025-filtros-columna-listado-articulos.md).
+ * Columnas de dinero del listado: ordenables por su cabecera
+ * (ver 011-precio-proveedor-utilidad.md) y **sin filtro**. Se ordenan, no se acotan: los rangos
+ * desde–hasta costaban dos campos por columna en una cabecera que ya estaba llena
+ * (ver 025-filtros-columna-listado-articulos.md).
  *
  * "Costo" es el costo total: aparato con descuento + goma. No se agrega columna para el tamaño ni
  * para el desglose, que viven en el formulario, para no revivir el desborde de tabla corregido en
  * 006 (ver 014-costo-elaboracion-goma.md).
  *
- * La misma lista dibuja la fila de cabeceras y la de filtros, para que no puedan quedar con distinto
- * número de celdas.
+ * La misma lista dibuja su celda en la fila de cabeceras y en la de filtros, para que no puedan
+ * quedar con distinto número de celdas.
  */
-const columnasNumericas: {
-  clave: ArticuloSort
-  etiqueta: string
-  min: ArticuloFiltroTexto
-  max: ArticuloFiltroTexto
-}[] = [
-  { clave: 'costo_total', etiqueta: 'Costo', min: 'costoMin', max: 'costoMax' },
-  {
-    clave: 'precio_unitario_sin_iva',
-    etiqueta: 'Precio de venta',
-    min: 'precioMin',
-    max: 'precioMax',
-  },
-  { clave: 'utilidad', etiqueta: 'Utilidad', min: 'utilidadMin', max: 'utilidadMax' },
+const columnasNumericas: { clave: ArticuloSort; etiqueta: string }[] = [
+  { clave: 'costo_total', etiqueta: 'Costo' },
+  { clave: 'precio_unitario_sin_iva', etiqueta: 'Precio de venta' },
 ]
 
 /** Un filtro tecleado cambia el estado y recarga con rebote. */
 function onFiltro(clave: ArticuloFiltroTexto, valor: string | number) {
   articulos.filtros[clave] = String(valor)
   recargarConRebote()
-}
-
-/**
- * Opciones del filtro de catálogo. Se piden aquí y no al store de catálogos para no pisarle el
- * estado a su propio listado, que está paginado de 15 en 15.
- */
-const catalogosFiltro = ref<Catalogo[]>([])
-
-onMounted(async () => {
-  const { data } = await http.get('/catalogos-proveedor', { params: { per_page: 100 } })
-  catalogosFiltro.value = data.data
-})
-
-const TODOS_LOS_CATALOGOS = 'todos'
-
-/** El selector consulta de inmediato: es una elección, no algo que se escribe. */
-function onFiltroCatalogo(valor: string) {
-  articulos.filtros.catalogoId = valor === TODOS_LOS_CATALOGOS ? null : Number(valor)
-  articulos.fetchList(1)
 }
 
 const totalFiltrado = computed(() => articulos.meta?.total ?? 0)
@@ -442,7 +406,7 @@ async function confirmarImportar() {
 <template>
   <!-- Listado denso: nueve columnas y una fila de filtros no caben en el ancho de lectura del resto
        del sistema (ver 025-filtros-columna-listado-articulos.md). -->
-  <AppLayout ancho="amplio">
+  <AppLayout>
     <div class="space-y-4">
       <div class="flex flex-wrap items-center justify-between gap-4">
         <h1 class="font-heading text-foreground text-xl font-semibold">Artículos</h1>
@@ -551,12 +515,11 @@ async function confirmarImportar() {
                     @change="alternarTodos"
                   />
                 </TableHead>
-                <!-- Nombre es la única sin ancho: se queda con lo que sobre, incluido el que dejó
-                     libre la columna del número interno, que es donde más se nota
+                <!-- Nombre es la única sin ancho: se queda con todo lo que las demás no reclaman,
+                     que es donde mejor se aprovecha cada columna que salió de la tabla
                      (ver 025-filtros-columna-listado-articulos.md). -->
                 <TableHead>Nombre</TableHead>
                 <TableHead class="w-32">Modelo</TableHead>
-                <TableHead class="w-44">Catálogo</TableHead>
                 <TableHead
                   v-for="columna in columnasNumericas"
                   :key="columna.clave"
@@ -573,8 +536,8 @@ async function confirmarImportar() {
               </TableRow>
 
               <!-- Fila de filtros. Siempre visibles y no detrás de un menú por columna: escondidos
-                   habría que abrir seis menús para saber por qué la tabla muestra menos renglones de
-                   los esperados (ver 025-filtros-columna-listado-articulos.md). -->
+                   habría que abrir un menú por columna para saber por qué la tabla muestra menos
+                   renglones de los esperados (ver 025-filtros-columna-listado-articulos.md). -->
               <TableRow class="hover:bg-transparent">
                 <TableHead class="h-auto py-2"></TableHead>
                 <TableHead class="h-auto py-2">
@@ -595,70 +558,20 @@ async function confirmarImportar() {
                     @update:model-value="(v) => onFiltro('modelo', v)"
                   />
                 </TableHead>
-                <TableHead class="h-auto py-2">
-                  <!-- Selector y no texto libre: los catálogos son un conjunto cerrado y corto, y
-                       escribir el nombre a mano solo abre la puerta a no encontrar nada por una
-                       tilde. -->
-                  <Select
-                    :model-value="articulos.filtros.catalogoId?.toString() ?? TODOS_LOS_CATALOGOS"
-                    @update:model-value="(v) => onFiltroCatalogo(String(v))"
-                  >
-                    <!-- `min-w-0` en el disparador y en su valor: sin eso, "Proveedor — Catálogo de
-                         nombre largo" ensancha el control por encima de su columna. -->
-                    <SelectTrigger
-                      class="h-8 w-full min-w-0 text-xs *:min-w-0"
-                      aria-label="Filtrar por catálogo"
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem :value="TODOS_LOS_CATALOGOS">Todos los catálogos</SelectItem>
-                      <SelectItem
-                        v-for="opcion in catalogosFiltro"
-                        :key="opcion.id"
-                        :value="opcion.id.toString()"
-                      >
-                        {{ opcion.proveedor_nombre_comercial ?? '—' }} — {{ opcion.nombre }}
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </TableHead>
-                <!-- Rango desde–hasta, con cada extremo independiente: en dinero nadie busca un
-                     valor exacto, busca un tramo, y la mitad de las veces con un solo número.
-                     Son campos de texto y no `number`: las flechitas del control nativo se comen un
-                     tercio de una celda tan angosta, y lo que no sea un número el backend ya lo
-                     ignora en silencio (ver 025-filtros-columna-listado-articulos.md). -->
+                <!-- Las columnas de dinero no llevan filtro: se ordenan desde su cabecera. Su
+                     celda va igual, vacía, porque las dos filas se dibujan con la misma lista y
+                     deben tener el mismo número de celdas. -->
                 <TableHead
                   v-for="columna in columnasNumericas"
                   :key="columna.clave"
                   class="h-auto py-2"
-                >
-                  <div class="flex items-center gap-1">
-                    <Input
-                      :model-value="articulos.filtros[columna.min]"
-                      inputmode="decimal"
-                      placeholder="min"
-                      :aria-label="`${columna.etiqueta} mínimo`"
-                      class="h-8 px-2 text-xs"
-                      @update:model-value="(v) => onFiltro(columna.min, v)"
-                    />
-                    <span class="text-muted-foreground text-xs">–</span>
-                    <Input
-                      :model-value="articulos.filtros[columna.max]"
-                      inputmode="decimal"
-                      placeholder="max"
-                      :aria-label="`${columna.etiqueta} máximo`"
-                      class="h-8 px-2 text-xs"
-                      @update:model-value="(v) => onFiltro(columna.max, v)"
-                    />
-                  </div>
-                </TableHead>
+                ></TableHead>
                 <TableHead class="h-auto py-2"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               <TableRow v-if="!articulos.loading && articulos.items.length === 0">
-                <TableCell colspan="8" class="text-muted-foreground py-10 text-center">
+                <TableCell colspan="6" class="text-muted-foreground py-10 text-center">
                   {{
                     articulos.hayFiltros || articulos.search
                       ? 'Ningún artículo coincide con los filtros aplicados.'
@@ -693,14 +606,10 @@ async function confirmarImportar() {
                 <TableCell class="truncate" :title="articulo.modelo">{{
                   articulo.modelo
                 }}</TableCell>
-                <TableCell truncate :title="articulo.catalogo_nombre ?? undefined">
-                  {{ articulo.catalogo_nombre ?? '—' }}
-                </TableCell>
                 <TableCell class="tabular-nums">${{ pesos(articulo.costo_total) }}</TableCell>
                 <TableCell class="tabular-nums">
                   ${{ pesos(articulo.precio_unitario_sin_iva) }}
                 </TableCell>
-                <TableCell class="tabular-nums">${{ pesos(articulo.utilidad) }}</TableCell>
                 <!-- Los botones van en un `div` y no en el propio `td`: un `display:flex` sobre la
                      celda la saca del algoritmo de la tabla y deja de respetar el ancho de su
                      columna, que es justo lo que los desbordaba. -->
