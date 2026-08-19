@@ -219,10 +219,11 @@ export const useFacturasStore = defineStore('facturas', {
      * facturapi por un archivo que nunca va a mandarse es una espera regalada. Al cliente le llega
      * por correo (ver 029-pwa-mostrador.md, supuestos 81 y 82).
      *
-     * Se llama al entrar a la pantalla de resultado, no al tocar el botón: esperar a la descarga
-     * después del toque agotaría el gesto que el menú de compartir necesita (supuesto 78).
+     * Se llama antes del toque —al entrar a la pantalla, o al pasar el puntero por el botón del
+     * listado—, nunca al apretarlo: esperar a la descarga después del gesto lo agota, y el menú de
+     * compartir solo se abre mientras ese gesto sigue vivo (supuesto 78).
      */
-    async archivoParaWhatsapp(factura: Factura): Promise<ArchivoCompartible> {
+    async archivoPdf(factura: Factura): Promise<ArchivoCompartible> {
       return {
         contenido: await this.archivoBlob(factura.id, 'pdf'),
         nombre: `factura-${factura.folio}.pdf`,
@@ -245,6 +246,19 @@ export const useFacturasStore = defineStore('facturas', {
       archivo: ArchivoCompartible,
     ): Promise<ResultadoCompartir> {
       return compartirArchivo(archivo.contenido, archivo.nombre, this.mensajeWhatsapp(factura))
+    },
+
+    /**
+     * Entrega el PDF al **menú de compartir del sistema** —en Windows 11, el catálogo de envío con
+     * Drive, WhatsApp, Correo y lo que el usuario tenga instalado— **sin texto que lo acompañe**:
+     * el destino puede ser una carpeta o Drive, donde un mensaje pegado sobra, y quien lo mande por
+     * WhatsApp escribe lo suyo (ver 007-facturacion.md).
+     *
+     * Es el compartir del escritorio. El del mostrador es `compartirPorWhatsapp`, que sí lleva su
+     * resumen porque ahí el canal ya está elegido.
+     */
+    async compartirPdf(archivo: ArchivoCompartible): Promise<ResultadoCompartir> {
+      return compartirArchivo(archivo.contenido, archivo.nombre)
     },
   },
 })

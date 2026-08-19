@@ -96,7 +96,7 @@ async function prepararEnvio() {
   avisoEnvio.value = null
 
   try {
-    archivo.value = await facturas.archivoParaWhatsapp(factura.value)
+    archivo.value = await facturas.archivoPdf(factura.value)
   } catch (err) {
     avisoEnvio.value = await mensajeDeFallaDeDescarga(err)
   } finally {

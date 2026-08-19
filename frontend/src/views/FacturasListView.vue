@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
-import { PlusIcon, EyeIcon, PencilIcon, TrashIcon } from '@heroicons/vue/24/outline'
+import { PlusIcon, EyeIcon, PencilIcon, TrashIcon, ShareIcon } from '@heroicons/vue/24/outline'
 import { useFacturasStore, type Factura, type EstadoFactura } from '../stores/facturas'
 import { extractErrorMessage } from '../lib/errors'
+import { puedeCompartirArchivos, type ArchivoCompartible } from '../lib/compartir'
 import AppLayout from '../layouts/AppLayout.vue'
 import { Button } from '../components/ui/button'
 import { Card, CardContent } from '../components/ui/card'
@@ -58,6 +59,65 @@ function estadoVariant(estado: EstadoFactura) {
   }[estado] as 'success' | 'warning' | 'destructive' | 'secondary'
 }
 
+// Compartir el PDF por el menú del sistema —en Windows 11, el catálogo de envío con Drive,
+// WhatsApp, Correo y lo que el usuario tenga instalado— desde el propio renglón: compartirle su
+// factura a un cliente es lo que más se hace desde esta pantalla (ver 007-facturacion.md).
+const puedeCompartir = puedeCompartirArchivos()
+const compartiendo = ref<number | null>(null)
+const errorCompartir = ref<string | null>(null)
+const avisoCompartir = ref<string | null>(null)
+
+/**
+ * Un PDF por factura mientras dure la página. No se bajan por adelantado los de toda la lista: son
+ * archivos que casi nadie va a compartir.
+ */
+const pdfs = new Map<number, Promise<ArchivoCompartible>>()
+
+/** Timbrada y cancelada tienen PDF; la pendiente todavía no es comprobante. */
+function esCompartible(factura: Factura) {
+  return factura.estado === 'timbrada' || factura.estado === 'cancelada'
+}
+
+function pdfDe(factura: Factura): Promise<ArchivoCompartible> {
+  let pendiente = pdfs.get(factura.id)
+
+  if (pendiente === undefined) {
+    pendiente = facturas.archivoPdf(factura)
+    // Una descarga que falló no se queda cacheada: el siguiente intento vuelve a pedirla.
+    pendiente.catch(() => pdfs.delete(factura.id))
+    pdfs.set(factura.id, pendiente)
+  }
+
+  return pendiente
+}
+
+/**
+ * El puntero acercándose al botón —o el foco del teclado— basta para empezar a bajar el PDF: para
+ * cuando llega el clic ya está en memoria y el menú del sistema abre de inmediato, que solo se abre
+ * mientras el gesto del usuario sigue vivo (ver 029-pwa-mostrador.md).
+ */
+function precargarPdf(factura: Factura) {
+  if (!puedeCompartir || !esCompartible(factura)) return
+
+  void pdfDe(factura)
+}
+
+async function compartirPdf(factura: Factura) {
+  avisoCompartir.value = null
+  errorCompartir.value = null
+  compartiendo.value = factura.id
+  try {
+    const archivo = await pdfDe(factura)
+
+    if ((await facturas.compartirPdf(archivo)) === 'descargado') {
+      avisoCompartir.value = 'El menú de compartir no se abrió: el PDF quedó en tus descargas.'
+    }
+  } catch (err) {
+    errorCompartir.value = extractErrorMessage(err)
+  } finally {
+    compartiendo.value = null
+  }
+}
 function abrirEliminar(factura: Factura) {
   facturaAEliminar.value = factura
   errorEliminar.value = null
@@ -120,6 +180,14 @@ async function confirmarEliminar() {
         <AlertDescription>{{ facturas.error }}</AlertDescription>
       </Alert>
 
+      <Alert v-if="errorCompartir" variant="destructive">
+        <AlertDescription>{{ errorCompartir }}</AlertDescription>
+      </Alert>
+
+      <Alert v-if="avisoCompartir">
+        <AlertDescription>{{ avisoCompartir }}</AlertDescription>
+      </Alert>
+
       <Card>
         <CardContent class="p-0">
           <Table>
@@ -156,6 +224,21 @@ async function confirmarEliminar() {
                       <EyeIcon class="size-4" />
                       <span class="sr-only">Ver</span>
                     </RouterLink>
+                  </Button>
+                  <Button
+                    v-if="puedeCompartir && esCompartible(factura)"
+                    variant="outline"
+                    size="icon-sm"
+                    :disabled="compartiendo === factura.id"
+                    title="Compartir el PDF; el XML se manda por correo"
+                    @mouseenter="precargarPdf(factura)"
+                    @focus="precargarPdf(factura)"
+                    @click="compartirPdf(factura)"
+                  >
+                    <ShareIcon class="size-4" />
+                    <span class="sr-only">
+                      {{ compartiendo === factura.id ? 'Preparando PDF' : 'Compartir PDF' }}
+                    </span>
                   </Button>
                   <Button
                     v-if="factura.estado === 'pendiente'"

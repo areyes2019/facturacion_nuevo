@@ -6,9 +6,11 @@ import {
   EnvelopeIcon,
   NoSymbolIcon,
   BanknotesIcon,
+  ShareIcon,
 } from '@heroicons/vue/24/outline'
 import { useFacturasStore, type Factura, type EstadoFactura } from '../stores/facturas'
 import { extractErrorMessage } from '../lib/errors'
+import { puedeCompartirArchivos, type ArchivoCompartible } from '../lib/compartir'
 import AppLayout from '../layouts/AppLayout.vue'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
@@ -60,6 +62,10 @@ async function cargar() {
   cargando.value = true
   try {
     factura.value = await facturasStore.fetchOne(facturaId.value)
+
+    // El PDF se adelanta a la primera pulsación: el catálogo de envío de Windows solo abre mientras
+    // el gesto del usuario sigue vivo.
+    if (puedeCompartir && esCompartible.value) void precargarPdf()
   } catch (err) {
     errorGeneral.value = extractErrorMessage(err)
   } finally {
@@ -130,6 +136,57 @@ async function onDescargarPdf() {
     errorDescarga.value = extractErrorMessage(err)
   } finally {
     descargandoPdf.value = false
+  }
+}
+
+// Compartir el PDF por el menú del sistema: en Windows 11, el catálogo de envío con Drive,
+// WhatsApp, Correo y lo que el usuario tenga instalado (ver 007-facturacion.md).
+const puedeCompartir = puedeCompartirArchivos()
+const archivoPdf = ref<ArchivoCompartible | null>(null)
+const compartiendo = ref(false)
+const avisoCompartir = ref<string | null>(null)
+
+/** Timbrada y cancelada tienen PDF; la pendiente todavía no es comprobante. */
+const esCompartible = computed(
+  () => factura.value?.estado === 'timbrada' || factura.value?.estado === 'cancelada',
+)
+
+/**
+ * El PDF se baja al entrar a la pantalla, no al apretar el botón: el menú del sistema solo se abre
+ * mientras el gesto del usuario sigue vivo, y esperar ahí a una descarga lo agota (ver 029).
+ */
+async function precargarPdf() {
+  if (!factura.value || archivoPdf.value !== null) return
+
+  compartiendo.value = true
+  try {
+    archivoPdf.value = await facturasStore.archivoPdf(factura.value)
+  } catch {
+    // Que la precarga falle no interrumpe la pantalla: el botón vuelve a intentarlo, y ahí sí se
+    // dice lo que pasó.
+  } finally {
+    compartiendo.value = false
+  }
+}
+
+async function onCompartirPdf() {
+  if (!factura.value) return
+
+  avisoCompartir.value = null
+  errorDescarga.value = null
+  compartiendo.value = true
+  try {
+    if (archivoPdf.value === null) {
+      archivoPdf.value = await facturasStore.archivoPdf(factura.value)
+    }
+
+    if ((await facturasStore.compartirPdf(archivoPdf.value)) === 'descargado') {
+      avisoCompartir.value = 'El menú de compartir no se abrió: el PDF quedó en tus descargas.'
+    }
+  } catch (err) {
+    errorDescarga.value = extractErrorMessage(err)
+  } finally {
+    compartiendo.value = false
   }
 }
 
@@ -238,32 +295,56 @@ async function confirmarComplemento() {
 
         <AvisoEmisorIncompleto />
 
-        <div v-if="factura.estado === 'timbrada'" class="flex flex-wrap gap-2">
-          <Button variant="outline" @click="abrirEnviar">
-            <EnvelopeIcon class="size-4" />
-            Enviar
-          </Button>
-          <Button variant="outline" :disabled="descargandoXml" @click="onDescargarXml">
-            <ArrowDownTrayIcon class="size-4" />
-            {{ descargandoXml ? 'Descargando...' : 'Descargar XML' }}
-          </Button>
-          <Button variant="outline" :disabled="descargandoPdf" @click="onDescargarPdf">
-            <ArrowDownTrayIcon class="size-4" />
-            {{ descargandoPdf ? 'Descargando...' : 'Descargar PDF' }}
-          </Button>
-          <Button variant="outline" @click="abrirCancelar">
-            <NoSymbolIcon class="size-4" />
-            Cancelar
-          </Button>
-          <Button
-            v-if="factura.metodo_pago === 'PPD' && !factura.complemento_pago"
-            variant="outline"
-            @click="abrirComplemento"
-          >
-            <BanknotesIcon class="size-4" />
-            Registrar complemento de pago
-          </Button>
+        <div v-if="esCompartible" class="space-y-2">
+          <div class="flex flex-wrap gap-2">
+            <template v-if="factura.estado === 'timbrada'">
+              <Button variant="outline" @click="abrirEnviar">
+                <EnvelopeIcon class="size-4" />
+                Enviar
+              </Button>
+              <Button variant="outline" :disabled="descargandoXml" @click="onDescargarXml">
+                <ArrowDownTrayIcon class="size-4" />
+                {{ descargandoXml ? 'Descargando...' : 'Descargar XML' }}
+              </Button>
+              <Button variant="outline" :disabled="descargandoPdf" @click="onDescargarPdf">
+                <ArrowDownTrayIcon class="size-4" />
+                {{ descargandoPdf ? 'Descargando...' : 'Descargar PDF' }}
+              </Button>
+            </template>
+            <Button
+              v-if="puedeCompartir"
+              variant="outline"
+              :disabled="compartiendo"
+              @click="onCompartirPdf"
+            >
+              <ShareIcon class="size-4" />
+              {{ compartiendo ? 'Preparando...' : 'Compartir PDF' }}
+            </Button>
+            <template v-if="factura.estado === 'timbrada'">
+              <Button variant="outline" @click="abrirCancelar">
+                <NoSymbolIcon class="size-4" />
+                Cancelar
+              </Button>
+              <Button
+                v-if="factura.metodo_pago === 'PPD' && !factura.complemento_pago"
+                variant="outline"
+                @click="abrirComplemento"
+              >
+                <BanknotesIcon class="size-4" />
+                Registrar complemento de pago
+              </Button>
+            </template>
+          </div>
+          <!-- Creer que se le mandó el CFDI completo al contador del cliente no es lo mismo que
+               habérselo mandado: el navegador no admite archivos XML en su menú de compartir. -->
+          <p v-if="puedeCompartir" class="text-muted-foreground text-xs">
+            Por aquí va el PDF; el XML se manda por correo.
+          </p>
         </div>
+
+        <Alert v-if="avisoCompartir">
+          <AlertDescription>{{ avisoCompartir }}</AlertDescription>
+        </Alert>
 
         <Alert v-if="errorDescarga" variant="destructive">
           <AlertDescription>{{ errorDescarga }}</AlertDescription>

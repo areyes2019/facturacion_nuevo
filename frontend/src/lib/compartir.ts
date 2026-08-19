@@ -27,18 +27,25 @@ export function puedeCompartirArchivos(): boolean {
 }
 
 /**
- * Comparte **un** archivo con su texto: el ticket de una venta (027), el PDF de una cotización o el
- * de una factura (029).
+ * Comparte **un** archivo, con o sin texto que lo acompañe: el ticket de una venta (027), el PDF de
+ * una cotización o el de una factura (029, 007).
  *
  * Uno y no varios a propósito. El CFDI intentó salir con su PDF y su XML juntos y el menú del
  * aparato nunca abrió: Chrome comparte solo los tipos de archivo de una lista fija —imágenes,
  * audio, video, texto plano y `application/pdf`— y `.xml` no está en ella. El XML le llega al
  * cliente por correo (ver 029-pwa-mostrador.md, supuestos 81 a 83).
+ *
+ * **El texto es opcional y de él depende el respaldo.** Con texto, el botón prometía un envío por
+ * WhatsApp, así que donde no hay menú se baja el archivo y se abre WhatsApp con el mensaje escrito.
+ * Sin texto —el compartir del escritorio, que entrega el PDF al catálogo de envío de Windows y deja
+ * que el usuario elija destino— no hay mensaje que llevar ni canal elegido: el respaldo es dejar el
+ * archivo descargado, y abrir WhatsApp sería inventarle al usuario un destino que no pidió (ver
+ * 007-facturacion.md).
  */
 export async function compartirArchivo(
   contenido: Blob,
   nombreArchivo: string,
-  texto: string,
+  texto?: string,
 ): Promise<ResultadoCompartir> {
   const files = [
     new File([contenido], nombreArchivo, {
@@ -48,7 +55,7 @@ export async function compartirArchivo(
 
   if (puedeCompartirArchivos() && navigator.canShare({ files })) {
     try {
-      await navigator.share({ text: texto, files })
+      await navigator.share(texto === undefined ? { files } : { text: texto, files })
 
       return 'compartido'
     } catch (err) {
@@ -56,13 +63,12 @@ export async function compartirArchivo(
       if (err instanceof DOMException && err.name === 'AbortError') return 'cancelado'
 
       // Cualquier otro rechazo —un tipo de archivo que el navegador no acepta, un gesto que ya
-      // caducó— no deja al usuario sin documento: se sigue por el camino de abajo, que también
-      // termina en WhatsApp.
+      // caducó— no deja al usuario sin documento: se sigue por el camino de abajo.
     }
   }
 
   descargar(contenido, nombreArchivo)
-  await abrirWhatsappConTexto(texto)
+  if (texto !== undefined) await abrirWhatsappConTexto(texto)
 
   return 'descargado'
 }

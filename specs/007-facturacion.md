@@ -15,9 +15,9 @@ Sanctum (ver [001](001-inicio-proyecto.md), [002](002-login-auth.md)), el design
 [Artículo](006-gestion-articulos.md) ya implementados. Incluye: captura de la factura (cliente +
 líneas de artículo con precio/descuento/IVA editables), cálculo y desglose de totales, timbrado
 síncrono vía la API de facturapi.io, un flujo básico de cancelación de CFDI, descarga de XML/PDF
-(con plantilla propia), envío de la factura por correo, y un complemento de pago básico para
-método PPD. **No** incluye notas de crédito/egreso, parcialidades múltiples de pago, ni
-multiempresa.
+(con plantilla propia), envío de la factura por correo, compartir su PDF por el menú de
+compartir del sistema operativo, y un complemento de pago básico para método PPD. **No** incluye
+notas de crédito/egreso, parcialidades múltiples de pago, ni multiempresa.
 
 ## Backend (Laravel)
 
@@ -314,6 +314,16 @@ Se amplía la base SQLite reducida de catálogos SAT creada en 004 y ampliada en
 
 - **`/facturas`** (protegida): listado paginado de facturas en tabla (folio, cliente, total,
   estado, fecha), con buscador (`?search=` por cliente/folio/UUID) y filtro por estado.
+  - Cada renglón de una factura `timbrada` o `cancelada` lleva su propio **botón de compartir**,
+    con el mismo comportamiento del detalle: el PDF solo, al menú del sistema. Compartirle su
+    factura a un cliente es lo que más se hace desde esta pantalla, y obligar a abrir el detalle
+    para eso es un paso de más.
+  - El PDF de un renglón **se empieza a bajar cuando el puntero llega a su botón** (o cuando el
+    botón recibe el foco por teclado), no al hacer clic: así, para cuando llega el clic, el
+    archivo ya está en memoria y el menú del sistema abre de inmediato. Si no alcanzó, el botón
+    dice "Preparando..." y el menú abre al terminar la descarga. Cada PDF se baja **una sola vez**
+    por página; no se bajan por adelantado los de toda la lista, que son archivos que casi nadie
+    va a compartir.
 - **`/facturas/crear`**:
   - Selector de cliente (combobox con búsqueda, reutilizando el patrón de 004).
   - Tabla de líneas: el usuario elige un artículo de una lista/combobox con búsqueda entre sus
@@ -363,6 +373,32 @@ Se amplía la base SQLite reducida de catálogos SAT creada en 004 y ampliada en
     agregar múltiples destinatarios; al confirmar, llama a
     `POST /api/v1/facturas/{id}/enviar-correo`.
   - **"Descargar XML"** / **"Descargar PDF"**.
+  - **"Compartir PDF"**: entrega el PDF al **menú de compartir del sistema operativo** —en Windows
+    11, el catálogo de envío con Drive, WhatsApp, Correo, Bluetooth y lo que el usuario tenga
+    instalado— con `compartirArchivo` de `lib/compartir.ts`, el mismo camino que ya usa el
+    mostrador (ver [031](031-mostrador-consulta.md)). No hay modal propio ni selector de canal: el
+    catálogo del sistema ya es el selector.
+    - Va **únicamente el PDF, sin texto de acompañamiento**. El destino puede ser una carpeta o
+      Drive, donde un mensaje pegado sobra, y quien lo mande por WhatsApp escribe lo suyo. El
+      archivo sale como `factura-{folio}.pdf`, el mismo nombre de "Descargar PDF".
+    - **El XML no sale por aquí**, y la pantalla lo dice bajo el botón en letra chica: "Por aquí va
+      el PDF; el XML se manda por correo". No es un detalle técnico de más: es la diferencia entre
+      creer que se le mandó el CFDI completo al contador del cliente y habérselo mandado. El
+      navegador no admite archivos XML en su menú de compartir, con ningún tipo MIME (ver
+      [029](029-pwa-mostrador.md), "El XML no cabe en el menú del aparato").
+    - Aparece con la factura **`timbrada` o `cancelada`** —las dos tienen PDF, y una cancelada a
+      veces hay que enseñarla—, y no con `pendiente`, que todavía no es comprobante.
+    - **Si el navegador no puede compartir archivos, el botón no se muestra.** Quedan "Descargar
+      PDF" y "Enviar" por correo, que siempre funcionan. Un botón que promete el catálogo de
+      Windows y termina dejando el archivo en la carpeta de descargas es peor que no estar.
+    - El PDF **se baja al entrar a la pantalla**, no al apretar el botón, que mientras tanto dice
+      "Preparando...": el menú del sistema solo se abre mientras el gesto del usuario sigue vivo, y
+      esperar ahí a una descarga lo agota (ver [029](029-pwa-mostrador.md)). Si aun así el menú se
+      rechaza, el PDF queda descargado y la pantalla lo dice; **no** se abre WhatsApp, porque aquí
+      nadie eligió ese canal.
+    - **Compartir no cambia el estado de la factura** ni registra el envío: una timbrada ya está
+      timbrada y no hay un "enviada" que mover como en la cotización. El envío por correo, con su
+      XML, sigue siendo el otro camino y no lo sustituye.
   - **"Cancelar"** (solo si `timbrada`): abre un modal con selector de motivo de cancelación
     (`c_MotivoCancelacion`, 4 opciones); si el motivo es `01`, aparece además un combobox para
     elegir la factura sustituta entre las propias facturas `timbrada`. Tras confirmar, si
@@ -397,8 +433,19 @@ Se amplía la base SQLite reducida de catálogos SAT creada en 004 y ampliada en
 
 ## Estado de implementación
 
-Implementada el 2026-07-31.
+Implementada el 2026-07-31. **El compartir del PDF por el menú del sistema** —el botón del detalle y
+el del listado— se definió e implementó el 2026-08-19:
 
+- **Archivos tocados**: `frontend/src/lib/compartir.ts` (el texto de acompañamiento pasa a ser
+  opcional, y sin él el respaldo es solo descargar), `frontend/src/stores/facturas.ts`
+  (`archivoParaWhatsapp` renombrado a `archivoPdf`, que ahora sirve a las dos salidas, y el nuevo
+  `compartirPdf`), `frontend/src/views/FacturaDetalleView.vue`,
+  `frontend/src/views/FacturasListView.vue` y `frontend/src/lib/compartir.test.ts` (nuevo). Los dos
+  llamados del mostrador siguieron el renombre, sin cambio de comportamiento.
+- **Sin cambios en el backend**: el PDF sale del mismo `GET /api/v1/facturas/{id}/pdf`.
+- **Verificado** con `npm test` (92 pruebas, incluidas las tres nuevas del compartir),
+  `npm run build` y `npm run lint`. El catálogo de envío de Windows 11 en sí no se puede probar
+  automáticamente: lo que se prueba es lo que el sistema le entrega y lo que hace con su respuesta.
 - **Paquetes instalados**: `facturapi/facturapi-php` (SDK oficial) y `barryvdh/laravel-dompdf`
   vía Composer. `FACTURAPI_ENV`/`FACTURAPI_TEST_KEY`/`FACTURAPI_LIVE_KEY` agregados a `.env` y
   `.env.example`; `FACTURAPI_TEST_KEY` se configuró con una clave real de
@@ -539,7 +586,14 @@ Implementada el 2026-07-31.
     resulta de **sumar** el IVA sobre el precio (menos descuentos), no de extraerlo del precio —
     verificable comparando el `total` de la respuesta de facturapi.io contra el `total` calculado
     por el sistema.
-13. Pint y ESLint/Prettier corren sin errores sobre el código nuevo.
+13. Desde el detalle de una factura `timbrada` o `cancelada`, y desde su renglón en el listado
+    `/facturas`, se comparte **el PDF y solo el PDF** por el menú de compartir del sistema —en
+    Windows 11, el catálogo de envío con Drive, WhatsApp y los demás destinos instalados—, sin
+    texto de acompañamiento y sin que el estado de la factura cambie. Cerrar el menú sin elegir
+    destino no muestra error.
+14. En un navegador que no puede compartir archivos, el botón de compartir no aparece —ni en el
+    detalle ni en el listado—, y el PDF sigue disponible por "Descargar PDF" y por correo.
+15. Pint y ESLint/Prettier corren sin errores sobre el código nuevo.
 
 ## Supuestos asumidos (registro completo)
 
@@ -686,3 +740,28 @@ Implementada el 2026-07-31.
 44. **(Adición)** El criterio de "no se guarda XML/PDF localmente" aplica igual al
     `ComplementoPago` (también es un CFDI propio en facturapi.io); esta historia no expone,
     sin embargo, un botón de descarga de XML/PDF para el complemento de pago en el frontend.
+
+45. **(Adición)** Compartir el PDF por el menú del sistema entra también en el escritorio, con el
+    mismo `compartirArchivo` de `lib/compartir.ts` que ya usan el mostrador y las cotizaciones. No
+    se escribe un compartir aparte para escritorio: serían dos códigos casi iguales que corregir
+    dos veces.
+46. **(Adición)** `compartirArchivo` pasa a recibir el texto de acompañamiento como **opcional**.
+    Sin texto comparte solo el archivo y, si el menú del sistema no está o rechaza la llamada, el
+    respaldo es descargar el archivo y avisarlo — no abrir WhatsApp, que solo tiene sentido cuando
+    hay un mensaje que llevar. El mostrador y las cotizaciones siguen mandando su texto y su
+    respaldo por WhatsApp, sin cambio alguno.
+47. **(Adición)** El botón de compartir se muestra u oculta según `puedeCompartirArchivos()`, no
+    según el ancho de la pantalla ni el sistema operativo detectado: lo que decide es si este
+    navegador tiene el menú, y esa es la única pregunta que responde bien.
+48. **(Adición)** En el listado, la descarga anticipada del PDF se dispara con `mouseenter` y con
+    el foco de teclado sobre el botón, una sola vez por factura, y el resultado queda en memoria
+    mientras dure la página. Un segundo clic sobre la misma factura no vuelve a pedirle el PDF al
+    servidor.
+49. **(Adición)** Las pruebas del compartir (Vitest, con `navigator.share`/`canShare` simulados)
+    cubren tres casos: que salga el PDF y nada más —sin texto—, que cerrar el menú del sistema no
+    deje error ni descargue nada, y que sin menú el respaldo sea solo la descarga, sin abrir
+    WhatsApp. El tercero prueba `puedeCompartirArchivos()`, que es la puerta que el botón consulta
+    para mostrarse: el alcance de Vitest en este proyecto es de módulos, sin jsdom ni componentes
+    montados (ver [011](011-precio-proveedor-utilidad.md)).
+50. **(Adición)** El backend no cambia: compartir usa el mismo `GET /api/v1/facturas/{id}/pdf` que
+    ya alimenta a "Descargar PDF", con la sesión del propio usuario.
