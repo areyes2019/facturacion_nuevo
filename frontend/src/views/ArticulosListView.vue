@@ -182,9 +182,12 @@ function recargarConRebote() {
  * lleva la goma, porque el distribuidor nunca la paga.
  *
  * Las etiquetas son abreviadas ("P Directo", "P Dist") solo en esta tabla, para que quepan en una
- * sola línea y liberar el ancho que ocupa la columna del filtro de catálogo
- * (ver 034-filtro-catalogo-y-mover-lote-articulos.md). El nombre completo se queda igual en
- * cualquier otra pantalla del sistema.
+ * sola línea (ver 034-filtro-catalogo-y-mover-lote-articulos.md). El nombre completo se queda igual
+ * en cualquier otra pantalla del sistema.
+ *
+ * "Utld" es el porcentaje de utilidad **directa** efectiva del artículo: la propia si la tiene, si
+ * no la de su catálogo (ver 035-ajustes-tabla-articulos.md). No lleva filtro de rango, solo
+ * ordenación, igual que las otras tres.
  *
  * La misma lista dibuja su celda en la fila de cabeceras y en la de filtros, para que no puedan
  * quedar con distinto número de celdas.
@@ -193,6 +196,7 @@ const columnasNumericas: { clave: ArticuloSort; etiqueta: string }[] = [
   { clave: 'costo_total', etiqueta: 'Costo' },
   { clave: 'precio_unitario_sin_iva', etiqueta: 'P Directo' },
   { clave: 'precio_distribuidor_sin_iva', etiqueta: 'P Dist' },
+  { clave: 'utilidad_porcentaje_efectivo', etiqueta: 'Utld' },
 ]
 
 /** Un filtro tecleado cambia el estado y recarga con rebote. */
@@ -496,12 +500,24 @@ async function confirmarImportar() {
         </div>
       </div>
 
-      <Input
-        v-model="articulos.search"
-        placeholder="Buscar por nombre, modelo o proveedor..."
-        class="max-w-sm"
-        @update:model-value="recargarConRebote"
-      />
+      <!-- El filtro de catálogo vive aquí, junto al buscador global, no dentro de la tabla
+           (ver 035-ajustes-tabla-articulos.md): es la misma casilla de 034, solo cambia de lugar. -->
+      <div class="flex flex-wrap items-center gap-2">
+        <Input
+          v-model="articulos.search"
+          placeholder="Buscar por nombre, modelo o proveedor..."
+          class="max-w-sm"
+          @update:model-value="recargarConRebote"
+        />
+        <div class="w-64">
+          <CatalogoSelect
+            :model-value="articulos.filtros.catalogoId"
+            incluir-todos
+            placeholder="Todos los catálogos"
+            @update:model-value="onFiltroCatalogo"
+          />
+        </div>
+      </div>
 
       <!-- Solo con filtros de columna puestos: sin ellos sería una línea permanente que no dice
            nada. El buscador global no cuenta ni se limpia aquí, porque tiene su propia caja
@@ -571,10 +587,6 @@ async function confirmarImportar() {
                      (ver 025-filtros-columna-listado-articulos.md). -->
                 <TableHead>Nombre</TableHead>
                 <TableHead class="w-32">Modelo</TableHead>
-                <!-- Columna de filtro, no de datos: la fila de cada artículo la deja vacía
-                     (ver 034-filtro-catalogo-y-mover-lote-articulos.md). El nombre del catálogo
-                     sigue sin mostrarse por fila; se consulta en la ficha (025). -->
-                <TableHead class="w-52">Catálogo</TableHead>
                 <TableHead v-for="columna in columnasNumericas" :key="columna.clave" class="w-24">
                   <ColumnaOrdenable
                     :etiqueta="columna.etiqueta"
@@ -609,15 +621,6 @@ async function confirmarImportar() {
                     @update:model-value="(v) => onFiltro('modelo', v)"
                   />
                 </TableHead>
-                <TableHead class="h-auto py-2">
-                  <CatalogoSelect
-                    :model-value="articulos.filtros.catalogoId"
-                    incluir-todos
-                    placeholder="Todos los catálogos"
-                    size="sm"
-                    @update:model-value="onFiltroCatalogo"
-                  />
-                </TableHead>
                 <!-- Las columnas de dinero no llevan filtro: se ordenan desde su cabecera. Su
                      celda va igual, vacía, porque las dos filas se dibujan con la misma lista y
                      deben tener el mismo número de celdas. -->
@@ -649,15 +652,15 @@ async function confirmarImportar() {
                     :aria-label="`Seleccionar ${articulo.nombre}`"
                   />
                 </TableCell>
-                <TableCell>
+                <TableCell class="whitespace-normal">
                   <!-- El nombre es el enlace a la ficha. No hay miniatura en la tabla: las fotos
                        le quitarían al listado la densidad que lo hace útil para trabajar.
-                       Se recorta con elipsis porque con `table-fixed` un nombre largo se saldría de
-                       su columna en vez de ensancharla; el `title` muestra el completo. -->
+                       Se muestra completo, envuelto en las líneas que haga falta, en vez de
+                       recortado con elipsis (ver 035-ajustes-tabla-articulos.md). `TableCell` aplica
+                       `whitespace-nowrap` por defecto (ver 006); esta celda lo revierte a propósito. -->
                   <button
                     type="button"
-                    class="hover:text-primary block w-full truncate text-left font-medium underline-offset-4 hover:underline"
-                    :title="articulo.nombre"
+                    class="hover:text-primary block w-full text-left font-medium underline-offset-4 hover:underline"
                     @click="articuloDetalle = articulo"
                   >
                     {{ articulo.nombre }}
@@ -666,15 +669,15 @@ async function confirmarImportar() {
                 <TableCell class="truncate" :title="articulo.modelo">{{
                   articulo.modelo
                 }}</TableCell>
-                <!-- Columna de filtro, no de datos: el catálogo del artículo se consulta en su
-                     ficha, no en esta celda (ver 034-filtro-catalogo-y-mover-lote-articulos.md). -->
-                <TableCell></TableCell>
                 <TableCell class="tabular-nums">${{ pesos(articulo.costo_total) }}</TableCell>
                 <TableCell class="tabular-nums">
                   ${{ pesos(articulo.precio_unitario_sin_iva) }}
                 </TableCell>
                 <TableCell class="tabular-nums">
                   ${{ pesos(articulo.precio_distribuidor_sin_iva) }}
+                </TableCell>
+                <TableCell class="tabular-nums">
+                  {{ articulo.utilidad_porcentaje_efectivo?.toFixed(2) ?? '—' }}%
                 </TableCell>
                 <!-- Los botones van en un `div` y no en el propio `td`: un `display:flex` sobre la
                      celda la saca del algoritmo de la tabla y deja de respetar el ancho de su

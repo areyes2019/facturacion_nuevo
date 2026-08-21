@@ -131,7 +131,11 @@ interface PaginationMeta {
  * pedir. El orden de captura no se elige: es el que trae el listado cuando `sort` va vacío, y al
  * que se vuelve al quitar la ordenación (ver 025-filtros-columna-listado-articulos.md).
  */
-export type ArticuloSort = 'costo_total' | 'precio_unitario_sin_iva' | 'precio_distribuidor_sin_iva'
+export type ArticuloSort =
+  | 'costo_total'
+  | 'precio_unitario_sin_iva'
+  | 'precio_distribuidor_sin_iva'
+  | 'utilidad_porcentaje_efectivo'
 export type SortDirection = 'asc' | 'desc'
 
 /**
