@@ -80,6 +80,7 @@ class CatalogoProveedorController extends Controller
         $request->validate([
             'descuento' => ['nullable', 'numeric', 'between:0,100', 'decimal:0,2'],
             'utilidad_porcentaje' => ['nullable', 'numeric', 'gte:0', 'lte:999.99', 'decimal:0,2'],
+            'utilidad_distribuidor_porcentaje' => ['nullable', 'numeric', 'gte:0', 'lte:999.99', 'decimal:0,2'],
             'aumento_porcentaje' => [
                 'nullable',
                 'numeric',
@@ -91,19 +92,23 @@ class CatalogoProveedorController extends Controller
 
         $descuento = (float) ($request->input('descuento') ?? $catalogo->descuento);
         $utilidad = (float) ($request->input('utilidad_porcentaje') ?? $catalogo->utilidad_porcentaje);
+        $utilidadDistribuidor = (float) ($request->input('utilidad_distribuidor_porcentaje') ?? $catalogo->utilidad_distribuidor_porcentaje);
         $aumento = (float) ($request->input('aumento_porcentaje') ?? 0);
 
         // `objeto_imp` entra en la selección porque el redondeo de 024 depende de él: sin esa columna
         // la proyección aplicaría factor 1 y la vista previa dejaría de coincidir al centavo con el
         // aumento real, que es justo lo que `proyectar` existe para evitar.
         $articulos = $catalogo->articulos()
-            ->get(['id', 'nombre', 'modelo', 'precio_proveedor', 'utilidad_porcentaje', 'costo_goma', 'objeto_imp']);
+            ->get([
+                'id', 'nombre', 'modelo', 'precio_proveedor', 'utilidad_porcentaje',
+                'utilidad_distribuidor_porcentaje', 'costo_goma', 'objeto_imp',
+            ]);
 
         $impacto = $articulos->map(fn (Articulo $articulo): array => [
             'id' => $articulo->id,
             'nombre' => $articulo->nombre,
             'modelo' => $articulo->modelo,
-            ...$this->proyectar($articulo, $descuento, $utilidad, $aumento),
+            ...$this->proyectar($articulo, $descuento, $utilidad, $aumento, $utilidadDistribuidor),
         ]);
 
         return response()->json(['articulos' => $impacto]);
@@ -131,17 +136,19 @@ class CatalogoProveedorController extends Controller
         $aumento = (float) $request->validated()['aumento_porcentaje'];
         $descuento = (float) $catalogo->descuento;
         $utilidad = (float) $catalogo->utilidad_porcentaje;
+        $utilidadDistribuidor = (float) $catalogo->utilidad_distribuidor_porcentaje;
 
-        $actualizados = DB::transaction(function () use ($catalogo, $descuento, $utilidad, $aumento): int {
+        $actualizados = DB::transaction(function () use ($catalogo, $descuento, $utilidad, $aumento, $utilidadDistribuidor): int {
             $actualizados = 0;
 
             foreach ($catalogo->articulos()->get() as $articulo) {
-                $proyeccion = $this->proyectar($articulo, $descuento, $utilidad, $aumento);
+                $proyeccion = $this->proyectar($articulo, $descuento, $utilidad, $aumento, $utilidadDistribuidor);
 
                 $articulo->update([
                     'precio_proveedor' => $proyeccion['precio_proveedor'],
                     'costo_con_descuento' => $proyeccion['costo_con_descuento'],
                     'precio_unitario_sin_iva' => $proyeccion['precio_unitario_sin_iva'],
+                    'precio_distribuidor_sin_iva' => $proyeccion['precio_distribuidor_sin_iva'],
                 ]);
                 $actualizados++;
             }
@@ -161,22 +168,23 @@ class CatalogoProveedorController extends Controller
      * `costo_total` viaja en el resultado para que la vista previa pueda mostrarlo, pero no se
      * persiste: es la suma de dos columnas (ver 014-costo-elaboracion-goma.md).
      *
-     * @return array{precio_proveedor: float, costo_con_descuento: float, costo_total: float, precio_unitario_sin_iva: float}
+     * @return array{precio_proveedor: float, costo_con_descuento: float, costo_total: float, precio_unitario_sin_iva: float, precio_distribuidor_sin_iva: float}
      */
-    private function proyectar(Articulo $articulo, float $descuento, float $utilidad, float $aumento): array
+    private function proyectar(Articulo $articulo, float $descuento, float $utilidad, float $aumento, float $utilidadDistribuidor = 0.0): array
     {
         $precioProveedor = $aumento > 0
             ? PrecioArticuloCalculator::precioProveedorAumentado((float) $articulo->precio_proveedor, $aumento)
             : (float) $articulo->precio_proveedor;
 
         // Los artículos con porcentaje propio conservan el suyo; los que heredan el del catálogo
-        // siguen heredándolo (ver 011-precio-proveedor-utilidad.md).
+        // siguen heredándolo (ver 011-precio-proveedor-utilidad.md y 033-precio-distribuidor.md).
         $cadena = PrecioArticuloCalculator::calcularCadena(
             $precioProveedor,
             $descuento,
             (float) ($articulo->utilidad_porcentaje ?? $utilidad),
             (float) $articulo->costo_goma,
             $articulo->objeto_imp,
+            (float) ($articulo->utilidad_distribuidor_porcentaje ?? $utilidadDistribuidor),
         );
 
         return ['precio_proveedor' => $precioProveedor, ...$cadena];

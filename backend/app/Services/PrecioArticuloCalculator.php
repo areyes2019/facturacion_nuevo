@@ -8,17 +8,19 @@ use App\Models\Catalogo;
 
 /**
  * Cadena de cálculo de precios de un artículo (ver 011-precio-proveedor-utilidad.md,
- * 014-costo-elaboracion-goma.md y 024-precios-sin-centavos.md).
+ * 014-costo-elaboracion-goma.md, 024-precios-sin-centavos.md y 033-precio-distribuidor.md).
  *
  *   precio_proveedor           (capturado)               $120.00
  *     ↓ × (1 − descuento / 100)                          descuento del catálogo
  *   costo_con_descuento        (calculado, persistido)   $120.00   ← costo del aparato
- *     ↓ + costo_goma                                     goma
- *   costo_total                (calculado al leer)       $130.00
- *     ↓ × (1 + utilidad_efectiva / 100) → techo2         markup sobre el costo (55%)
- *   precio_venta_crudo_sin_iva (intermedio, no se guarda) $201.50  → con IVA $233.74
- *     ↓ redondeo al peso entero del precio con IVA       024
- *   precio_unitario_sin_iva    (calculado, persistido)   $201.72  → con IVA $234.00
+ *     ├─ + costo_goma ────────────────────────┐          goma (solo entra al directo)
+ *     │  costo_total (al leer)   $130.00       │
+ *     │    ↓ × (1 + utilidad_efectiva/100)     │  ↓ × (1 + utilidad_distribuidor_efectiva/100)
+ *     │      → techo2                          │      → techo2 (SIN goma)
+ *     │  precio_venta_crudo_sin_iva  $201.50    │  precio_distribuidor_venta_crudo_sin_iva
+ *     │    ↓ redondeo al peso entero (024)      │    ↓ redondeo al peso entero (024)
+ *     │  precio_unitario_sin_iva     $201.72    │  precio_distribuidor_sin_iva
+ *     └─────────────────────────────────────────┘
  *
  * El porcentaje se interpreta como markup sobre el costo: un 25% significa "quiero ganar el 25% de
  * lo que me costó", de ahí la multiplicación.
@@ -27,6 +29,11 @@ use App\Models\Catalogo;
  * le pagas al proveedor; la goma la elaboras tú) y ANTES del markup (el precio de venta siempre es
  * calculado, así que un costo que no entrara al markup solo produciría un precio insuficiente).
  * Un artículo sin goma tiene costo_goma = 0 y la cadena queda idéntica a la de 011.
+ *
+ * El precio distribuidor (033) parte de `costo_con_descuento`, NUNCA de `costo_total`: el
+ * distribuidor no paga ni absorbe el costo de la goma. Comparte con el directo las mismas funciones
+ * de redondeo (`techo2`, `redondearAPesoEntero`) y el mismo factor de IVA por `objeto_imp`; lo único
+ * que cambia es el costo base y el porcentaje de utilidad.
  *
  * El redondeo al peso entero es el ÚLTIMO eslabón y vive dentro de `calcularCadena`, no en cada
  * llamador: así lo heredan sin lógica propia el alta, la edición, la importación CSV, el recálculo
@@ -183,12 +190,28 @@ class PrecioArticuloCalculator
     }
 
     /**
-     * Calcula y devuelve los valores derivados de la cadena.
+     * Porcentaje de utilidad distribuidor efectivo: el propio del artículo si lo tiene, si no el del
+     * catálogo (ver 033-precio-distribuidor.md). Misma herencia viva que `utilidadEfectiva`, sobre su
+     * propio par de columnas.
+     */
+    public static function utilidadDistribuidorEfectiva(Articulo $articulo, Catalogo $catalogo): float
+    {
+        return (float) ($articulo->utilidad_distribuidor_porcentaje ?? $catalogo->utilidad_distribuidor_porcentaje);
+    }
+
+    /**
+     * Calcula y devuelve los valores derivados de la cadena, para el precio directo y el distribuidor
+     * (033-precio-distribuidor.md).
      *
      * `costo_total` viaja en el resultado por comodidad de quien calcula, pero NO se persiste: es la
      * suma de dos columnas, mismo criterio por el que tampoco se persiste la utilidad.
      *
-     * @return array{costo_con_descuento: float, costo_total: float, precio_unitario_sin_iva: float}
+     * `$utilidadDistribuidorPorcentaje` va al final con default `0.0` (y no junto a
+     * `$utilidadPorcentaje`) para no correr el orden posicional de `$costoGoma` y `$objetoImp`:
+     * migraciones ya aplicadas llaman a este método con solo tres argumentos, apoyadas en esos
+     * defaults, y deben seguir funcionando sin tocarlas.
+     *
+     * @return array{costo_con_descuento: float, costo_total: float, precio_unitario_sin_iva: float, precio_distribuidor_sin_iva: float}
      */
     public static function calcularCadena(
         float $precioProveedor,
@@ -196,16 +219,22 @@ class PrecioArticuloCalculator
         float $utilidadPorcentaje,
         float $costoGoma = 0.0,
         ?ObjetoImpuesto $objetoImp = null,
+        float $utilidadDistribuidorPorcentaje = 0.0,
     ): array {
         $costo = self::costoConDescuento($precioProveedor, $descuento);
         $costoTotal = self::costoTotal($costo, $costoGoma);
         $precioCrudo = self::precioVentaSinIva($costoTotal, $utilidadPorcentaje);
         $precioVenta = self::redondearAPesoEntero($precioCrudo, self::factorIva($objetoImp));
 
+        // El distribuidor parte de `$costo` (sin goma), nunca de `$costoTotal`.
+        $precioDistribuidorCrudo = self::precioVentaSinIva($costo, $utilidadDistribuidorPorcentaje);
+        $precioDistribuidor = self::redondearAPesoEntero($precioDistribuidorCrudo, self::factorIva($objetoImp));
+
         return [
             'costo_con_descuento' => $costo,
             'costo_total' => $costoTotal,
             'precio_unitario_sin_iva' => $precioVenta,
+            'precio_distribuidor_sin_iva' => $precioDistribuidor,
         ];
     }
 }

@@ -18,8 +18,9 @@ import { Button } from '../../components/ui/button'
  * el producto, así que tiene que ocupar el aparato entero, sin un marco alrededor ni el listado
  * asomándose atrás.
  *
- * Muestra foto, nombre, modelo y precio, y **nunca** el costo, el precio del proveedor, la utilidad
- * ni las existencias: con el teléfono en la mano del cliente, todo lo que esté en la pantalla es
+ * Muestra foto, nombre, modelo y los dos precios (directo y distribuidor, ver
+ * 033-precio-distribuidor.md), y **nunca** el costo, el precio del proveedor, la utilidad ni las
+ * existencias: con el teléfono en la mano del cliente, todo lo que esté en la pantalla es
  * información que se le dio (misma regla que la ficha del escritorio, ver 020).
  */
 
@@ -40,18 +41,24 @@ const url = computed(() => (articulo.value ? imagenUrl(articulo.value) : null))
 const precio = computed(() =>
   articulo.value ? `$${articulo.value.precio_unitario_con_iva.toFixed(2)}` : '',
 )
+const precioDistribuidor = computed(() =>
+  articulo.value ? `$${articulo.value.precio_distribuidor_con_iva.toFixed(2)}` : '',
+)
 
 // Rotular "con IVA" un artículo que no causa impuesto sería falso: ahí el precio a secas es el que
 // paga el cliente (ver 024-precios-sin-centavos.md).
 const etiquetaPrecio = computed(() =>
   articulo.value?.objeto_imp === '02' ? 'Precio con IVA' : 'Precio',
 )
-
-const texto = computed(() =>
-  articulo.value
-    ? `${articulo.value.nombre} — Modelo ${articulo.value.modelo} — ${precio.value}`
-    : '',
+const etiquetaPrecioDistribuidor = computed(() =>
+  articulo.value?.objeto_imp === '02' ? 'Precio distribuidor con IVA' : 'Precio distribuidor',
 )
+
+function textoDe(precio: string): string {
+  return articulo.value
+    ? `${articulo.value.nombre} — Modelo ${articulo.value.modelo} — ${precio}`
+    : ''
+}
 
 async function cargar() {
   cargando.value = true
@@ -101,17 +108,21 @@ async function prepararFoto() {
 /**
  * Con foto sale la foto y el texto por el menú del aparato; sin ella, solo el texto. Apagar el
  * botón porque falta una fotografía le quitaría a la ficha su única función.
+ *
+ * Recibe el precio a compartir (directo o distribuidor, ver 033-precio-distribuidor.md): el texto
+ * compartido siempre lleva un solo precio, nunca los dos juntos.
  */
-async function compartir() {
+async function compartir(precio: string) {
   if (articulo.value === null) return
 
   aviso.value = null
+  const texto = textoDe(precio)
 
   try {
     const resultado =
       archivo.value !== null
-        ? await compartirArchivo(archivo.value.contenido, archivo.value.nombre, texto.value)
-        : await compartirTexto(texto.value)
+        ? await compartirArchivo(archivo.value.contenido, archivo.value.nombre, texto)
+        : await compartirTexto(texto)
 
     if (resultado === 'descargado') {
       aviso.value = 'Foto descargada: adjúntala en la ventana de WhatsApp que acaba de abrirse.'
@@ -163,15 +174,30 @@ async function compartir() {
             <p class="text-muted-foreground text-xs uppercase">{{ etiquetaPrecio }}</p>
             <p class="text-foreground text-4xl font-semibold tabular-nums">{{ precio }}</p>
           </div>
+          <div>
+            <p class="text-muted-foreground text-xs uppercase">{{ etiquetaPrecioDistribuidor }}</p>
+            <p class="text-foreground text-2xl font-semibold tabular-nums">
+              {{ precioDistribuidor }}
+            </p>
+          </div>
         </div>
 
         <Alert v-if="aviso">
           <AlertDescription>{{ aviso }}</AlertDescription>
         </Alert>
 
-        <Button class="h-14 w-full text-base" :disabled="preparando" @click="compartir">
+        <Button class="h-14 w-full text-base" :disabled="preparando" @click="compartir(precio)">
           <ShareIcon class="size-5" />
           {{ preparando ? 'Preparando...' : 'Compartir' }}
+        </Button>
+        <Button
+          class="h-14 w-full text-base"
+          variant="outline"
+          :disabled="preparando"
+          @click="compartir(precioDistribuidor)"
+        >
+          <ShareIcon class="size-5" />
+          {{ preparando ? 'Preparando...' : 'Compartir distribuidor' }}
         </Button>
       </template>
     </div>

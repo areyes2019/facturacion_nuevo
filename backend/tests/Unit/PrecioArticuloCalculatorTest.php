@@ -39,6 +39,7 @@ test('la cadena de precios coincide con el fixture compartido', function (array 
         (float) $caso['utilidad_porcentaje'],
         (float) $caso['costo_goma'],
         $objetoImp,
+        (float) $caso['utilidad_distribuidor_porcentaje'],
     );
 
     expect($cadena['costo_con_descuento'])->toBe((float) $caso['costo_con_descuento']);
@@ -59,7 +60,40 @@ test('la cadena de precios coincide con el fixture compartido', function (array 
         $cadena['precio_unitario_sin_iva'],
         $cadena['costo_total'],
     ))->toBe((float) $caso['utilidad']);
+
+    // El precio distribuidor (033) parte de costo_con_descuento, nunca de costo_total: se verifica
+    // aparte del crudo por la misma razón que el directo, y contra costo_con_descuento y no contra
+    // costo_total para que un fallo delate si alguien coló la goma en la cuenta del distribuidor.
+    expect(PrecioArticuloCalculator::precioVentaSinIva(
+        $cadena['costo_con_descuento'],
+        (float) $caso['utilidad_distribuidor_porcentaje'],
+    ))->toBe((float) $caso['precio_distribuidor_venta_crudo_sin_iva']);
+
+    expect($cadena['precio_distribuidor_sin_iva'])->toBe((float) $caso['precio_distribuidor_sin_iva']);
+    expect(PrecioArticuloCalculator::redondeo2(
+        $cadena['precio_distribuidor_sin_iva'] * PrecioArticuloCalculator::factorIva($objetoImp),
+    ))->toBe((float) $caso['precio_distribuidor_con_iva']);
 })->with(casosDelFixture());
+
+test('el precio distribuidor nunca lleva el costo de la goma', function () {
+    // Invariante de 033: con el mismo costo_con_descuento, el precio distribuidor es idéntico tenga
+    // o no tenga goma el artículo, porque la goma nunca entra a su cadena.
+    foreach ([0.0, 10.0, 20.0] as $costoGoma) {
+        $cadena = PrecioArticuloCalculator::calcularCadena(200.0, 0.0, 50.0, $costoGoma, ObjetoImpuesto::SiObjeto, 25.0);
+
+        expect($cadena['precio_distribuidor_sin_iva'])->toBe(250.0);
+    }
+});
+
+test('sin argumento de utilidad distribuidor, calcularCadena sigue funcionando con solo tres argumentos', function () {
+    // Migraciones ya aplicadas llaman a calcularCadena con solo precio_proveedor, descuento y
+    // utilidad_porcentaje, apoyadas en los valores por defecto de costo_goma, objeto_imp y
+    // utilidad_distribuidor_porcentaje (ver 011, 014 y 024). Este test es la red de esa compatibilidad.
+    $cadena = PrecioArticuloCalculator::calcularCadena(200.0, 0.0, 50.0);
+
+    expect($cadena['precio_unitario_sin_iva'])->toBe(300.0);
+    expect($cadena['precio_distribuidor_sin_iva'])->toBe(200.0);
+});
 
 test('un articulo sin goma produce el mismo costo que antes del eslabon de la goma', function () {
     // Invariante de la migración de 014: con costo_goma en 0 el costo total es el costo del aparato.

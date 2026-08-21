@@ -74,6 +74,7 @@ class StoreArticuloRequest extends FormRequest
             'precio_proveedor' => ['required', 'numeric', 'gt:0', 'decimal:0,2'],
             'utilidad_porcentaje' => ['nullable', 'numeric', 'gte:0', 'lte:999.99', 'decimal:0,2'],
             'tamano_goma' => ['nullable', Rule::enum(TamanoGoma::class)],
+            'utilidad_distribuidor_porcentaje' => ['nullable', 'numeric', 'gte:0', 'lte:999.99', 'decimal:0,2'],
         ];
     }
 }

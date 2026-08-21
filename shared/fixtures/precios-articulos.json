@@ -1,6 +1,6 @@
 {
-  "descripcion": "Casos frontera de la cadena de precios de un articulo (ver specs/011-precio-proveedor-utilidad.md, specs/014-costo-elaboracion-goma.md y specs/024-precios-sin-centavos.md). Definicion ejecutable compartida: la consumen PHPUnit (backend) y Vitest (frontend), de modo que cambiar una implementacion sin la otra rompe la suite del lado no tocado. Los valores esperados se derivaron con aritmetica exacta sobre centavos enteros, independiente de ambas implementaciones. Todos los montos van en MXN. precio_venta_crudo_sin_iva es el precio que produce el markup, ANTES del redondeo al peso entero de 024, y no se persiste en ninguna columna: existe en el fixture para que un fallo distinga si se rompio el markup o el redondeo. Los casos con costo_goma en 0 son los originales de 011 y su costo no cambio al agregar el eslabon de la goma; su precio de venta si cambio al agregar el redondeo de 024.",
-  "cadena": "costo_con_descuento = redondeo2(precio_proveedor * (1 - descuento / 100)); costo_total = redondeo2(costo_con_descuento + costo_goma); precio_venta_crudo_sin_iva = techo2(costo_total * (1 + utilidad_porcentaje / 100)); precio_unitario_sin_iva = redondearAPesoEntero(precio_venta_crudo_sin_iva, factorIva(objeto_imp)); precio_unitario_con_iva = redondeo2(precio_unitario_sin_iva * factorIva(objeto_imp)); utilidad = precio_unitario_sin_iva - costo_total",
+  "descripcion": "Casos frontera de la cadena de precios de un articulo (ver specs/011-precio-proveedor-utilidad.md, specs/014-costo-elaboracion-goma.md, specs/024-precios-sin-centavos.md y specs/033-precio-distribuidor.md). Definicion ejecutable compartida: la consumen PHPUnit (backend) y Vitest (frontend), de modo que cambiar una implementacion sin la otra rompe la suite del lado no tocado. Los valores esperados se derivaron con aritmetica exacta sobre centavos enteros, independiente de ambas implementaciones. Todos los montos van en MXN. precio_venta_crudo_sin_iva y precio_distribuidor_venta_crudo_sin_iva son los precios que produce el markup, ANTES del redondeo al peso entero de 024, y no se persisten en ninguna columna: existen en el fixture para que un fallo distinga si se rompio el markup o el redondeo. Los casos con costo_goma en 0 son los originales de 011 y su costo no cambio al agregar el eslabon de la goma; su precio de venta si cambio al agregar el redondeo de 024. utilidad_distribuidor_porcentaje y los campos precio_distribuidor_* son de 033: el precio distribuidor parte de costo_con_descuento (NUNCA de costo_total, la goma no entra) y pasa por las mismas techo2/redondearAPesoEntero/factorIva que el directo, solo que con su propio porcentaje de utilidad.",
+  "cadena": "costo_con_descuento = redondeo2(precio_proveedor * (1 - descuento / 100)); costo_total = redondeo2(costo_con_descuento + costo_goma); precio_venta_crudo_sin_iva = techo2(costo_total * (1 + utilidad_porcentaje / 100)); precio_unitario_sin_iva = redondearAPesoEntero(precio_venta_crudo_sin_iva, factorIva(objeto_imp)); precio_unitario_con_iva = redondeo2(precio_unitario_sin_iva * factorIva(objeto_imp)); utilidad = precio_unitario_sin_iva - costo_total; precio_distribuidor_venta_crudo_sin_iva = techo2(costo_con_descuento * (1 + utilidad_distribuidor_porcentaje / 100)); precio_distribuidor_sin_iva = redondearAPesoEntero(precio_distribuidor_venta_crudo_sin_iva, factorIva(objeto_imp)); precio_distribuidor_con_iva = redondeo2(precio_distribuidor_sin_iva * factorIva(objeto_imp))",
   "casos": [
     {
       "descripcion": "cadena canonica de la spec",
@@ -14,7 +14,11 @@
       "precio_venta_crudo_sin_iva": 225.0,
       "precio_unitario_sin_iva": 225.0,
       "precio_unitario_con_iva": 261.0,
-      "utilidad": 45.0
+      "utilidad": 45.0,
+      "utilidad_distribuidor_porcentaje": 35.0,
+      "precio_distribuidor_venta_crudo_sin_iva": 243.0,
+      "precio_distribuidor_sin_iva": 243.1,
+      "precio_distribuidor_con_iva": 282.0
     },
     {
       "descripcion": "caso capturado en produccion: descuento alto y porcentaje de dos digitos",
@@ -28,7 +32,11 @@
       "precio_venta_crudo_sin_iva": 310.98,
       "precio_unitario_sin_iva": 311.21,
       "precio_unitario_con_iva": 361.0,
-      "utilidad": 154.94
+      "utilidad": 154.94,
+      "utilidad_distribuidor_porcentaje": 109.0,
+      "precio_distribuidor_venta_crudo_sin_iva": 326.61,
+      "precio_distribuidor_sin_iva": 326.72,
+      "precio_distribuidor_con_iva": 379.0
     },
     {
       "descripcion": "techo real frente a redondeo estandar: 133.0133 sube a 133.02, no baja a 133.01",
@@ -42,7 +50,11 @@
       "precio_venta_crudo_sin_iva": 133.02,
       "precio_unitario_sin_iva": 133.62,
       "precio_unitario_con_iva": 155.0,
-      "utilidad": 33.61
+      "utilidad": 33.61,
+      "utilidad_distribuidor_porcentaje": 43.0,
+      "precio_distribuidor_venta_crudo_sin_iva": 143.02,
+      "precio_distribuidor_sin_iva": 143.1,
+      "precio_distribuidor_con_iva": 166.0
     },
     {
       "descripcion": "frontera de punto flotante: el techo debe redondear despues de escalar a centavos",
@@ -56,7 +68,11 @@
       "precio_venta_crudo_sin_iva": 16.17,
       "precio_unitario_sin_iva": 16.38,
       "precio_unitario_con_iva": 19.0,
-      "utilidad": 0.98
+      "utilidad": 0.98,
+      "utilidad_distribuidor_porcentaje": 15.0,
+      "precio_distribuidor_venta_crudo_sin_iva": 17.71,
+      "precio_distribuidor_sin_iva": 18.1,
+      "precio_distribuidor_con_iva": 21.0
     },
     {
       "descripcion": "utilidad cero: se vende exactamente a costo",
@@ -70,7 +86,11 @@
       "precio_venta_crudo_sin_iva": 100.0,
       "precio_unitario_sin_iva": 100.0,
       "precio_unitario_con_iva": 116.0,
-      "utilidad": 0.0
+      "utilidad": 0.0,
+      "utilidad_distribuidor_porcentaje": 10.0,
+      "precio_distribuidor_venta_crudo_sin_iva": 110.0,
+      "precio_distribuidor_sin_iva": 111.21,
+      "precio_distribuidor_con_iva": 129.0
     },
     {
       "descripcion": "producto exacto sin residuo: el techo no debe agregar un centavo",
@@ -84,7 +104,11 @@
       "precio_venta_crudo_sin_iva": 125.0,
       "precio_unitario_sin_iva": 125.0,
       "precio_unitario_con_iva": 145.0,
-      "utilidad": 25.0
+      "utilidad": 25.0,
+      "utilidad_distribuidor_porcentaje": 35.0,
+      "precio_distribuidor_venta_crudo_sin_iva": 135.0,
+      "precio_distribuidor_sin_iva": 136.21,
+      "precio_distribuidor_con_iva": 158.0
     },
     {
       "descripcion": "producto exacto con decimales: 210 al 30% da 273.00 clavado",
@@ -98,7 +122,11 @@
       "precio_venta_crudo_sin_iva": 273.0,
       "precio_unitario_sin_iva": 273.28,
       "precio_unitario_con_iva": 317.0,
-      "utilidad": 63.28
+      "utilidad": 63.28,
+      "utilidad_distribuidor_porcentaje": 40.0,
+      "precio_distribuidor_venta_crudo_sin_iva": 294.0,
+      "precio_distribuidor_sin_iva": 294.83,
+      "precio_distribuidor_con_iva": 342.0
     },
     {
       "descripcion": "fraccion de centavo exacta: 218.75 no se altera",
@@ -112,7 +140,11 @@
       "precio_venta_crudo_sin_iva": 218.75,
       "precio_unitario_sin_iva": 219.83,
       "precio_unitario_con_iva": 255.0,
-      "utilidad": 44.83
+      "utilidad": 44.83,
+      "utilidad_distribuidor_porcentaje": 35.0,
+      "precio_distribuidor_venta_crudo_sin_iva": 236.25,
+      "precio_distribuidor_sin_iva": 237.07,
+      "precio_distribuidor_con_iva": 275.0
     },
     {
       "descripcion": "descuento alto de catalogo con porcentaje fraccionario",
@@ -126,7 +158,11 @@
       "precio_venta_crudo_sin_iva": 506.25,
       "precio_unitario_sin_iva": 506.9,
       "precio_unitario_con_iva": 588.0,
-      "utilidad": 56.9
+      "utilidad": 56.9,
+      "utilidad_distribuidor_porcentaje": 22.5,
+      "precio_distribuidor_venta_crudo_sin_iva": 551.25,
+      "precio_distribuidor_sin_iva": 551.72,
+      "precio_distribuidor_con_iva": 640.0
     },
     {
       "descripcion": "descuento que produce un costo no redondo antes del redondeo2",
@@ -140,7 +176,11 @@
       "precio_venta_crudo_sin_iva": 76.66,
       "precio_unitario_sin_iva": 76.72,
       "precio_unitario_con_iva": 89.0,
-      "utilidad": 10.06
+      "utilidad": 10.06,
+      "utilidad_distribuidor_porcentaje": 25.0,
+      "precio_distribuidor_venta_crudo_sin_iva": 83.33,
+      "precio_distribuidor_sin_iva": 83.62,
+      "precio_distribuidor_con_iva": 97.0
     },
     {
       "descripcion": "descuento y porcentaje ambos con decimales",
@@ -154,7 +194,11 @@
       "precio_venta_crudo_sin_iva": 38.88,
       "precio_unitario_sin_iva": 40.52,
       "precio_unitario_con_iva": 47.0,
-      "utilidad": 11.36
+      "utilidad": 11.36,
+      "utilidad_distribuidor_porcentaje": 43.33,
+      "precio_distribuidor_venta_crudo_sin_iva": 41.8,
+      "precio_distribuidor_sin_iva": 42.24,
+      "precio_distribuidor_con_iva": 49.0
     },
     {
       "descripcion": "porcentaje de tres digitos: markup no tiene singularidad matematica",
@@ -168,7 +212,11 @@
       "precio_venta_crudo_sin_iva": 200.0,
       "precio_unitario_sin_iva": 200.0,
       "precio_unitario_con_iva": 232.0,
-      "utilidad": 150.0
+      "utilidad": 150.0,
+      "utilidad_distribuidor_porcentaje": 310.0,
+      "precio_distribuidor_venta_crudo_sin_iva": 205.0,
+      "precio_distribuidor_sin_iva": 205.17,
+      "precio_distribuidor_con_iva": 238.0
     },
     {
       "descripcion": "tope superior del rango permitido por decimal(5,2)",
@@ -182,7 +230,11 @@
       "precio_venta_crudo_sin_iva": 110.0,
       "precio_unitario_sin_iva": 111.21,
       "precio_unitario_con_iva": 129.0,
-      "utilidad": 101.21
+      "utilidad": 101.21,
+      "utilidad_distribuidor_porcentaje": 999.99,
+      "precio_distribuidor_venta_crudo_sin_iva": 110.0,
+      "precio_distribuidor_sin_iva": 111.21,
+      "precio_distribuidor_con_iva": 129.0
     },
     {
       "descripcion": "goma: cadena canonica de la historia, aparato 200 mas goma mediana 10 al 25%",
@@ -196,7 +248,11 @@
       "precio_venta_crudo_sin_iva": 262.5,
       "precio_unitario_sin_iva": 262.93,
       "precio_unitario_con_iva": 305.0,
-      "utilidad": 52.93
+      "utilidad": 52.93,
+      "utilidad_distribuidor_porcentaje": 35.0,
+      "precio_distribuidor_venta_crudo_sin_iva": 270.0,
+      "precio_distribuidor_sin_iva": 270.69,
+      "precio_distribuidor_con_iva": 314.0
     },
     {
       "descripcion": "goma: el mismo costo total por otra ruta debe dar el mismo precio (5.40 + 10.00 = 15.40 al 5% da 16.17, no 16.18)",
@@ -210,7 +266,11 @@
       "precio_venta_crudo_sin_iva": 16.17,
       "precio_unitario_sin_iva": 16.38,
       "precio_unitario_con_iva": 19.0,
-      "utilidad": 0.98
+      "utilidad": 0.98,
+      "utilidad_distribuidor_porcentaje": 15.0,
+      "precio_distribuidor_venta_crudo_sin_iva": 6.21,
+      "precio_distribuidor_sin_iva": 6.9,
+      "precio_distribuidor_con_iva": 8.0
     },
     {
       "descripcion": "goma: 80.01 mas goma grande 20.00 alcanza el techo de 133.02, no 133.01",
@@ -224,7 +284,11 @@
       "precio_venta_crudo_sin_iva": 133.02,
       "precio_unitario_sin_iva": 133.62,
       "precio_unitario_con_iva": 155.0,
-      "utilidad": 33.61
+      "utilidad": 33.61,
+      "utilidad_distribuidor_porcentaje": 43.0,
+      "precio_distribuidor_venta_crudo_sin_iva": 114.42,
+      "precio_distribuidor_sin_iva": 115.52,
+      "precio_distribuidor_con_iva": 134.0
     },
     {
       "descripcion": "goma: el descuento del catalogo no toca el costo de la goma (55% sobre 347.27 da 156.27, mas 20.00 enteros)",
@@ -238,7 +302,11 @@
       "precio_venta_crudo_sin_iva": 350.78,
       "precio_unitario_sin_iva": 350.86,
       "precio_unitario_con_iva": 407.0,
-      "utilidad": 174.59
+      "utilidad": 174.59,
+      "utilidad_distribuidor_porcentaje": 109.0,
+      "precio_distribuidor_venta_crudo_sin_iva": 326.61,
+      "precio_distribuidor_sin_iva": 326.72,
+      "precio_distribuidor_con_iva": 379.0
     },
     {
       "descripcion": "goma: costo no redondo por descuento mas goma chica 6.00",
@@ -252,7 +320,11 @@
       "precio_venta_crudo_sin_iva": 83.56,
       "precio_unitario_sin_iva": 83.62,
       "precio_unitario_con_iva": 97.0,
-      "utilidad": 10.96
+      "utilidad": 10.96,
+      "utilidad_distribuidor_porcentaje": 25.0,
+      "precio_distribuidor_venta_crudo_sin_iva": 83.33,
+      "precio_distribuidor_sin_iva": 83.62,
+      "precio_distribuidor_con_iva": 97.0
     },
     {
       "descripcion": "goma: utilidad cero con goma, se vende exactamente al costo total",
@@ -266,7 +338,11 @@
       "precio_venta_crudo_sin_iva": 120.0,
       "precio_unitario_sin_iva": 120.69,
       "precio_unitario_con_iva": 140.0,
-      "utilidad": 0.69
+      "utilidad": 0.69,
+      "utilidad_distribuidor_porcentaje": 10.0,
+      "precio_distribuidor_venta_crudo_sin_iva": 110.0,
+      "precio_distribuidor_sin_iva": 111.21,
+      "precio_distribuidor_con_iva": 129.0
     },
     {
       "descripcion": "goma: la goma empuja el total a un valor que exige techo (21.34 al 5% da 22.41)",
@@ -280,7 +356,11 @@
       "precio_venta_crudo_sin_iva": 22.41,
       "precio_unitario_sin_iva": 22.41,
       "precio_unitario_con_iva": 26.0,
-      "utilidad": 1.07
+      "utilidad": 1.07,
+      "utilidad_distribuidor_porcentaje": 15.0,
+      "precio_distribuidor_venta_crudo_sin_iva": 17.65,
+      "precio_distribuidor_sin_iva": 18.1,
+      "precio_distribuidor_con_iva": 21.0
     },
     {
       "descripcion": "goma: categoria con costo 0.00 se comporta igual que no llevar goma",
@@ -294,7 +374,11 @@
       "precio_venta_crudo_sin_iva": 125.0,
       "precio_unitario_sin_iva": 125.0,
       "precio_unitario_con_iva": 145.0,
-      "utilidad": 25.0
+      "utilidad": 25.0,
+      "utilidad_distribuidor_porcentaje": 35.0,
+      "precio_distribuidor_venta_crudo_sin_iva": 135.0,
+      "precio_distribuidor_sin_iva": 136.21,
+      "precio_distribuidor_con_iva": 158.0
     },
     {
       "descripcion": "objeto_imp 02: el entero objetivo es inalcanzable y sube al siguiente (6.03 -> 8.00, el 7.00 no lo produce ningun centavo)",
@@ -308,7 +392,11 @@
       "precio_venta_crudo_sin_iva": 5.2,
       "precio_unitario_sin_iva": 6.9,
       "precio_unitario_con_iva": 8.0,
-      "utilidad": 1.7
+      "utilidad": 1.7,
+      "utilidad_distribuidor_porcentaje": 10.0,
+      "precio_distribuidor_venta_crudo_sin_iva": 5.72,
+      "precio_distribuidor_sin_iva": 6.9,
+      "precio_distribuidor_con_iva": 8.0
     },
     {
       "descripcion": "objeto_imp 02: el precio con IVA ya cae en un entero exacto y el redondeo no lo mueve (200.00 -> 232.00)",
@@ -322,7 +410,11 @@
       "precio_venta_crudo_sin_iva": 200.0,
       "precio_unitario_sin_iva": 200.0,
       "precio_unitario_con_iva": 232.0,
-      "utilidad": 0.0
+      "utilidad": 0.0,
+      "utilidad_distribuidor_porcentaje": 10.0,
+      "precio_distribuidor_venta_crudo_sin_iva": 220.0,
+      "precio_distribuidor_sin_iva": 220.69,
+      "precio_distribuidor_con_iva": 256.0
     },
     {
       "descripcion": "objeto_imp 01 (no objeto): se redondea el precio a secas, sin factor",
@@ -336,7 +428,11 @@
       "precio_venta_crudo_sin_iva": 201.28,
       "precio_unitario_sin_iva": 202.0,
       "precio_unitario_con_iva": 202.0,
-      "utilidad": 0.72
+      "utilidad": 0.72,
+      "utilidad_distribuidor_porcentaje": 10.0,
+      "precio_distribuidor_venta_crudo_sin_iva": 221.41,
+      "precio_distribuidor_sin_iva": 222.0,
+      "precio_distribuidor_con_iva": 222.0
     },
     {
       "descripcion": "objeto_imp 03 (no obligado al desglose): mismo trato que 01, factor 1",
@@ -350,7 +446,11 @@
       "precio_venta_crudo_sin_iva": 201.28,
       "precio_unitario_sin_iva": 202.0,
       "precio_unitario_con_iva": 202.0,
-      "utilidad": 0.72
+      "utilidad": 0.72,
+      "utilidad_distribuidor_porcentaje": 10.0,
+      "precio_distribuidor_venta_crudo_sin_iva": 221.41,
+      "precio_distribuidor_sin_iva": 222.0,
+      "precio_distribuidor_con_iva": 222.0
     },
     {
       "descripcion": "objeto_imp 04 (no causa impuesto): mismo trato que 01, factor 1",
@@ -364,7 +464,11 @@
       "precio_venta_crudo_sin_iva": 201.28,
       "precio_unitario_sin_iva": 202.0,
       "precio_unitario_con_iva": 202.0,
-      "utilidad": 0.72
+      "utilidad": 0.72,
+      "utilidad_distribuidor_porcentaje": 10.0,
+      "precio_distribuidor_venta_crudo_sin_iva": 221.41,
+      "precio_distribuidor_sin_iva": 222.0,
+      "precio_distribuidor_con_iva": 222.0
     },
     {
       "descripcion": "objeto_imp 01: un precio que ya es entero no se mueve",
@@ -378,7 +482,11 @@
       "precio_venta_crudo_sin_iva": 150.0,
       "precio_unitario_sin_iva": 150.0,
       "precio_unitario_con_iva": 150.0,
-      "utilidad": 0.0
+      "utilidad": 0.0,
+      "utilidad_distribuidor_porcentaje": 10.0,
+      "precio_distribuidor_venta_crudo_sin_iva": 165.0,
+      "precio_distribuidor_sin_iva": 165.0,
+      "precio_distribuidor_con_iva": 165.0
     },
     {
       "descripcion": "precio cero: descuento total y utilidad cero dejan el precio en 0.00 sin forzar un minimo",
@@ -392,7 +500,11 @@
       "precio_venta_crudo_sin_iva": 0.0,
       "precio_unitario_sin_iva": 0.0,
       "precio_unitario_con_iva": 0.0,
-      "utilidad": 0.0
+      "utilidad": 0.0,
+      "utilidad_distribuidor_porcentaje": 10.0,
+      "precio_distribuidor_venta_crudo_sin_iva": 0.0,
+      "precio_distribuidor_sin_iva": 0.0,
+      "precio_distribuidor_con_iva": 0.0
     },
     {
       "descripcion": "cadena canonica de 024: aparato 120 mas goma 10 al 55% da 201.50 crudo y aterriza en 234.00 con IVA",
@@ -406,7 +518,11 @@
       "precio_venta_crudo_sin_iva": 201.5,
       "precio_unitario_sin_iva": 201.72,
       "precio_unitario_con_iva": 234.0,
-      "utilidad": 71.72
+      "utilidad": 71.72,
+      "utilidad_distribuidor_porcentaje": 65.0,
+      "precio_distribuidor_venta_crudo_sin_iva": 198.0,
+      "precio_distribuidor_sin_iva": 198.28,
+      "precio_distribuidor_con_iva": 230.0
     },
     {
       "descripcion": "el redondeo tambien aplica sobre un costo con goma y descuento alto",
@@ -420,7 +536,47 @@
       "precio_venta_crudo_sin_iva": 350.78,
       "precio_unitario_sin_iva": 350.86,
       "precio_unitario_con_iva": 407.0,
-      "utilidad": 174.59
+      "utilidad": 174.59,
+      "utilidad_distribuidor_porcentaje": 109.0,
+      "precio_distribuidor_venta_crudo_sin_iva": 326.61,
+      "precio_distribuidor_sin_iva": 326.72,
+      "precio_distribuidor_con_iva": 379.0
+    },
+    {
+      "descripcion": "distribuidor: caso canonico de 033, aparato 200 mas goma 20 al 50%/25% (el directo sube a peso entero, el distribuidor ya cae exacto)",
+      "precio_proveedor": 200.0,
+      "descuento": 0.0,
+      "utilidad_porcentaje": 50.0,
+      "costo_goma": 20.0,
+      "objeto_imp": "02",
+      "costo_con_descuento": 200.0,
+      "costo_total": 220.0,
+      "precio_venta_crudo_sin_iva": 330.0,
+      "precio_unitario_sin_iva": 330.17,
+      "precio_unitario_con_iva": 383.0,
+      "utilidad": 110.17,
+      "utilidad_distribuidor_porcentaje": 25.0,
+      "precio_distribuidor_venta_crudo_sin_iva": 250.0,
+      "precio_distribuidor_sin_iva": 250.0,
+      "precio_distribuidor_con_iva": 290.0
+    },
+    {
+      "descripcion": "distribuidor: mismo aparato con utilidad distribuidor 30% en vez de 25%: ahora es el distribuidor el que no cae en peso entero",
+      "precio_proveedor": 200.0,
+      "descuento": 0.0,
+      "utilidad_porcentaje": 50.0,
+      "costo_goma": 20.0,
+      "objeto_imp": "02",
+      "costo_con_descuento": 200.0,
+      "costo_total": 220.0,
+      "precio_venta_crudo_sin_iva": 330.0,
+      "precio_unitario_sin_iva": 330.17,
+      "precio_unitario_con_iva": 383.0,
+      "utilidad": 110.17,
+      "utilidad_distribuidor_porcentaje": 30.0,
+      "precio_distribuidor_venta_crudo_sin_iva": 260.0,
+      "precio_distribuidor_sin_iva": 261.21,
+      "precio_distribuidor_con_iva": 303.0
     }
   ]
 }

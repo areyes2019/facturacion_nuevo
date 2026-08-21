@@ -29,10 +29,12 @@ use Illuminate\Database\Eloquent\SoftDeletes;
     'objeto_imp',
     'precio_proveedor',
     'utilidad_porcentaje',
+    'utilidad_distribuidor_porcentaje',
     'tamano_goma',
     'costo_goma',
     'costo_con_descuento',
     'precio_unitario_sin_iva',
+    'precio_distribuidor_sin_iva',
 ])]
 class Articulo extends Model
 {
@@ -140,6 +142,20 @@ class Articulo extends Model
     }
 
     /**
+     * Precio distribuidor que ve el cliente, calculado solo para mostrarse; no se persiste (ver
+     * 033-precio-distribuidor.md). Espejo exacto de `precioUnitarioConIva`, mismo factor de IVA.
+     */
+    protected function precioDistribuidorConIva(): Attribute
+    {
+        return Attribute::make(
+            get: fn (): float => round(
+                ((float) $this->precio_distribuidor_sin_iva) * PrecioArticuloCalculator::factorIva($this->objeto_imp),
+                2,
+            ),
+        );
+    }
+
+    /**
      * Costo total por unidad (sin IVA): costo del aparato ya con descuento + costo de la goma.
      *
      * No se persiste: es la suma de dos columnas, mismo criterio por el que tampoco se persiste la
@@ -180,9 +196,11 @@ class Articulo extends Model
             'tamano_goma' => TamanoGoma::class,
             'precio_proveedor' => 'decimal:2',
             'utilidad_porcentaje' => 'decimal:2',
+            'utilidad_distribuidor_porcentaje' => 'decimal:2',
             'costo_goma' => 'decimal:2',
             'costo_con_descuento' => 'decimal:2',
             'precio_unitario_sin_iva' => 'decimal:2',
+            'precio_distribuidor_sin_iva' => 'decimal:2',
             'existencia' => 'integer',
             'faltante_pendiente' => 'integer',
             'minimo' => 'integer',

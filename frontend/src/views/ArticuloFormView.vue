@@ -59,28 +59,34 @@ const form = reactive({
   utilidad_porcentaje: '' as string,
   // '' = el artículo no lleva goma; es el valor por defecto al crear.
   tamano_goma: '' as string,
+  utilidad_distribuidor_porcentaje: '' as string,
 })
 
 // Descuento y utilidad del catálogo seleccionado, para mostrar los precios en vivo (ver
-// 009-catalogos.md y 011-precio-proveedor-utilidad.md); se consultan cada vez que cambia el
-// catálogo porque el combobox solo expone id/nombre, no el descuento ni la utilidad.
+// 009-catalogos.md, 011-precio-proveedor-utilidad.md y 033-precio-distribuidor.md); se consultan
+// cada vez que cambia el catálogo porque el combobox solo expone id/nombre, no el descuento ni las
+// utilidades.
 const descuentoCatalogo = ref(0)
 const utilidadCatalogo = ref(0)
+const utilidadDistribuidorCatalogo = ref(0)
 watch(
   () => form.catalogo_id,
   async (catalogoId) => {
     if (!catalogoId) {
       descuentoCatalogo.value = 0
       utilidadCatalogo.value = 0
+      utilidadDistribuidorCatalogo.value = 0
       return
     }
     try {
       const catalogo = await catalogos.fetchOne(catalogoId)
       descuentoCatalogo.value = catalogo.descuento
       utilidadCatalogo.value = catalogo.utilidad_porcentaje
+      utilidadDistribuidorCatalogo.value = catalogo.utilidad_distribuidor_porcentaje
     } catch {
       descuentoCatalogo.value = 0
       utilidadCatalogo.value = 0
+      utilidadDistribuidorCatalogo.value = 0
     }
   },
 )
@@ -90,6 +96,13 @@ const utilidadEfectiva = computed(() => {
   const utilidad = parseFloat(form.utilidad_porcentaje)
   if (Number.isFinite(utilidad)) return utilidad
   return utilidadCatalogo.value
+})
+
+// Utilidad distribuidor efectiva: espejo de utilidadEfectiva (ver 033-precio-distribuidor.md).
+const utilidadDistribuidorEfectiva = computed(() => {
+  const utilidad = parseFloat(form.utilidad_distribuidor_porcentaje)
+  if (Number.isFinite(utilidad)) return utilidad
+  return utilidadDistribuidorCatalogo.value
 })
 
 const precioProveedor = computed(() => {
@@ -115,7 +128,8 @@ const tamanoSeleccionado = computed({
 })
 
 // Cadena completa calculada con el mismo módulo que espeja al backend (ver
-// 011-precio-proveedor-utilidad.md). Ninguna vista calcula precios por su cuenta.
+// 011-precio-proveedor-utilidad.md y 033-precio-distribuidor.md). Ninguna vista calcula precios por
+// su cuenta.
 const cadena = computed(() =>
   calcularCadena(
     precioProveedor.value,
@@ -123,6 +137,7 @@ const cadena = computed(() =>
     utilidadEfectiva.value,
     costoGoma.value,
     form.objeto_imp,
+    utilidadDistribuidorEfectiva.value,
   ),
 )
 
@@ -152,6 +167,26 @@ const ajusteRedondeo = computed(() => redondeo2(precioFinal.value - precioCrudoC
 // legítimo y no se impide guardar. Se mide sobre la utilidad efectiva, así que un artículo que
 // hereda la del catálogo avisa por lo que realmente se le va a aplicar.
 const porcentajeAlto = computed(() => porcentajeUtilidadAlto(utilidadEfectiva.value))
+
+// Rama distribuidor del resumen (ver 033-precio-distribuidor.md): mismo criterio que la rama
+// directo, pero medida sobre costo_con_descuento (sin goma).
+const precioDistribuidorCrudoConIva = computed(() =>
+  precioConIva(cadena.value.precio_distribuidor_venta_crudo_sin_iva, factor.value),
+)
+const precioDistribuidorFinal = computed(() =>
+  precioConIva(cadena.value.precio_distribuidor_sin_iva, factor.value),
+)
+const ivaDistribuidorMonto = computed(() =>
+  redondeo2(
+    precioDistribuidorCrudoConIva.value - cadena.value.precio_distribuidor_venta_crudo_sin_iva,
+  ),
+)
+const ajusteRedondeoDistribuidor = computed(() =>
+  redondeo2(precioDistribuidorFinal.value - precioDistribuidorCrudoConIva.value),
+)
+const porcentajeDistribuidorAlto = computed(() =>
+  porcentajeUtilidadAlto(utilidadDistribuidorEfectiva.value),
+)
 
 function pesos(valor: number): string {
   return valor.toFixed(2)
@@ -198,6 +233,10 @@ onMounted(async () => {
     form.utilidad_porcentaje =
       articulo.utilidad_porcentaje !== null ? articulo.utilidad_porcentaje.toString() : ''
     form.tamano_goma = articulo.tamano_goma ?? ''
+    form.utilidad_distribuidor_porcentaje =
+      articulo.utilidad_distribuidor_porcentaje !== null
+        ? articulo.utilidad_distribuidor_porcentaje.toString()
+        : ''
   } catch (err) {
     errorGeneral.value = extractErrorMessage(err)
   } finally {
@@ -217,16 +256,19 @@ function discrepancia(guardado: Articulo): string | null {
     guardado.costo_con_descuento === local.costo_con_descuento &&
     guardado.costo_total === local.costo_total &&
     guardado.precio_unitario_sin_iva === local.precio_unitario_sin_iva &&
-    guardado.utilidad === local.utilidad
+    guardado.utilidad === local.utilidad &&
+    guardado.precio_distribuidor_sin_iva === local.precio_distribuidor_sin_iva
   ) {
     return null
   }
 
   return (
     `El precio guardado no coincide con el que mostró este formulario. Quedó registrado un costo ` +
-    `total de $${pesos(guardado.costo_total)} y un precio de venta de ` +
-    `$${pesos(guardado.precio_unitario_sin_iva)}, en lugar de $${pesos(local.costo_total)} ` +
-    `y $${pesos(local.precio_unitario_sin_iva)}. Recarga la página y verifica el artículo.`
+    `total de $${pesos(guardado.costo_total)}, un precio de venta de ` +
+    `$${pesos(guardado.precio_unitario_sin_iva)} y un precio distribuidor de ` +
+    `$${pesos(guardado.precio_distribuidor_sin_iva)}, en lugar de $${pesos(local.costo_total)}, ` +
+    `$${pesos(local.precio_unitario_sin_iva)} y $${pesos(local.precio_distribuidor_sin_iva)}. ` +
+    `Recarga la página y verifica el artículo.`
   )
 }
 
@@ -289,6 +331,9 @@ async function onSubmit() {
     precio_proveedor: form.precio_proveedor ? parseFloat(form.precio_proveedor) : null,
     utilidad_porcentaje: form.utilidad_porcentaje ? parseFloat(form.utilidad_porcentaje) : null,
     tamano_goma: form.tamano_goma || null,
+    utilidad_distribuidor_porcentaje: form.utilidad_distribuidor_porcentaje
+      ? parseFloat(form.utilidad_distribuidor_porcentaje)
+      : null,
   }
 
   try {
@@ -419,6 +464,40 @@ async function onSubmit() {
               </p>
             </div>
 
+            <!-- Precio distribuidor (ver 033-precio-distribuidor.md): mismo patrón que la utilidad
+                 directo, hermano del campo de arriba. -->
+            <div class="space-y-1.5">
+              <Label for="utilidad_distribuidor_porcentaje">Utilidad distribuidor (%)</Label>
+              <Input
+                id="utilidad_distribuidor_porcentaje"
+                v-model="form.utilidad_distribuidor_porcentaje"
+                type="number"
+                min="0"
+                max="999.99"
+                step="0.01"
+                placeholder="Usa la utilidad distribuidor del catálogo"
+              />
+              <p class="text-muted-foreground text-sm">
+                Si se deja vacío se usa la utilidad distribuidor del catálogo ({{
+                  utilidadDistribuidorCatalogo
+                }}%). El distribuidor no paga ni absorbe el costo de la goma.
+              </p>
+              <p
+                v-if="porcentajeDistribuidorAlto"
+                class="text-sm text-amber-600 dark:text-amber-500"
+              >
+                Una utilidad distribuidor del {{ utilidadDistribuidorEfectiva }}% multiplica el
+                costo por {{ (1 + utilidadDistribuidorEfectiva / 100).toFixed(2) }}. Verifica que
+                sea el valor que querías.
+              </p>
+              <p
+                v-if="erroresPorCampo.utilidad_distribuidor_porcentaje"
+                class="text-destructive text-sm"
+              >
+                {{ erroresPorCampo.utilidad_distribuidor_porcentaje }}
+              </p>
+            </div>
+
             <div class="space-y-1.5">
               <Label for="tamano_goma">Tamaño de goma</Label>
               <!-- El costo vigente va dentro de cada opción: es donde el dato hace falta, al
@@ -517,6 +596,80 @@ async function onSubmit() {
                     {{ causaIva ? 'Precio final con IVA' : 'Precio final' }}
                   </dt>
                   <dd class="tabular-nums font-medium">${{ pesos(precioFinal) }}</dd>
+                </div>
+              </dl>
+            </div>
+
+            <!-- Resumen del precio distribuidor (ver 033-precio-distribuidor.md): mismo criterio que
+                 el bloque de arriba, sin el renglón de goma porque el distribuidor nunca la lleva. -->
+            <div class="bg-muted/40 space-y-1.5 rounded-md border p-4">
+              <p class="text-foreground text-sm font-medium">Cadena de cálculo — distribuidor</p>
+              <dl class="text-sm">
+                <div class="flex justify-between gap-4 py-0.5">
+                  <dt class="text-muted-foreground">Precio de lista del proveedor</dt>
+                  <dd class="tabular-nums">${{ pesos(precioProveedor) }}</dd>
+                </div>
+                <div class="flex justify-between gap-4 py-0.5">
+                  <dt class="text-muted-foreground">
+                    Descuento del catálogo ({{ descuentoCatalogo }}%)
+                  </dt>
+                  <dd class="tabular-nums">−${{ pesos(descuentoMonto) }}</dd>
+                </div>
+                <div class="flex justify-between gap-4 border-t py-0.5 pt-1.5">
+                  <dt class="text-muted-foreground">Costo (sin goma)</dt>
+                  <dd class="tabular-nums">${{ pesos(cadena.costo_con_descuento) }}</dd>
+                </div>
+                <div class="flex justify-between gap-4 py-0.5">
+                  <dt class="text-muted-foreground">
+                    Utilidad distribuidor ({{ utilidadDistribuidorEfectiva }}%)
+                  </dt>
+                  <dd class="tabular-nums">
+                    +${{
+                      pesos(
+                        redondeo2(
+                          cadena.precio_distribuidor_venta_crudo_sin_iva -
+                            cadena.costo_con_descuento,
+                        ),
+                      )
+                    }}
+                  </dd>
+                </div>
+                <template v-if="causaIva">
+                  <div class="flex justify-between gap-4 border-t py-0.5 pt-1.5">
+                    <dt class="text-muted-foreground">Precio de venta sin IVA</dt>
+                    <dd class="tabular-nums">
+                      ${{ pesos(cadena.precio_distribuidor_venta_crudo_sin_iva) }}
+                    </dd>
+                  </div>
+                  <div class="flex justify-between gap-4 py-0.5">
+                    <dt class="text-muted-foreground">IVA (16%)</dt>
+                    <dd class="tabular-nums">+${{ pesos(ivaDistribuidorMonto) }}</dd>
+                  </div>
+                  <div class="flex justify-between gap-4 py-0.5">
+                    <dt class="text-muted-foreground">Precio con IVA</dt>
+                    <dd class="tabular-nums">${{ pesos(precioDistribuidorCrudoConIva) }}</dd>
+                  </div>
+                </template>
+                <template v-else>
+                  <div class="flex justify-between gap-4 border-t py-0.5 pt-1.5">
+                    <dt class="text-muted-foreground">Precio de venta</dt>
+                    <dd class="tabular-nums">
+                      ${{ pesos(cadena.precio_distribuidor_venta_crudo_sin_iva) }}
+                    </dd>
+                  </div>
+                </template>
+                <div
+                  v-if="ajusteRedondeoDistribuidor > 0"
+                  class="flex justify-between gap-4 py-0.5"
+                >
+                  <dt class="text-muted-foreground">Redondeo</dt>
+                  <dd class="tabular-nums">+${{ pesos(ajusteRedondeoDistribuidor) }}</dd>
+                </div>
+                <div class="flex justify-between gap-4 border-t py-0.5 pt-1.5">
+                  <dt class="text-foreground font-medium">
+                    {{ causaIva ? 'Precio final con IVA' : 'Precio final' }}
+                  </dt>
+                  <dd class="tabular-nums font-medium">${{ pesos(precioDistribuidorFinal) }}</dd>
                 </div>
               </dl>
             </div>

@@ -25,6 +25,7 @@ class CatalogoFactory extends Factory
             'nombre' => $this->faker->unique()->words(2, true),
             'descuento' => 0,
             'utilidad_porcentaje' => 0,
+            'utilidad_distribuidor_porcentaje' => 0,
         ];
     }
 }

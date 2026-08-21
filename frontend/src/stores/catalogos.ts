@@ -9,6 +9,7 @@ export interface Catalogo {
   nombre: string
   descuento: number
   utilidad_porcentaje: number
+  utilidad_distribuidor_porcentaje: number
   /** Cuántos artículos se lleva por delante el borrado del catálogo (ver 021). */
   articulos_count: number
   created_at: string
@@ -17,7 +18,8 @@ export interface Catalogo {
 
 /**
  * Una fila de la vista previa de precios: lo que tendría el artículo con los valores propuestos,
- * sin haber guardado nada (ver 021-mantenimiento-articulos-catalogos.md).
+ * sin haber guardado nada (ver 021-mantenimiento-articulos-catalogos.md y
+ * 033-precio-distribuidor.md).
  */
 export interface ImpactoArticulo {
   id: number
@@ -27,11 +29,13 @@ export interface ImpactoArticulo {
   costo_con_descuento: number
   costo_total: number
   precio_unitario_sin_iva: number
+  precio_distribuidor_sin_iva: number
 }
 
 export interface ImpactoPayload {
   descuento?: number | null
   utilidad_porcentaje?: number | null
+  utilidad_distribuidor_porcentaje?: number | null
   aumento_porcentaje?: number | null
 }
 
@@ -40,6 +44,7 @@ export interface CatalogoPayload {
   nombre: string
   descuento: number | null
   utilidad_porcentaje: number | null
+  utilidad_distribuidor_porcentaje: number | null
 }
 
 interface PaginationMeta {

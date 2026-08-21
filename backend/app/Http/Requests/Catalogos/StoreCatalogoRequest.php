@@ -22,6 +22,7 @@ class StoreCatalogoRequest extends FormRequest
             'nombre' => is_string($this->nombre) ? trim($this->nombre) : $this->nombre,
             'descuento' => $this->descuento === null || $this->descuento === '' ? 0 : $this->descuento,
             'utilidad_porcentaje' => $this->utilidad_porcentaje === null || $this->utilidad_porcentaje === '' ? 0 : $this->utilidad_porcentaje,
+            'utilidad_distribuidor_porcentaje' => $this->utilidad_distribuidor_porcentaje === null || $this->utilidad_distribuidor_porcentaje === '' ? 0 : $this->utilidad_distribuidor_porcentaje,
         ]);
     }
 
@@ -50,6 +51,7 @@ class StoreCatalogoRequest extends FormRequest
             ],
             'descuento' => ['required', 'numeric', 'between:0,100', 'decimal:0,2'],
             'utilidad_porcentaje' => ['required', 'numeric', 'gte:0', 'lte:999.99', 'decimal:0,2'],
+            'utilidad_distribuidor_porcentaje' => ['required', 'numeric', 'gte:0', 'lte:999.99', 'decimal:0,2'],
         ];
     }
 }

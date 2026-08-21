@@ -27,7 +27,15 @@ class ArticuloFactory extends Factory
         // El precio de venta NO coincide: pasa por el redondeo al peso entero del precio con IVA
         // (ver 024-precios-sin-centavos.md). Si un test asocia el artículo a un catálogo con otro
         // descuento o utilidad debe sobreescribir estos campos explícitamente (ver 011).
+        //
+        // Con 0% de utilidad distribuidor por defecto (y sin goma) el precio distribuidor cae en la
+        // misma cadena que el directo, así que comparten el mismo redondeo (ver
+        // 033-precio-distribuidor.md).
         $precio = $this->faker->randomFloat(2, 10, 5000);
+        $precioVenta = PrecioArticuloCalculator::redondearAPesoEntero(
+            $precio,
+            PrecioArticuloCalculator::factorIva(ObjetoImpuesto::SiObjeto),
+        );
 
         return [
             'user_id' => User::factory(),
@@ -39,13 +47,12 @@ class ArticuloFactory extends Factory
             'objeto_imp' => ObjetoImpuesto::SiObjeto,
             'precio_proveedor' => $precio,
             'utilidad_porcentaje' => null,
+            'utilidad_distribuidor_porcentaje' => null,
             'tamano_goma' => null,
             'costo_goma' => 0,
             'costo_con_descuento' => $precio,
-            'precio_unitario_sin_iva' => PrecioArticuloCalculator::redondearAPesoEntero(
-                $precio,
-                PrecioArticuloCalculator::factorIva(ObjetoImpuesto::SiObjeto),
-            ),
+            'precio_unitario_sin_iva' => $precioVenta,
+            'precio_distribuidor_sin_iva' => $precioVenta,
         ];
     }
 

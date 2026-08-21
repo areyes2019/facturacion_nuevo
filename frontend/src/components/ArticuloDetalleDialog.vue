@@ -10,10 +10,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 
 /**
  * Ficha visual de un artículo (ver 020-imagenes-articulos.md): foto grande a la izquierda, datos a
- * la derecha y el botón de compartir abajo.
+ * la derecha y los botones de compartir abajo.
  *
- * Es lo que se le enseña o se le manda a un cliente, así que muestra el precio de venta con IVA y
- * **nunca** el precio del proveedor, el costo ni la utilidad.
+ * Es lo que se le enseña o se le manda a un cliente, así que muestra los precios de venta con IVA
+ * (directo y distribuidor, ver 033-precio-distribuidor.md) y **nunca** el precio del proveedor, el
+ * costo ni la utilidad.
  */
 const props = defineProps<{ articulo: Articulo | null }>()
 const emit = defineEmits<{ 'update:open': [boolean] }>()
@@ -26,17 +27,17 @@ const url = computed(() => (props.articulo ? imagenUrl(props.articulo) : null))
 const precioConIva = computed(() =>
   props.articulo ? `$${props.articulo.precio_unitario_con_iva.toFixed(2)}` : '',
 )
+const precioDistribuidorConIva = computed(() =>
+  props.articulo ? `$${props.articulo.precio_distribuidor_con_iva.toFixed(2)}` : '',
+)
 
 // Rotular "con IVA" un artículo que no causa impuesto sería falso: ahí el precio a secas es el que
 // paga el cliente (ver 024-precios-sin-centavos.md).
 const etiquetaPrecio = computed(() =>
   props.articulo?.objeto_imp === '02' ? 'Precio con IVA' : 'Precio',
 )
-
-const textoCompartible = computed(() =>
-  props.articulo
-    ? `${props.articulo.nombre} — Modelo ${props.articulo.modelo} — ${precioConIva.value}`
-    : '',
+const etiquetaPrecioDistribuidor = computed(() =>
+  props.articulo?.objeto_imp === '02' ? 'Precio distribuidor con IVA' : 'Precio distribuidor',
 )
 
 watch(
@@ -52,12 +53,19 @@ watch(
  * La decisión se toma preguntándole al navegador si puede compartir archivos, no por el ancho de la
  * pantalla: en escritorio muchos navegadores no tienen ese menú, y un botón que a veces hace algo y
  * a veces no es peor que dos comportamientos claros.
+ *
+ * Cada uno de los dos botones (precio directo / precio distribuidor, ver 033-precio-distribuidor.md)
+ * llama a esta misma función con el texto que le corresponde: el texto compartido siempre lleva un
+ * solo precio, nunca los dos juntos, para que quien comparte elija de entrada a cuál cliente le está
+ * hablando.
  */
-async function compartir() {
+async function compartir(precio: string) {
   if (!props.articulo) return
 
   compartiendo.value = true
   aviso.value = null
+
+  const texto = `${props.articulo.nombre} — Modelo ${props.articulo.modelo} — ${precio}`
 
   try {
     if (url.value && typeof navigator.canShare === 'function') {
@@ -70,13 +78,13 @@ async function compartir() {
       })
 
       if (navigator.canShare({ files: [archivo] })) {
-        await navigator.share({ text: textoCompartible.value, files: [archivo] })
+        await navigator.share({ text: texto, files: [archivo] })
 
         return
       }
     }
 
-    await navigator.clipboard.writeText(textoCompartible.value)
+    await navigator.clipboard.writeText(texto)
     aviso.value = 'Datos copiados al portapapeles.'
   } catch (err) {
     // Cancelar el menú de compartir lanza AbortError y no es un fallo que reportar.
@@ -128,6 +136,12 @@ async function compartir() {
               <p class="text-muted-foreground text-xs uppercase">{{ etiquetaPrecio }}</p>
               <p class="text-2xl font-semibold tabular-nums">{{ precioConIva }}</p>
             </div>
+            <div>
+              <p class="text-muted-foreground text-xs uppercase">
+                {{ etiquetaPrecioDistribuidor }}
+              </p>
+              <p class="text-2xl font-semibold tabular-nums">{{ precioDistribuidorConIva }}</p>
+            </div>
           </div>
 
           <p v-if="aviso" class="text-muted-foreground text-sm">{{ aviso }}</p>
@@ -139,7 +153,15 @@ async function compartir() {
                 Editar
               </RouterLink>
             </Button>
-            <Button :disabled="compartiendo" @click="compartir">
+            <Button
+              variant="outline"
+              :disabled="compartiendo"
+              @click="compartir(precioDistribuidorConIva)"
+            >
+              <ShareIcon class="size-4" />
+              {{ compartiendo ? 'Compartiendo...' : 'Compartir distribuidor' }}
+            </Button>
+            <Button :disabled="compartiendo" @click="compartir(precioConIva)">
               <ShareIcon class="size-4" />
               {{ compartiendo ? 'Compartiendo...' : 'Compartir' }}
             </Button>

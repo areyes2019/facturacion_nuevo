@@ -53,6 +53,32 @@ test('omitir el descuento y la utilidad al crear un catalogo los deja en cero', 
     $response->assertJsonPath('data.utilidad_porcentaje', 0);
 });
 
+test('crear un catalogo con utilidad distribuidor la persiste y la expone', function () {
+    $user = User::factory()->create();
+    $proveedor = Proveedor::factory()->for($user)->create();
+
+    $response = $this->actingAs($user)->postJson('/api/v1/catalogos-proveedor', datosCatalogoValidos([
+        'proveedor_id' => $proveedor->id,
+        'utilidad_distribuidor_porcentaje' => 25,
+    ]));
+
+    $response->assertCreated();
+    $response->assertJsonPath('data.utilidad_distribuidor_porcentaje', 25);
+});
+
+test('omitir la utilidad distribuidor al crear un catalogo la deja en cero', function () {
+    $user = User::factory()->create();
+    $proveedor = Proveedor::factory()->for($user)->create();
+
+    $response = $this->actingAs($user)->postJson('/api/v1/catalogos-proveedor', [
+        'proveedor_id' => $proveedor->id,
+        'nombre' => 'Catálogo Base',
+    ]);
+
+    $response->assertCreated();
+    $response->assertJsonPath('data.utilidad_distribuidor_porcentaje', 0);
+});
+
 test('no se puede crear un catalogo sin proveedor', function () {
     $user = User::factory()->create();
 
@@ -193,21 +219,73 @@ test('editar un catalogo no permite cambiar el proveedor', function () {
 test('editar el descuento de un catalogo recalcula la cadena de precios de sus articulos', function () {
     $user = User::factory()->create();
     $proveedor = Proveedor::factory()->for($user)->create();
-    $catalogo = Catalogo::factory()->for($user)->for($proveedor)->create(['descuento' => 0, 'utilidad_porcentaje' => 0]);
+    $catalogo = Catalogo::factory()->for($user)->for($proveedor)->create([
+        'descuento' => 0, 'utilidad_porcentaje' => 0, 'utilidad_distribuidor_porcentaje' => 15,
+    ]);
     $articulo = Articulo::factory()->for($user)->for($catalogo)->create([
         'precio_proveedor' => 1000,
         'costo_con_descuento' => 1000,
         'precio_unitario_sin_iva' => 1000,
+        'precio_distribuidor_sin_iva' => 1000,
     ]);
 
     $response = $this->actingAs($user)->putJson("/api/v1/catalogos-proveedor/{$catalogo->id}", [
         'nombre' => $catalogo->nombre,
         'descuento' => 20,
         'utilidad_porcentaje' => 0,
+        'utilidad_distribuidor_porcentaje' => 15,
     ]);
 
     $response->assertOk();
-    $this->assertDatabaseHas('articulos', ['id' => $articulo->id, 'costo_con_descuento' => 800, 'precio_unitario_sin_iva' => 800]);
+    // El descuento mueve AMBOS precios (ver 033-precio-distribuidor.md): el directo cae a 800.00, y
+    // el distribuidor (800 al 15%, sin goma) da 920 crudo, que el redondeo de 024 sube a 920.69.
+    $this->assertDatabaseHas('articulos', [
+        'id' => $articulo->id, 'costo_con_descuento' => 800, 'precio_unitario_sin_iva' => 800,
+        'precio_distribuidor_sin_iva' => 920.69,
+    ]);
+});
+
+test('editar la utilidad distribuidor de un catalogo recalcula solo los articulos que la heredan', function () {
+    $user = User::factory()->create();
+    $proveedor = Proveedor::factory()->for($user)->create();
+    $catalogo = Catalogo::factory()->for($user)->for($proveedor)->create([
+        'descuento' => 0, 'utilidad_porcentaje' => 40, 'utilidad_distribuidor_porcentaje' => 0,
+    ]);
+    // Hereda la utilidad distribuidor del catálogo (utilidad_distribuidor_porcentaje NULL).
+    $hereda = Articulo::factory()->for($user)->for($catalogo)->create([
+        'precio_proveedor' => 210,
+        'costo_con_descuento' => 210,
+        'precio_unitario_sin_iva' => 210,
+        'precio_distribuidor_sin_iva' => 210,
+        'utilidad_distribuidor_porcentaje' => null,
+    ]);
+    // Tiene utilidad distribuidor propia: no debe moverse.
+    $propio = Articulo::factory()->for($user)->for($catalogo)->create([
+        'precio_proveedor' => 210,
+        'costo_con_descuento' => 210,
+        'precio_unitario_sin_iva' => 210,
+        'precio_distribuidor_sin_iva' => 999,
+        'utilidad_distribuidor_porcentaje' => 5,
+    ]);
+
+    $response = $this->actingAs($user)->putJson("/api/v1/catalogos-proveedor/{$catalogo->id}", [
+        'nombre' => $catalogo->nombre,
+        'descuento' => 0,
+        'utilidad_porcentaje' => 40,
+        'utilidad_distribuidor_porcentaje' => 30,
+    ]);
+
+    $response->assertOk();
+    // Cambiar solo utilidad_porcentaje o utilidad_distribuidor_porcentaje no debe mover el precio
+    // directo de ningún artículo (no cambió): sigue en 210.
+    // El que hereda: 210 al 30% da 273 crudo, que el redondeo de 024 sube a 273.28.
+    $this->assertDatabaseHas('articulos', [
+        'id' => $hereda->id, 'precio_unitario_sin_iva' => 210, 'precio_distribuidor_sin_iva' => 273.28,
+    ]);
+    // El que tiene utilidad distribuidor propia conserva la suya, sin tocar.
+    $this->assertDatabaseHas('articulos', [
+        'id' => $propio->id, 'precio_unitario_sin_iva' => 210, 'precio_distribuidor_sin_iva' => 999,
+    ]);
 });
 
 test('editar la utilidad de un catalogo recalcula el precio de venta de los articulos que heredan el porcentaje', function () {
@@ -266,6 +344,33 @@ test('el endpoint de impacto de precios devuelve la vista previa sin persistir',
     $this->assertDatabaseHas('articulos', ['id' => $articulo->id, 'costo_con_descuento' => 1000, 'precio_unitario_sin_iva' => 1000]);
 });
 
+test('el endpoint de impacto de precios incluye el precio distribuidor', function () {
+    $user = User::factory()->create();
+    $proveedor = Proveedor::factory()->for($user)->create();
+    $catalogo = Catalogo::factory()->for($user)->for($proveedor)->create([
+        'descuento' => 0, 'utilidad_porcentaje' => 0, 'utilidad_distribuidor_porcentaje' => 0,
+    ]);
+    $articulo = Articulo::factory()->for($user)->for($catalogo)->create([
+        'precio_proveedor' => 210,
+        'costo_con_descuento' => 210,
+        'precio_unitario_sin_iva' => 210,
+        'precio_distribuidor_sin_iva' => 210,
+    ]);
+
+    $response = $this->actingAs($user)->postJson("/api/v1/catalogos-proveedor/{$catalogo->id}/impacto-precios", [
+        'descuento' => 0,
+        'utilidad_porcentaje' => 0,
+        'utilidad_distribuidor_porcentaje' => 30,
+    ]);
+
+    $response->assertOk();
+    $response->assertJsonPath('articulos.0.id', $articulo->id);
+    // 210 sin goma al 30% da 273 crudo, que el redondeo de 024 sube a 273.28.
+    $response->assertJsonPath('articulos.0.precio_distribuidor_sin_iva', 273.28);
+    // No debe persistir nada.
+    $this->assertDatabaseHas('articulos', ['id' => $articulo->id, 'precio_distribuidor_sin_iva' => 210]);
+});
+
 // Ver 021-mantenimiento-articulos-catalogos.md: la vista previa cubre también el aumento, y los
 // tres parámetros caen a lo que el catálogo ya tiene guardado.
 test('el impacto de precios acepta un aumento y cae al descuento y la utilidad guardados', function () {
@@ -309,6 +414,32 @@ test('un aumento del cinco por ciento sube el precio de proveedor y recalcula la
         ->and((float) $articulo->costo_con_descuento)->toBe(189.0)
         ->and((float) $articulo->precio_unitario_sin_iva)->toBe(237.07)
         ->and($articulo->precio_unitario_con_iva)->toBe(275.0);
+});
+
+test('el aumento de costos tambien recalcula el precio distribuidor', function () {
+    $user = User::factory()->create();
+    $catalogo = Catalogo::factory()->for($user)->create([
+        'descuento' => 10, 'utilidad_porcentaje' => 0, 'utilidad_distribuidor_porcentaje' => 15,
+    ]);
+    $articulo = Articulo::factory()->for($user)->for($catalogo)->create([
+        'precio_proveedor' => 100,
+        'costo_con_descuento' => 90,
+        'precio_unitario_sin_iva' => 90,
+        'precio_distribuidor_sin_iva' => 90,
+    ]);
+
+    $this->actingAs($user)
+        ->postJson("/api/v1/catalogos-proveedor/{$catalogo->id}/aumentar-costos", ['aumento_porcentaje' => 10])
+        ->assertOk();
+
+    // 100 sube 10% a 110; con el 10% de descuento del catálogo el costo con descuento queda en 99.
+    // El distribuidor (sin goma) al 15% da 113.85 crudo, que el redondeo de 024 sube a 115.52 para
+    // dejar el precio con IVA en $134.00.
+    $articulo->refresh();
+    expect((float) $articulo->precio_proveedor)->toBe(110.0)
+        ->and((float) $articulo->costo_con_descuento)->toBe(99.0)
+        ->and((float) $articulo->precio_distribuidor_sin_iva)->toBe(115.52)
+        ->and($articulo->precio_distribuidor_con_iva)->toBe(134.0);
 });
 
 test('el aumento no toca el descuento del catalogo, la utilidad del articulo ni el costo de goma', function () {

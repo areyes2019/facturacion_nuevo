@@ -37,6 +37,11 @@ class ArticuloResource extends JsonResource
                 'catalogo',
                 fn () => PrecioArticuloCalculator::utilidadEfectiva($this->resource, $this->catalogo)
             ),
+            'utilidad_distribuidor_porcentaje' => $this->utilidad_distribuidor_porcentaje === null ? null : (float) $this->utilidad_distribuidor_porcentaje,
+            'utilidad_distribuidor_porcentaje_efectivo' => $this->whenLoaded(
+                'catalogo',
+                fn () => PrecioArticuloCalculator::utilidadDistribuidorEfectiva($this->resource, $this->catalogo)
+            ),
             'tamano_goma' => $this->tamano_goma?->value,
             'tiene_imagen' => filled($this->imagen_ruta),
             // La ruta interna del archivo no se expone: es un detalle del servidor. Lo que el
@@ -48,6 +53,8 @@ class ArticuloResource extends JsonResource
             'costo_total' => $this->costo_total,
             'precio_unitario_sin_iva' => (float) $this->precio_unitario_sin_iva,
             'precio_unitario_con_iva' => $this->precio_unitario_con_iva,
+            'precio_distribuidor_sin_iva' => (float) $this->precio_distribuidor_sin_iva,
+            'precio_distribuidor_con_iva' => $this->precio_distribuidor_con_iva,
             'utilidad' => $this->utilidad,
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,

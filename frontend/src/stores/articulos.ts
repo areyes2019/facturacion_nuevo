@@ -16,6 +16,8 @@ export interface Articulo {
   precio_proveedor: number
   utilidad_porcentaje: number | null
   utilidad_porcentaje_efectivo: number | null
+  utilidad_distribuidor_porcentaje: number | null
+  utilidad_distribuidor_porcentaje_efectivo: number | null
   tamano_goma: string | null
   tiene_imagen: boolean
   imagen_version: string | null
@@ -24,6 +26,8 @@ export interface Articulo {
   costo_total: number
   precio_unitario_sin_iva: number
   precio_unitario_con_iva: number
+  precio_distribuidor_sin_iva: number
+  precio_distribuidor_con_iva: number
   utilidad: number
   created_at: string
   updated_at: string
@@ -39,6 +43,7 @@ export interface ArticuloPayload {
   precio_proveedor: number | null
   utilidad_porcentaje: number | null
   tamano_goma: string | null
+  utilidad_distribuidor_porcentaje: number | null
 }
 
 export interface ImportarCsvReporte {
@@ -126,7 +131,7 @@ interface PaginationMeta {
  * pedir. El orden de captura no se elige: es el que trae el listado cuando `sort` va vacío, y al
  * que se vuelve al quitar la ordenación (ver 025-filtros-columna-listado-articulos.md).
  */
-export type ArticuloSort = 'costo_total' | 'precio_unitario_sin_iva'
+export type ArticuloSort = 'costo_total' | 'precio_unitario_sin_iva' | 'precio_distribuidor_sin_iva'
 export type SortDirection = 'asc' | 'desc'
 
 /**

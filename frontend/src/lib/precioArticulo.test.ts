@@ -33,6 +33,10 @@ interface CasoDelFixture {
   precio_unitario_sin_iva: number
   precio_unitario_con_iva: number
   utilidad: number
+  utilidad_distribuidor_porcentaje: number
+  precio_distribuidor_venta_crudo_sin_iva: number
+  precio_distribuidor_sin_iva: number
+  precio_distribuidor_con_iva: number
 }
 
 const rutaFixture = fileURLToPath(
@@ -52,6 +56,7 @@ describe('cadena de precios contra el fixture compartido', () => {
       caso.utilidad_porcentaje,
       caso.costo_goma,
       caso.objeto_imp,
+      caso.utilidad_distribuidor_porcentaje,
     )
 
     expect(cadena.costo_con_descuento).toBe(caso.costo_con_descuento)
@@ -64,6 +69,15 @@ describe('cadena de precios contra el fixture compartido', () => {
       caso.precio_unitario_con_iva,
     )
     expect(cadena.utilidad).toBe(caso.utilidad)
+
+    // El precio distribuidor (033) parte de costo_con_descuento, nunca de costo_total.
+    expect(cadena.precio_distribuidor_venta_crudo_sin_iva).toBe(
+      caso.precio_distribuidor_venta_crudo_sin_iva,
+    )
+    expect(cadena.precio_distribuidor_sin_iva).toBe(caso.precio_distribuidor_sin_iva)
+    expect(precioConIva(cadena.precio_distribuidor_sin_iva, factorIva(caso.objeto_imp))).toBe(
+      caso.precio_distribuidor_con_iva,
+    )
   })
 
   it('sin goma el costo total es el costo del aparato', () => {
@@ -79,6 +93,16 @@ describe('cadena de precios contra el fixture compartido', () => {
       expect(sinArgumento.costo_total).toBe(caso.costo_con_descuento)
       expect(sinArgumento.precio_unitario_sin_iva).toBe(caso.precio_unitario_sin_iva)
       expect(sinArgumento.utilidad).toBe(caso.utilidad)
+    }
+  })
+
+  it('el precio distribuidor nunca lleva el costo de la goma', () => {
+    // Invariante de 033: con el mismo costo_con_descuento, el precio distribuidor es idéntico tenga
+    // o no tenga goma el artículo, porque la goma nunca entra a su cadena.
+    for (const costoGoma of [0, 10, 20]) {
+      const cadena = calcularCadena(200, 0, 50, costoGoma, '02', 25)
+
+      expect(cadena.precio_distribuidor_sin_iva).toBe(250)
     }
   })
 })

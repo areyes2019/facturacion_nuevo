@@ -1,11 +1,12 @@
 /**
  * Cadena de cálculo de precios de un artículo (ver specs/011-precio-proveedor-utilidad.md,
- * specs/014-costo-elaboracion-goma.md y specs/024-precios-sin-centavos.md).
+ * specs/014-costo-elaboracion-goma.md, specs/024-precios-sin-centavos.md y
+ * specs/033-precio-distribuidor.md).
  *
  *   precio_proveedor           (capturado)               $120.00
  *     ↓ × (1 − descuento / 100)                          descuento del catálogo
  *   costo_con_descuento        (calculado, persistido)   $120.00   ← costo del aparato
- *     ↓ + costo_goma                                     goma
+ *     ↓ + costo_goma                                     goma (solo entra al directo)
  *   costo_total                (calculado al leer)       $130.00
  *     ↓ × (1 + utilidad_efectiva / 100) → techo2         markup sobre el costo (55%)
  *   precio_venta_crudo_sin_iva (intermedio, no se guarda) $201.50  → con IVA $233.74
@@ -14,6 +15,11 @@
  *
  * El costo de goma entra DESPUÉS del descuento (que solo aplica a lo que le pagas al proveedor) y
  * ANTES del markup. Un artículo sin goma tiene costo_goma = 0 y la cadena queda idéntica a la de 011.
+ *
+ * El precio distribuidor (033) parte de costo_con_descuento, NUNCA de costo_total: el distribuidor
+ * no paga ni absorbe el costo de la goma. Comparte con el directo las mismas funciones de redondeo
+ * (techo2, redondearAPesoEntero) y el mismo factor de IVA; solo cambian el costo base y el
+ * porcentaje de utilidad.
  *
  * Espejo exacto de backend/app/Services/PrecioArticuloCalculator.php. Ambas implementaciones se
  * verifican contra el mismo archivo de casos, shared/fixtures/precios-articulos.json: cambiar una
@@ -137,20 +143,34 @@ export interface CadenaDePrecios {
   precio_venta_crudo_sin_iva: number
   precio_unitario_sin_iva: number
   utilidad: number
+  /** Precio distribuidor crudo (033), antes del redondeo al peso entero. No se persiste. */
+  precio_distribuidor_venta_crudo_sin_iva: number
+  precio_distribuidor_sin_iva: number
 }
 
-/** Calcula la cadena completa a partir de los valores de entrada. */
+/**
+ * Calcula la cadena completa a partir de los valores de entrada, para el precio directo y el
+ * distribuidor (033-precio-distribuidor.md).
+ *
+ * `utilidadDistribuidorPorcentaje` va al final con default `0` para que llamar a esta función con
+ * solo tres argumentos (sin goma, con IVA general) siga funcionando igual que antes de 033.
+ */
 export function calcularCadena(
   precioProveedor: number,
   descuento: number,
   utilidadPorcentaje: number,
   costoGoma = 0,
   objetoImp: string | null | undefined = '02',
+  utilidadDistribuidorPorcentaje = 0,
 ): CadenaDePrecios {
   const costoAparato = costoConDescuento(precioProveedor, descuento)
   const costo = costoTotal(costoAparato, costoGoma)
   const precioCrudo = precioVentaSinIva(costo, utilidadPorcentaje)
   const precioVenta = redondearAPesoEntero(precioCrudo, factorIva(objetoImp))
+
+  // El distribuidor parte de costoAparato (sin goma), nunca de costo.
+  const precioDistribuidorCrudo = precioVentaSinIva(costoAparato, utilidadDistribuidorPorcentaje)
+  const precioDistribuidor = redondearAPesoEntero(precioDistribuidorCrudo, factorIva(objetoImp))
 
   return {
     costo_con_descuento: costoAparato,
@@ -158,6 +178,8 @@ export function calcularCadena(
     precio_venta_crudo_sin_iva: precioCrudo,
     precio_unitario_sin_iva: precioVenta,
     utilidad: utilidad(precioVenta, costo),
+    precio_distribuidor_venta_crudo_sin_iva: precioDistribuidorCrudo,
+    precio_distribuidor_sin_iva: precioDistribuidor,
   }
 }
 

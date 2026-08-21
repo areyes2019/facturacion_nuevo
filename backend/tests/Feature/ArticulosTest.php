@@ -71,6 +71,58 @@ test('un articulo con porcentaje de utilidad propio calcula su precio de venta c
     $response->assertJsonPath('data.utilidad_porcentaje_efectivo', 30);
 });
 
+test('un articulo con utilidad distribuidor propia calcula su precio distribuidor sin la goma', function () {
+    $user = User::factory()->create();
+    $catalogo = Catalogo::factory()->for($user)->create(['descuento' => 0, 'utilidad_porcentaje' => 25]);
+
+    $response = $this->actingAs($user)->postJson('/api/v1/articulos', datosArticuloValidos([
+        'catalogo_id' => $catalogo->id,
+        'precio_proveedor' => 200,
+        'tamano_goma' => 'mediana',
+        'utilidad_distribuidor_porcentaje' => 35,
+    ]));
+
+    $response->assertCreated();
+    // El directo sí lleva la goma (200 + 10 = 210, al 25% da 262.93). El distribuidor parte solo del
+    // costo con descuento (200, sin goma): al 35% da 270 crudo, que el redondeo de 024 sube a 270.69
+    // para dejar el precio con IVA en $314.00.
+    $response->assertJsonPath('data.precio_unitario_sin_iva', 262.93);
+    $response->assertJsonPath('data.precio_distribuidor_sin_iva', 270.69);
+    $response->assertJsonPath('data.precio_distribuidor_con_iva', 314);
+    $response->assertJsonPath('data.utilidad_distribuidor_porcentaje_efectivo', 35);
+});
+
+test('omitir la utilidad distribuidor hereda la del catalogo', function () {
+    $user = User::factory()->create();
+    $catalogo = Catalogo::factory()->for($user)->create([
+        'descuento' => 0, 'utilidad_porcentaje' => 0, 'utilidad_distribuidor_porcentaje' => 20,
+    ]);
+
+    $response = $this->actingAs($user)->postJson('/api/v1/articulos', datosArticuloValidos([
+        'catalogo_id' => $catalogo->id,
+        'precio_proveedor' => 100,
+    ]));
+
+    $response->assertCreated();
+    $response->assertJsonPath('data.utilidad_distribuidor_porcentaje', null);
+    $response->assertJsonPath('data.utilidad_distribuidor_porcentaje_efectivo', 20);
+    $response->assertJsonPath('data.precio_distribuidor_sin_iva', 120.69);
+    $response->assertJsonPath('data.precio_distribuidor_con_iva', 140);
+});
+
+test('un porcentaje de utilidad distribuidor fuera de rango no permite crear el articulo', function (float $porcentaje) {
+    $user = User::factory()->create();
+    $catalogo = Catalogo::factory()->for($user)->create(['descuento' => 0, 'utilidad_porcentaje' => 0]);
+
+    $response = $this->actingAs($user)->postJson('/api/v1/articulos', datosArticuloValidos([
+        'catalogo_id' => $catalogo->id,
+        'utilidad_distribuidor_porcentaje' => $porcentaje,
+    ]));
+
+    $response->assertUnprocessable();
+    $response->assertJsonValidationErrors('utilidad_distribuidor_porcentaje');
+})->with([-1, 1000, 1000.01]);
+
 test('no se puede crear un articulo sin catalogo', function () {
     $user = User::factory()->create();
 
@@ -629,20 +681,21 @@ test('el listado ordena por las columnas numericas en ambas direcciones', functi
     $user = User::factory()->create();
     $catalogo = Catalogo::factory()->for($user)->create(['descuento' => 0, 'utilidad_porcentaje' => 0]);
 
-    // Barato: costo 100, venta 110, utilidad 10.
+    // Barato: costo 100, venta 110, utilidad 10, distribuidor 300 (a propósito el más alto: prueba
+    // que ordenar por distribuidor es independiente de ordenar por precio directo).
     Articulo::factory()->for($user)->for($catalogo)->create([
         'nombre' => 'Barato', 'precio_proveedor' => 100, 'utilidad_porcentaje' => 10,
-        'costo_con_descuento' => 100, 'precio_unitario_sin_iva' => 110,
+        'costo_con_descuento' => 100, 'precio_unitario_sin_iva' => 110, 'precio_distribuidor_sin_iva' => 300,
     ]);
-    // Caro: costo 200, venta 220, utilidad 20.
+    // Caro: costo 200, venta 220, utilidad 20, distribuidor 100.
     Articulo::factory()->for($user)->for($catalogo)->create([
         'nombre' => 'Caro', 'precio_proveedor' => 200, 'utilidad_porcentaje' => 10,
-        'costo_con_descuento' => 200, 'precio_unitario_sin_iva' => 220,
+        'costo_con_descuento' => 200, 'precio_unitario_sin_iva' => 220, 'precio_distribuidor_sin_iva' => 100,
     ]);
-    // Rentable: costo 150, venta 300, utilidad 150.
+    // Rentable: costo 150, venta 300, utilidad 150, distribuidor 200.
     Articulo::factory()->for($user)->for($catalogo)->create([
         'nombre' => 'Rentable', 'precio_proveedor' => 150, 'utilidad_porcentaje' => 100,
-        'costo_con_descuento' => 150, 'precio_unitario_sin_iva' => 300,
+        'costo_con_descuento' => 150, 'precio_unitario_sin_iva' => 300, 'precio_distribuidor_sin_iva' => 200,
     ]);
 
     $asc = $this->actingAs($user)->getJson("/api/v1/articulos?sort=$sort&direction=asc");
@@ -656,6 +709,7 @@ test('el listado ordena por las columnas numericas en ambas direcciones', functi
     'costo total' => ['costo_total', ['Barato', 'Rentable', 'Caro']],
     'precio de venta' => ['precio_unitario_sin_iva', ['Barato', 'Caro', 'Rentable']],
     'utilidad' => ['utilidad', ['Barato', 'Caro', 'Rentable']],
+    'precio distribuidor' => ['precio_distribuidor_sin_iva', ['Caro', 'Rentable', 'Barato']],
 ]);
 
 test('un sort no reconocido se ignora y el listado cae al orden de captura', function () {
@@ -877,7 +931,7 @@ test('la importacion csv acepta el tamano de goma con mayusculas y espacios', fu
     ]);
 });
 
-test('la exportacion csv trae las 8 columnas y es reimportable sin perder el tamano', function () {
+test('la exportacion csv trae las 9 columnas y es reimportable sin perder el tamano', function () {
     $user = User::factory()->create();
     $catalogo = Catalogo::factory()->for($user)->create(['descuento' => 0, 'utilidad_porcentaje' => 0]);
 
@@ -892,7 +946,7 @@ test('la exportacion csv trae las 8 columnas y es reimportable sin perder el tam
     $contenido = $this->actingAs($user)->get('/api/v1/articulos/exportar-csv')->streamedContent();
 
     expect(strtok($contenido, "\n"))->toBe(
-        'nombre,modelo,clave_prod_serv,clave_unidad,objeto_imp,precio_proveedor,utilidad_porcentaje,tamano_goma'
+        'nombre,modelo,clave_prod_serv,clave_unidad,objeto_imp,precio_proveedor,utilidad_porcentaje,tamano_goma,utilidad_distribuidor_porcentaje'
     );
 
     $destino = Catalogo::factory()->for($user)->create(['descuento' => 0, 'utilidad_porcentaje' => 0]);
@@ -908,6 +962,50 @@ test('la exportacion csv trae las 8 columnas y es reimportable sin perder el tam
     ]);
     $this->assertDatabaseHas('articulos', [
         'catalogo_id' => $destino->id, 'nombre' => 'Sin goma', 'tamano_goma' => null, 'costo_goma' => 0,
+    ]);
+});
+
+test('importar un csv respeta la utilidad distribuidor por fila y hereda cuando la celda va vacia', function () {
+    $user = User::factory()->create();
+    $catalogo = Catalogo::factory()->for($user)->create(['descuento' => 0, 'utilidad_porcentaje' => 0, 'utilidad_distribuidor_porcentaje' => 10]);
+
+    $csv = "nombre,modelo,clave_prod_serv,clave_unidad,objeto_imp,precio_proveedor,utilidad_porcentaje,tamano_goma,utilidad_distribuidor_porcentaje\n"
+        ."Con distribuidor propio,MOD-1,43211503,H87,02,100,,,25\n"
+        ."Distribuidor heredado,MOD-2,43211503,H87,02,100,,,\n";
+
+    $response = $this->actingAs($user)->postJson(
+        "/api/v1/catalogos-proveedor/{$catalogo->id}/articulos/importar-csv",
+        ['archivo' => UploadedFile::fake()->createWithContent('articulos.csv', $csv)],
+    );
+
+    $response->assertOk();
+    $response->assertJsonPath('importados', 2);
+
+    $this->assertDatabaseHas('articulos', [
+        'nombre' => 'Con distribuidor propio', 'utilidad_distribuidor_porcentaje' => 25, 'precio_distribuidor_sin_iva' => 125,
+    ]);
+    $this->assertDatabaseHas('articulos', [
+        'nombre' => 'Distribuidor heredado', 'utilidad_distribuidor_porcentaje' => null, 'precio_distribuidor_sin_iva' => 111.21,
+    ]);
+});
+
+test('un csv de 8 columnas sin utilidad distribuidor sigue siendo importable y hereda del catalogo', function () {
+    // Compatibilidad con archivos exportados antes de 033: la columna nueva es opcional.
+    $user = User::factory()->create();
+    $catalogo = Catalogo::factory()->for($user)->create(['descuento' => 0, 'utilidad_porcentaje' => 0, 'utilidad_distribuidor_porcentaje' => 10]);
+
+    $csv = "nombre,modelo,clave_prod_serv,clave_unidad,objeto_imp,precio_proveedor,utilidad_porcentaje,tamano_goma\n"
+        ."Sin columna nueva,MOD-1,43211503,H87,02,100,,\n";
+
+    $response = $this->actingAs($user)->postJson(
+        "/api/v1/catalogos-proveedor/{$catalogo->id}/articulos/importar-csv",
+        ['archivo' => UploadedFile::fake()->createWithContent('articulos.csv', $csv)],
+    );
+
+    $response->assertOk();
+    $response->assertJsonPath('importados', 1);
+    $this->assertDatabaseHas('articulos', [
+        'nombre' => 'Sin columna nueva', 'utilidad_distribuidor_porcentaje' => null, 'precio_distribuidor_sin_iva' => 111.21,
     ]);
 });
 

@@ -171,12 +171,16 @@ function recargarConRebote() {
  * para el desglose, que viven en el formulario, para no revivir el desborde de tabla corregido en
  * 006 (ver 014-costo-elaboracion-goma.md).
  *
+ * "Precio distribuidor" es el tercero (ver 033-precio-distribuidor.md): a diferencia de "Costo", no
+ * lleva la goma, porque el distribuidor nunca la paga.
+ *
  * La misma lista dibuja su celda en la fila de cabeceras y en la de filtros, para que no puedan
  * quedar con distinto número de celdas.
  */
 const columnasNumericas: { clave: ArticuloSort; etiqueta: string }[] = [
   { clave: 'costo_total', etiqueta: 'Costo' },
   { clave: 'precio_unitario_sin_iva', etiqueta: 'Precio de venta' },
+  { clave: 'precio_distribuidor_sin_iva', etiqueta: 'Precio distribuidor' },
 ]
 
 /** Un filtro tecleado cambia el estado y recarga con rebote. */
@@ -571,7 +575,7 @@ async function confirmarImportar() {
             </TableHeader>
             <TableBody>
               <TableRow v-if="!articulos.loading && articulos.items.length === 0">
-                <TableCell colspan="6" class="text-muted-foreground py-10 text-center">
+                <TableCell colspan="7" class="text-muted-foreground py-10 text-center">
                   {{
                     articulos.hayFiltros || articulos.search
                       ? 'Ningún artículo coincide con los filtros aplicados.'
@@ -609,6 +613,9 @@ async function confirmarImportar() {
                 <TableCell class="tabular-nums">${{ pesos(articulo.costo_total) }}</TableCell>
                 <TableCell class="tabular-nums">
                   ${{ pesos(articulo.precio_unitario_sin_iva) }}
+                </TableCell>
+                <TableCell class="tabular-nums">
+                  ${{ pesos(articulo.precio_distribuidor_sin_iva) }}
                 </TableCell>
                 <!-- Los botones van en un `div` y no en el propio `td`: un `display:flex` sobre la
                      celda la saca del algoritmo de la tabla y deja de respetar el ancho de su

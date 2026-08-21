@@ -43,12 +43,21 @@ const form = reactive({
   nombre: '',
   descuento: '0' as string,
   utilidad_porcentaje: '0' as string,
+  utilidad_distribuidor_porcentaje: '0' as string,
 })
 
 // Aviso no bloqueante de utilidad alta (ver 011-precio-proveedor-utilidad.md y
 // 032-umbral-aviso-utilidad-alta.md): el markup alto es legítimo y sí se guarda.
 const porcentajeAlto = computed(() => porcentajeUtilidadAlto(parseFloat(form.utilidad_porcentaje)))
 const multiplicador = computed(() => (1 + parseFloat(form.utilidad_porcentaje) / 100).toFixed(2))
+
+// Mismo aviso, para la utilidad distribuidor (ver 033-precio-distribuidor.md).
+const porcentajeDistribuidorAlto = computed(() =>
+  porcentajeUtilidadAlto(parseFloat(form.utilidad_distribuidor_porcentaje)),
+)
+const multiplicadorDistribuidor = computed(() =>
+  (1 + parseFloat(form.utilidad_distribuidor_porcentaje) / 100).toFixed(2),
+)
 
 // El proveedor es fijo desde la creación del catálogo (ver 009-catalogos.md); en edición se
 // muestra de solo lectura, con el nombre comercial ya conocido para no depender de que
@@ -92,6 +101,7 @@ onMounted(async () => {
     form.nombre = catalogo.nombre
     form.descuento = catalogo.descuento.toString()
     form.utilidad_porcentaje = catalogo.utilidad_porcentaje.toString()
+    form.utilidad_distribuidor_porcentaje = catalogo.utilidad_distribuidor_porcentaje.toString()
     proveedorNombreComercial.value = catalogo.proveedor_nombre_comercial
     articulosCount.value = catalogo.articulos_count
   } catch (err) {
@@ -116,6 +126,10 @@ async function verImpacto() {
       descuento: form.descuento === '' ? null : parseFloat(form.descuento),
       utilidad_porcentaje:
         form.utilidad_porcentaje === '' ? null : parseFloat(form.utilidad_porcentaje),
+      utilidad_distribuidor_porcentaje:
+        form.utilidad_distribuidor_porcentaje === ''
+          ? null
+          : parseFloat(form.utilidad_distribuidor_porcentaje),
       aumento_porcentaje: aumentoValido.value ? parseFloat(aumento.value) : null,
     })
   } catch (err) {
@@ -158,6 +172,9 @@ async function onSubmit() {
     nombre: form.nombre,
     descuento: form.descuento ? parseFloat(form.descuento) : 0,
     utilidad_porcentaje: form.utilidad_porcentaje ? parseFloat(form.utilidad_porcentaje) : 0,
+    utilidad_distribuidor_porcentaje: form.utilidad_distribuidor_porcentaje
+      ? parseFloat(form.utilidad_distribuidor_porcentaje)
+      : 0,
   }
 
   try {
@@ -230,7 +247,7 @@ async function onSubmit() {
             </div>
 
             <div class="space-y-1.5">
-              <Label for="utilidad_porcentaje">Utilidad (%)</Label>
+              <Label for="utilidad_porcentaje">Utilidad cliente directo (%)</Label>
               <Input
                 id="utilidad_porcentaje"
                 v-model="form.utilidad_porcentaje"
@@ -240,7 +257,8 @@ async function onSubmit() {
                 step="0.01"
               />
               <p class="text-muted-foreground text-sm">
-                Utilidad por defecto para los artículos de este catálogo.
+                Utilidad por defecto para los artículos de este catálogo. El cliente directo paga el
+                costo de la goma.
               </p>
               <p v-if="porcentajeAlto" class="text-sm text-amber-600 dark:text-amber-500">
                 Una utilidad del {{ form.utilidad_porcentaje }}% multiplica el costo por
@@ -248,6 +266,37 @@ async function onSubmit() {
               </p>
               <p v-if="erroresPorCampo.utilidad_porcentaje" class="text-destructive text-sm">
                 {{ erroresPorCampo.utilidad_porcentaje }}
+              </p>
+            </div>
+
+            <!-- Precio distribuidor (ver 033-precio-distribuidor.md): mismo campo hermano, mismo
+                 aviso no bloqueante, sin la goma. -->
+            <div class="space-y-1.5">
+              <Label for="utilidad_distribuidor_porcentaje">Utilidad distribuidor (%)</Label>
+              <Input
+                id="utilidad_distribuidor_porcentaje"
+                v-model="form.utilidad_distribuidor_porcentaje"
+                type="number"
+                min="0"
+                max="999.99"
+                step="0.01"
+              />
+              <p class="text-muted-foreground text-sm">
+                Utilidad por defecto para el precio distribuidor de los artículos de este catálogo.
+                El distribuidor no paga ni absorbe el costo de la goma.
+              </p>
+              <p
+                v-if="porcentajeDistribuidorAlto"
+                class="text-sm text-amber-600 dark:text-amber-500"
+              >
+                Una utilidad del {{ form.utilidad_distribuidor_porcentaje }}% multiplica el costo
+                por {{ multiplicadorDistribuidor }}. Verifica que sea el valor que querías.
+              </p>
+              <p
+                v-if="erroresPorCampo.utilidad_distribuidor_porcentaje"
+                class="text-destructive text-sm"
+              >
+                {{ erroresPorCampo.utilidad_distribuidor_porcentaje }}
               </p>
             </div>
           </CardContent>
@@ -334,6 +383,7 @@ async function onSubmit() {
                     <TableHead class="text-right">Proveedor</TableHead>
                     <TableHead class="text-right">Costo</TableHead>
                     <TableHead class="text-right">Precio de venta</TableHead>
+                    <TableHead class="text-right">Precio distribuidor</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -350,6 +400,9 @@ async function onSubmit() {
                     </TableCell>
                     <TableCell class="text-right tabular-nums">
                       ${{ pesos(articulo.precio_unitario_sin_iva) }}
+                    </TableCell>
+                    <TableCell class="text-right tabular-nums">
+                      ${{ pesos(articulo.precio_distribuidor_sin_iva) }}
                     </TableCell>
                   </TableRow>
                 </TableBody>

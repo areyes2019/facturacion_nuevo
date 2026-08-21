@@ -30,8 +30,9 @@ class ArticuloController extends Controller
     /**
      * Columnas compartidas entre la importación y la exportación CSV (ver 006-gestion-articulos.md).
      *
-     * `tamano_goma` va al final para que un CSV de 7 columnas de 011 siga siendo importable sin
-     * cambios (ver 014-costo-elaboracion-goma.md).
+     * `tamano_goma` y `utilidad_distribuidor_porcentaje` van al final, en el orden en que se
+     * agregaron, para que un CSV de una historia anterior siga siendo importable sin cambios (ver
+     * 014-costo-elaboracion-goma.md y 033-precio-distribuidor.md).
      */
     private const COLUMNAS_CSV = [
         'nombre',
@@ -42,20 +43,23 @@ class ArticuloController extends Controller
         'precio_proveedor',
         'utilidad_porcentaje',
         'tamano_goma',
+        'utilidad_distribuidor_porcentaje',
     ];
 
     /**
      * Columnas numéricas ordenables del listado (ver 011-precio-proveedor-utilidad.md). Ni el costo
      * total ni la utilidad están persistidos, así que se ordena por la expresión que los define
-     * (ver 014-costo-elaboracion-goma.md).
+     * (ver 014-costo-elaboracion-goma.md). `precio_distribuidor_sin_iva` sí está persistida (ver
+     * 033-precio-distribuidor.md), así que se ordena por la columna directamente.
      *
-     * Son las únicas tres: el orden de captura no se pide, es el que sale cuando no se pide nada
+     * Son las únicas cuatro: el orden de captura no se pide, es el que sale cuando no se pide nada
      * (ver 025-filtros-columna-listado-articulos.md).
      */
     private const ORDENACIONES = [
         'costo_total' => 'costo_con_descuento + costo_goma',
         'precio_unitario_sin_iva' => 'precio_unitario_sin_iva',
         'utilidad' => 'precio_unitario_sin_iva - (costo_con_descuento + costo_goma)',
+        'precio_distribuidor_sin_iva' => 'precio_distribuidor_sin_iva',
     ];
 
     /**
@@ -70,6 +74,7 @@ class ArticuloController extends Controller
         'costo' => 'costo_total',
         'precio' => 'precio_unitario_sin_iva',
         'utilidad' => 'utilidad',
+        'distribuidor' => 'precio_distribuidor_sin_iva',
     ];
 
     /**
@@ -110,6 +115,7 @@ class ArticuloController extends Controller
             (float) ($datos['utilidad_porcentaje'] ?? $catalogo->utilidad_porcentaje),
             $costoGoma,
             ObjetoImpuesto::from($datos['objeto_imp']),
+            (float) ($datos['utilidad_distribuidor_porcentaje'] ?? $catalogo->utilidad_distribuidor_porcentaje),
         );
 
         $articulo = $request->user()->articulos()->create([
@@ -117,6 +123,7 @@ class ArticuloController extends Controller
             'costo_goma' => $costoGoma,
             'costo_con_descuento' => $cadena['costo_con_descuento'],
             'precio_unitario_sin_iva' => $cadena['precio_unitario_sin_iva'],
+            'precio_distribuidor_sin_iva' => $cadena['precio_distribuidor_sin_iva'],
         ]);
 
         return new ArticuloResource($articulo->load('catalogo.proveedor'));
@@ -149,6 +156,7 @@ class ArticuloController extends Controller
             (float) ($datos['utilidad_porcentaje'] ?? $catalogo->utilidad_porcentaje),
             $costoGoma,
             ObjetoImpuesto::from($datos['objeto_imp']),
+            (float) ($datos['utilidad_distribuidor_porcentaje'] ?? $catalogo->utilidad_distribuidor_porcentaje),
         );
 
         $articulo->update([
@@ -156,6 +164,7 @@ class ArticuloController extends Controller
             'costo_goma' => $costoGoma,
             'costo_con_descuento' => $cadena['costo_con_descuento'],
             'precio_unitario_sin_iva' => $cadena['precio_unitario_sin_iva'],
+            'precio_distribuidor_sin_iva' => $cadena['precio_distribuidor_sin_iva'],
         ]);
 
         return new ArticuloResource($articulo->load('catalogo.proveedor'));
@@ -238,6 +247,9 @@ class ArticuloController extends Controller
             // null antes de validar para que la regla `nullable` la deje pasar.
             $utilidad = trim((string) ($datos['utilidad_porcentaje'] ?? ''));
 
+            // Misma idea para la utilidad distribuidor (ver 033-precio-distribuidor.md).
+            $utilidadDistribuidor = trim((string) ($datos['utilidad_distribuidor_porcentaje'] ?? ''));
+
             // Celda de tamaño vacía = el artículo no lleva goma (ver 014). Se acepta con cualquier
             // combinación de mayúsculas y espacios alrededor: "Grande ", "GRANDE" y "grande" son la
             // misma categoría.
@@ -255,6 +267,7 @@ class ArticuloController extends Controller
                     'precio_proveedor' => trim((string) ($datos['precio_proveedor'] ?? '')),
                     'utilidad_porcentaje' => $utilidad === '' ? null : $utilidad,
                     'tamano_goma' => $tamano === '' ? null : $tamano,
+                    'utilidad_distribuidor_porcentaje' => $utilidadDistribuidor === '' ? null : $utilidadDistribuidor,
                 ],
                 [
                     'nombre' => [
@@ -272,6 +285,7 @@ class ArticuloController extends Controller
                     'precio_proveedor' => ['required', 'numeric', 'gt:0', 'decimal:0,2'],
                     'utilidad_porcentaje' => ['nullable', 'numeric', 'gte:0', 'lte:999.99', 'decimal:0,2'],
                     'tamano_goma' => ['nullable', new ValorDeEnum(TamanoGoma::class)],
+                    'utilidad_distribuidor_porcentaje' => ['nullable', 'numeric', 'gte:0', 'lte:999.99', 'decimal:0,2'],
                 ],
             );
 
@@ -294,6 +308,7 @@ class ArticuloController extends Controller
                 (float) ($filaValidada['utilidad_porcentaje'] ?? $catalogo->utilidad_porcentaje),
                 $costoGoma,
                 ObjetoImpuesto::from($filaValidada['objeto_imp']),
+                (float) ($filaValidada['utilidad_distribuidor_porcentaje'] ?? $catalogo->utilidad_distribuidor_porcentaje),
             );
 
             $request->user()->articulos()->create([
@@ -302,6 +317,7 @@ class ArticuloController extends Controller
                 'costo_goma' => $costoGoma,
                 'costo_con_descuento' => $cadena['costo_con_descuento'],
                 'precio_unitario_sin_iva' => $cadena['precio_unitario_sin_iva'],
+                'precio_distribuidor_sin_iva' => $cadena['precio_distribuidor_sin_iva'],
             ]);
             $importados++;
         }
@@ -364,6 +380,9 @@ class ArticuloController extends Controller
                     // Celda vacía cuando el artículo no lleva goma (ver 014). El costo no viaja:
                     // es configuración global, no un dato del artículo.
                     $articulo->tamano_goma?->value,
+                    // Celda vacía cuando el artículo hereda la utilidad distribuidor del catálogo
+                    // (ver 033-precio-distribuidor.md), mismo criterio que utilidad_porcentaje.
+                    $articulo->utilidad_distribuidor_porcentaje,
                 ]);
             }
 
