@@ -61,13 +61,6 @@ class ArticuloController extends Controller
         'precio_unitario_sin_iva' => 'precio_unitario_sin_iva',
         'utilidad' => 'precio_unitario_sin_iva - (costo_con_descuento + costo_goma)',
         'precio_distribuidor_sin_iva' => 'precio_distribuidor_sin_iva',
-        // Utilidad directa efectiva (ver 035-ajustes-tabla-articulos.md): la propia del artículo si
-        // la tiene, si no la de su catálogo. Misma herencia que
-        // PrecioArticuloCalculator::utilidadEfectiva(), expresada como subconsulta correlacionada en
-        // vez de JOIN: un JOIN contra catalogos volvería ambigua la columna `nombre`, que existe en
-        // las dos tablas y que filtro_nombre/el buscador global ya filtran sin calificar.
-        'utilidad_porcentaje_efectivo' => 'COALESCE(utilidad_porcentaje, '
-            .'(SELECT utilidad_porcentaje FROM catalogos WHERE catalogos.id = articulos.catalogo_id))',
     ];
 
     /**

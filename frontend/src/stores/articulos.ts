@@ -126,16 +126,15 @@ interface PaginationMeta {
  * Columnas numéricas ordenables del listado (ver 011-precio-proveedor-utilidad.md). El costo que se
  * muestra y por el que se ordena es el total, aparato + goma (ver 014-costo-elaboracion-goma.md).
  *
- * Son las únicas dos: la utilidad se quedó sin columna, y con ella sin cabecera donde hacer clic.
- * El servidor sigue sabiendo ordenar por ella, pero este tipo describe lo que la pantalla puede
- * pedir. El orden de captura no se elige: es el que trae el listado cuando `sort` va vacío, y al
- * que se vuelve al quitar la ordenación (ver 025-filtros-columna-listado-articulos.md).
+ * `utilidad` es el monto en pesos (precio directo menos costo total): el servidor ya sabía
+ * ordenar por ella desde 011, pero hasta 035-ajustes-tabla-articulos.md ninguna pantalla le ponía
+ * una columna con cabecera donde hacer clic.
+ *
+ * El orden de captura no se elige: es el que trae el listado cuando `sort` va vacío, y al que se
+ * vuelve al quitar la ordenación (ver 025-filtros-columna-listado-articulos.md).
  */
 export type ArticuloSort =
-  | 'costo_total'
-  | 'precio_unitario_sin_iva'
-  | 'precio_distribuidor_sin_iva'
-  | 'utilidad_porcentaje_efectivo'
+  'costo_total' | 'precio_unitario_sin_iva' | 'precio_distribuidor_sin_iva' | 'utilidad'
 export type SortDirection = 'asc' | 'desc'
 
 /**

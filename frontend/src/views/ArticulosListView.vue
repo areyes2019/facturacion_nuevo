@@ -185,9 +185,9 @@ function recargarConRebote() {
  * sola línea (ver 034-filtro-catalogo-y-mover-lote-articulos.md). El nombre completo se queda igual
  * en cualquier otra pantalla del sistema.
  *
- * "Utld" es el porcentaje de utilidad **directa** efectiva del artículo: la propia si la tiene, si
- * no la de su catálogo (ver 035-ajustes-tabla-articulos.md). No lleva filtro de rango, solo
- * ordenación, igual que las otras tres.
+ * "Utilidad" es el monto en pesos de la utilidad **directa** del artículo: precio directo menos
+ * costo total (ver 035-ajustes-tabla-articulos.md). No es un porcentaje ni la utilidad del
+ * distribuidor. No lleva filtro de rango, solo ordenación, igual que las otras tres.
  *
  * La misma lista dibuja su celda en la fila de cabeceras y en la de filtros, para que no puedan
  * quedar con distinto número de celdas.
@@ -196,7 +196,7 @@ const columnasNumericas: { clave: ArticuloSort; etiqueta: string }[] = [
   { clave: 'costo_total', etiqueta: 'Costo' },
   { clave: 'precio_unitario_sin_iva', etiqueta: 'P Directo' },
   { clave: 'precio_distribuidor_sin_iva', etiqueta: 'P Dist' },
-  { clave: 'utilidad_porcentaje_efectivo', etiqueta: 'Utld' },
+  { clave: 'utilidad', etiqueta: 'Utilidad' },
 ]
 
 /** Un filtro tecleado cambia el estado y recarga con rebote. */
@@ -676,9 +676,7 @@ async function confirmarImportar() {
                 <TableCell class="tabular-nums">
                   ${{ pesos(articulo.precio_distribuidor_sin_iva) }}
                 </TableCell>
-                <TableCell class="tabular-nums">
-                  {{ articulo.utilidad_porcentaje_efectivo?.toFixed(2) ?? '—' }}%
-                </TableCell>
+                <TableCell class="tabular-nums">${{ pesos(articulo.utilidad) }}</TableCell>
                 <!-- Los botones van en un `div` y no en el propio `td`: un `display:flex` sobre la
                      celda la saca del algoritmo de la tabla y deja de respetar el ancho de su
                      columna, que es justo lo que los desbordaba. -->
