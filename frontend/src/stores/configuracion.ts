@@ -12,6 +12,7 @@ export interface Configuracion {
   costo_goma_chica: string
   costo_goma_mediana: string
   costo_goma_grande: string
+  costo_goma_jumbo: string
   /** Mensaje que acompaña al ticket de mostrador al compartirlo (ver specs/027). */
   mensaje_ticket: string
   /** Aviso de que el pedido ya se puede recoger, que el usuario manda a mano (ver specs/027). */

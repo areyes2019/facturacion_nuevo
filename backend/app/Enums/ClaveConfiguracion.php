@@ -17,6 +17,7 @@ enum ClaveConfiguracion: string
     case CostoGomaChica = 'costo_goma_chica';
     case CostoGomaMediana = 'costo_goma_mediana';
     case CostoGomaGrande = 'costo_goma_grande';
+    case CostoGomaJumbo = 'costo_goma_jumbo';
     case MensajeTicket = 'mensaje_ticket';
     case MensajeListo = 'mensaje_listo';
 
@@ -32,6 +33,7 @@ enum ClaveConfiguracion: string
             self::CostoGomaChica => '6.00',
             self::CostoGomaMediana => '10.00',
             self::CostoGomaGrande => '20.00',
+            self::CostoGomaJumbo => '40.00',
             self::MensajeTicket => self::MENSAJE_TICKET_DE_FABRICA,
             self::MensajeListo => self::MENSAJE_LISTO_DE_FABRICA,
         };
@@ -53,7 +55,8 @@ enum ClaveConfiguracion: string
         return match ($this) {
             self::CostoGomaChica,
             self::CostoGomaMediana,
-            self::CostoGomaGrande => ['required', 'numeric', 'gte:0', 'decimal:0,2'],
+            self::CostoGomaGrande,
+            self::CostoGomaJumbo => ['required', 'numeric', 'gte:0', 'decimal:0,2'],
             // `nullable` además de `present` porque Laravel convierte la cadena vacía en null antes
             // de validar (`ConvertEmptyStringsToNull`): sin él, vaciar el campo se leería como "no
             // mandaste un texto" en vez de "no quiero mensaje".

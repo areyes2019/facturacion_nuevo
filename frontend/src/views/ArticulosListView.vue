@@ -844,8 +844,8 @@ async function confirmarImportar() {
 
             <p class="text-muted-foreground text-sm">
               La columna <code>tamano_goma</code> también es opcional: acepta <code>chica</code>,
-              <code>mediana</code> o <code>grande</code>, y si la celda va vacía el artículo no
-              lleva goma.
+              <code>mediana</code>, <code>grande</code> o <code>jumbo</code>, y si la celda va vacía
+              el artículo no lleva goma.
             </p>
 
             <div class="min-w-0 space-y-1.5">

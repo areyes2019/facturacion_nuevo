@@ -29,6 +29,7 @@ test('la configuracion devuelve todas las claves con sus valores de fabrica sin 
         'costo_goma_chica' => '6.00',
         'costo_goma_mediana' => '10.00',
         'costo_goma_grande' => '20.00',
+        'costo_goma_jumbo' => '40.00',
         'mensaje_ticket' => ClaveConfiguracion::MensajeTicket->valorPorDefecto(),
         'mensaje_listo' => ClaveConfiguracion::MensajeListo->valorPorDefecto(),
     ]);
@@ -115,12 +116,16 @@ test('cambiar un costo recalcula solo los articulos de esa categoria', function 
     $grande = Articulo::factory()->for($user)->for($catalogo)
         ->conGoma(TamanoGoma::Grande, 20.0)
         ->create(['nombre' => 'Sello grande', 'precio_proveedor' => 200, 'costo_con_descuento' => 200]);
+    $jumbo = Articulo::factory()->for($user)->for($catalogo)
+        ->conGoma(TamanoGoma::Jumbo, 40.0)
+        ->create(['nombre' => 'Sello jumbo', 'precio_proveedor' => 200, 'costo_con_descuento' => 200]);
     $sinGoma = Articulo::factory()->for($user)->for($catalogo)
         ->create(['nombre' => 'Tinta', 'precio_proveedor' => 200, 'costo_con_descuento' => 200]);
 
     // Precios de partida con 25% de utilidad del catálogo.
     $mediana->update(['precio_unitario_sin_iva' => 262.50]);
     $grande->update(['precio_unitario_sin_iva' => 275.00]);
+    $jumbo->update(['precio_unitario_sin_iva' => 300.00]);
     $sinGoma->update(['precio_unitario_sin_iva' => 250.00]);
 
     $this->actingAs($user)
@@ -131,11 +136,37 @@ test('cambiar un costo recalcula solo los articulos de esa categoria', function 
     expect((float) $mediana->fresh()->costo_goma)->toBe(12.0);
     expect((float) $mediana->fresh()->precio_unitario_sin_iva)->toBe(265.0);
 
-    // El grande y el que no lleva goma no se mueven.
+    // El grande, el jumbo y el que no lleva goma no se mueven.
     expect((float) $grande->fresh()->costo_goma)->toBe(20.0);
     expect((float) $grande->fresh()->precio_unitario_sin_iva)->toBe(275.0);
+    expect((float) $jumbo->fresh()->costo_goma)->toBe(40.0);
+    expect((float) $jumbo->fresh()->precio_unitario_sin_iva)->toBe(300.0);
     expect((float) $sinGoma->fresh()->costo_goma)->toBe(0.0);
     expect((float) $sinGoma->fresh()->precio_unitario_sin_iva)->toBe(250.0);
+});
+
+test('cambiar el costo de jumbo recalcula solo los articulos jumbo', function () {
+    $user = User::factory()->create();
+    $catalogo = Catalogo::factory()->for($user)->create(['descuento' => 0, 'utilidad_porcentaje' => 25]);
+
+    $jumbo = Articulo::factory()->for($user)->for($catalogo)
+        ->conGoma(TamanoGoma::Jumbo, 40.0)
+        ->create(['nombre' => 'Sello jumbo', 'precio_proveedor' => 200, 'costo_con_descuento' => 200, 'precio_unitario_sin_iva' => 300.00]);
+    $grande = Articulo::factory()->for($user)->for($catalogo)
+        ->conGoma(TamanoGoma::Grande, 20.0)
+        ->create(['nombre' => 'Sello grande', 'precio_proveedor' => 200, 'costo_con_descuento' => 200, 'precio_unitario_sin_iva' => 275.00]);
+
+    $this->actingAs($user)
+        ->putJson('/api/v1/configuracion', ['costo_goma_jumbo' => '50.00'])
+        ->assertOk();
+
+    // El jumbo mueve costo congelado y precio: (200 + 50) * 1.25 = 312.50.
+    expect((float) $jumbo->fresh()->costo_goma)->toBe(50.0);
+    expect((float) $jumbo->fresh()->precio_unitario_sin_iva)->toBe(312.50);
+
+    // El grande no se mueve.
+    expect((float) $grande->fresh()->costo_goma)->toBe(20.0);
+    expect((float) $grande->fresh()->precio_unitario_sin_iva)->toBe(275.0);
 });
 
 test('el endpoint de impacto cuenta solo los articulos cuyo precio cambiaria', function () {

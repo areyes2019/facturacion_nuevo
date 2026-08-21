@@ -553,7 +553,7 @@ test('un tamano de goma desconocido reporta la columna y el valor recibido', fun
     $response->assertOk();
     expect($response->json('errores.0.motivo'))
         ->toContain('tamano_goma "enorme"')
-        ->toContain('chica, mediana, grande');
+        ->toContain('chica, mediana, grande, jumbo');
 });
 
 test('no se puede importar un csv en el catalogo de otro usuario', function () {
@@ -913,6 +913,7 @@ test('la importacion csv acepta el tamano de goma con mayusculas y espacios', fu
 
     $csv = "nombre,modelo,clave_prod_serv,clave_unidad,objeto_imp,precio_proveedor,utilidad_porcentaje,tamano_goma\n"
         ."Sello grande,MOD-1,43211503,H87,02,100,,Grande \n"
+        ."Sello jumbo,MOD-4,43211503,H87,02,100,,Jumbo\n"
         ."Sello sin goma,MOD-2,43211503,H87,02,100,,\n"
         ."Sello invalido,MOD-3,43211503,H87,02,100,,enorme\n";
 
@@ -922,11 +923,14 @@ test('la importacion csv acepta el tamano de goma con mayusculas y espacios', fu
     );
 
     $response->assertOk();
-    $response->assertJsonPath('importados', 2);
-    $response->assertJsonPath('errores.0.fila', 4);
+    $response->assertJsonPath('importados', 3);
+    $response->assertJsonPath('errores.0.fila', 5);
 
     $this->assertDatabaseHas('articulos', [
         'nombre' => 'Sello grande', 'tamano_goma' => 'grande', 'costo_goma' => 20, 'precio_unitario_sin_iva' => 120.69,
+    ]);
+    $this->assertDatabaseHas('articulos', [
+        'nombre' => 'Sello jumbo', 'tamano_goma' => 'jumbo', 'costo_goma' => 40, 'precio_unitario_sin_iva' => 140.52,
     ]);
     $this->assertDatabaseHas('articulos', [
         'nombre' => 'Sello sin goma', 'tamano_goma' => null, 'costo_goma' => 0, 'precio_unitario_sin_iva' => 100,

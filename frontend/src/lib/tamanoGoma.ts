@@ -4,14 +4,14 @@ import type { Configuracion } from '../stores/configuracion'
  * Categorías de tamaño de goma (ver specs/014-costo-elaboracion-goma.md).
  *
  * Van embebidas en el frontend, sin endpoint de catálogo, igual que las cuatro opciones de
- * `objeto_imp` en 006: son tres valores fijos que el backend valida contra su propio enum.
+ * `objeto_imp` en 006: son cuatro valores fijos que el backend valida contra su propio enum.
  *
  * Las medidas son texto de ayuda. El sistema no captura ancho ni alto y no deduce la categoría de
  * ninguna medida: la elige el usuario a ojo.
  */
 export interface TamanoGoma {
   /** Valor que se persiste en `articulos.tamano_goma`. */
-  valor: 'chica' | 'mediana' | 'grande'
+  valor: 'chica' | 'mediana' | 'grande' | 'jumbo'
   etiqueta: string
   medida: string
   /** Clave del ajuste global que guarda su costo. */
@@ -46,6 +46,12 @@ export const TAMANOS_GOMA: TamanoGoma[] = [
     etiqueta: 'Grande',
     medida: 'Hasta 75 × 38 mm o superior',
     clave: 'costo_goma_grande',
+  },
+  {
+    valor: 'jumbo',
+    etiqueta: 'Jumbo',
+    medida: 'Sellos redondos de 20 × 20 mm — usan hasta 1/4 de bote de primer',
+    clave: 'costo_goma_jumbo',
   },
 ]
 
