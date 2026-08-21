@@ -145,15 +145,22 @@ export type SortDirection = 'asc' | 'desc'
 export interface ArticuloFiltros {
   nombre: string
   modelo: string
+  /**
+   * `null` = "Todos los catálogos" (ver 034-filtro-catalogo-y-mover-lote-articulos.md). A
+   * diferencia de nombre/modelo no es de texto, así que no vale la regla de "vacío = sin filtro"
+   * de `hayFiltros`.
+   */
+  catalogoId: number | null
 }
 
-/** Los filtros que se teclean. Hoy son todos, y por eso el alias sigue valiendo la pena. */
-export type ArticuloFiltroTexto = keyof ArticuloFiltros
+/** Los filtros que se teclean con rebote. El de catálogo no entra: se dispara sin rebote. */
+export type ArticuloFiltroTexto = 'nombre' | 'modelo'
 
 export function filtrosVacios(): ArticuloFiltros {
   return {
     nombre: '',
     modelo: '',
+    catalogoId: null,
   }
 }
 
@@ -175,7 +182,11 @@ export const useArticulosStore = defineStore('articulos', {
      * propia forma de vaciarse (ver 025-filtros-columna-listado-articulos.md).
      */
     hayFiltros(state): boolean {
-      return Object.values(state.filtros).some((valor) => valor !== '')
+      return (
+        state.filtros.nombre !== '' ||
+        state.filtros.modelo !== '' ||
+        state.filtros.catalogoId !== null
+      )
     },
   },
 
@@ -194,6 +205,7 @@ export const useArticulosStore = defineStore('articulos', {
         direction: this.sort ? this.direction : undefined,
         filtro_nombre: filtros.nombre || undefined,
         filtro_modelo: filtros.modelo || undefined,
+        filtro_catalogo_id: filtros.catalogoId ?? undefined,
       }
     },
 
@@ -252,6 +264,17 @@ export const useArticulosStore = defineStore('articulos', {
       this.items = this.items.filter((articulo) => !ids.includes(articulo.id))
 
       return data.eliminados
+    },
+
+    /**
+     * Mover en lote a otro catálogo (ver 034-filtro-catalogo-y-mover-lote-articulos.md).
+     *
+     * A diferencia de `removeLote`, no toca `items` en el sitio: el catálogo destino puede no
+     * cumplir el filtro de catálogo activo, así que quien llama vuelve a pedir la página.
+     */
+    async moverLoteCatalogo(ids: number[], catalogoId: number): Promise<number> {
+      const { data } = await http.post('/articulos/mover-lote', { ids, catalogo_id: catalogoId })
+      return data.movidos
     },
 
     async importarCsv(catalogoId: number, archivo: File): Promise<ImportarCsvReporte> {

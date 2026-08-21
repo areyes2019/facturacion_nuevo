@@ -1,10 +1,12 @@
 <?php
 
+use App\Enums\ObjetoImpuesto;
 use App\Enums\TamanoGoma;
 use App\Models\Articulo;
 use App\Models\Catalogo;
 use App\Models\Proveedor;
 use App\Models\User;
+use App\Services\PrecioArticuloCalculator;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 
@@ -1099,6 +1101,160 @@ test('los articulos eliminados en lote conservan su archivo de imagen', function
 
     $this->assertSoftDeleted('articulos', ['id' => $articulo->id]);
     Storage::disk('local')->assertExists('articulos/foto.webp');
+});
+
+// Mover en lote a otro catálogo (ver 034-filtro-catalogo-y-mover-lote-articulos.md).
+
+test('mover un lote recalcula la cadena de precios con el catalogo destino', function () {
+    $user = User::factory()->create();
+    $origen = Catalogo::factory()->for($user)->create();
+    $destino = Catalogo::factory()->for($user)->create([
+        'descuento' => 20,
+        'utilidad_porcentaje' => 50,
+        'utilidad_distribuidor_porcentaje' => 25,
+    ]);
+    $articulo = Articulo::factory()->for($user)->for($origen, 'catalogo')->create([
+        'precio_proveedor' => 200,
+        'costo_con_descuento' => 200,
+        'costo_goma' => 20,
+        'utilidad_porcentaje' => null,
+        'utilidad_distribuidor_porcentaje' => null,
+        'objeto_imp' => ObjetoImpuesto::SiObjeto,
+    ]);
+
+    $esperado = PrecioArticuloCalculator::calcularCadena(200, 20, 50, 20, ObjetoImpuesto::SiObjeto, 25);
+
+    $response = $this->actingAs($user)->postJson('/api/v1/articulos/mover-lote', [
+        'ids' => [$articulo->id],
+        'catalogo_id' => $destino->id,
+    ]);
+
+    $response->assertOk();
+    $response->assertExactJson(['movidos' => 1]);
+
+    $articulo->refresh();
+    expect($articulo->catalogo_id)->toBe($destino->id);
+    expect((float) $articulo->costo_con_descuento)->toBe($esperado['costo_con_descuento']);
+    expect((float) $articulo->precio_unitario_sin_iva)->toBe($esperado['precio_unitario_sin_iva']);
+    expect((float) $articulo->precio_distribuidor_sin_iva)->toBe($esperado['precio_distribuidor_sin_iva']);
+});
+
+// Un artículo con utilidad propia conserva la suya; solo el descuento del catálogo destino mueve
+// su costo (ver 011-precio-proveedor-utilidad.md y 033-precio-distribuidor.md).
+test('mover un lote respeta la utilidad propia del articulo', function () {
+    $user = User::factory()->create();
+    $origen = Catalogo::factory()->for($user)->create();
+    $destino = Catalogo::factory()->for($user)->create([
+        'descuento' => 10,
+        'utilidad_porcentaje' => 50,
+        'utilidad_distribuidor_porcentaje' => 50,
+    ]);
+    $articulo = Articulo::factory()->for($user)->for($origen, 'catalogo')->create([
+        'precio_proveedor' => 200,
+        'costo_con_descuento' => 200,
+        'costo_goma' => 0,
+        'utilidad_porcentaje' => 15,
+        'utilidad_distribuidor_porcentaje' => 5,
+        'objeto_imp' => ObjetoImpuesto::SiObjeto,
+    ]);
+
+    $esperado = PrecioArticuloCalculator::calcularCadena(200, 10, 15, 0, ObjetoImpuesto::SiObjeto, 5);
+
+    $this->actingAs($user)->postJson('/api/v1/articulos/mover-lote', [
+        'ids' => [$articulo->id],
+        'catalogo_id' => $destino->id,
+    ])->assertOk();
+
+    $articulo->refresh();
+    expect((float) $articulo->precio_unitario_sin_iva)->toBe($esperado['precio_unitario_sin_iva']);
+    expect((float) $articulo->precio_distribuidor_sin_iva)->toBe($esperado['precio_distribuidor_sin_iva']);
+});
+
+test('un lote se puede mover a un catalogo de otro proveedor', function () {
+    $user = User::factory()->create();
+    $proveedorOrigen = Proveedor::factory()->for($user)->create();
+    $proveedorDestino = Proveedor::factory()->for($user)->create();
+    $origen = Catalogo::factory()->for($user)->for($proveedorOrigen)->create();
+    $destino = Catalogo::factory()->for($user)->for($proveedorDestino)->create();
+    $articulo = Articulo::factory()->for($user)->for($origen, 'catalogo')->create();
+
+    $this->actingAs($user)->postJson('/api/v1/articulos/mover-lote', [
+        'ids' => [$articulo->id],
+        'catalogo_id' => $destino->id,
+    ])->assertOk();
+
+    expect($articulo->refresh()->catalogo_id)->toBe($destino->id);
+});
+
+test('un lote de articulos se mueve en una sola peticion', function () {
+    $user = User::factory()->create();
+    $destino = Catalogo::factory()->for($user)->create();
+    $articulos = Articulo::factory()->count(3)->for($user)->create();
+
+    $response = $this->actingAs($user)->postJson('/api/v1/articulos/mover-lote', [
+        'ids' => $articulos->pluck('id')->all(),
+        'catalogo_id' => $destino->id,
+    ]);
+
+    $response->assertOk();
+    $response->assertExactJson(['movidos' => 3]);
+
+    foreach ($articulos as $articulo) {
+        expect($articulo->refresh()->catalogo_id)->toBe($destino->id);
+    }
+});
+
+test('mover un lote con un id ajeno no mueve ninguno de los demas', function () {
+    $user = User::factory()->create();
+    $destino = Catalogo::factory()->for($user)->create();
+    $propio = Articulo::factory()->for($user)->create();
+    $ajeno = Articulo::factory()->for(User::factory()->create())->create();
+    $catalogoOriginal = $propio->catalogo_id;
+
+    $this->actingAs($user)->postJson('/api/v1/articulos/mover-lote', [
+        'ids' => [$propio->id, $ajeno->id],
+        'catalogo_id' => $destino->id,
+    ])->assertUnprocessable();
+
+    expect($propio->refresh()->catalogo_id)->toBe($catalogoOriginal);
+});
+
+test('mover un lote a un catalogo ajeno se rechaza', function () {
+    $user = User::factory()->create();
+    $articulo = Articulo::factory()->for($user)->create();
+    $catalogoAjeno = Catalogo::factory()->for(User::factory()->create())->create();
+    $catalogoOriginal = $articulo->catalogo_id;
+
+    $this->actingAs($user)->postJson('/api/v1/articulos/mover-lote', [
+        'ids' => [$articulo->id],
+        'catalogo_id' => $catalogoAjeno->id,
+    ])->assertUnprocessable();
+
+    expect($articulo->refresh()->catalogo_id)->toBe($catalogoOriginal);
+});
+
+test('mover en lote exige catalogo_id', function () {
+    $user = User::factory()->create();
+    $articulo = Articulo::factory()->for($user)->create();
+
+    $this->actingAs($user)->postJson('/api/v1/articulos/mover-lote', [
+        'ids' => [$articulo->id],
+    ])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('catalogo_id');
+});
+
+test('un invitado no puede mover articulos en lote', function () {
+    $destino = Catalogo::factory()->create();
+    $articulo = Articulo::factory()->create();
+    $catalogoOriginal = $articulo->catalogo_id;
+
+    $this->postJson('/api/v1/articulos/mover-lote', [
+        'ids' => [$articulo->id],
+        'catalogo_id' => $destino->id,
+    ])->assertUnauthorized();
+
+    expect($articulo->refresh()->catalogo_id)->toBe($catalogoOriginal);
 });
 
 // Orden de captura y filtros por columna (ver 025-filtros-columna-listado-articulos.md).

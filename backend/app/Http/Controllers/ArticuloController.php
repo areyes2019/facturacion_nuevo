@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Enums\ObjetoImpuesto;
 use App\Enums\TamanoGoma;
 use App\Http\Requests\Articulos\EliminarLoteArticulosRequest;
+use App\Http\Requests\Articulos\MoverLoteArticulosRequest;
 use App\Http\Requests\Articulos\StoreArticuloRequest;
 use App\Http\Requests\Articulos\UpdateArticuloRequest;
 use App\Http\Resources\ArticuloResource;
@@ -208,6 +209,55 @@ class ArticuloController extends Controller
         );
 
         return response()->json(['eliminados' => $eliminados]);
+    }
+
+    /**
+     * Mueve artículos en lote a otro catálogo (ver
+     * 034-filtro-catalogo-y-mover-lote-articulos.md), recalculando su cadena de precios con el
+     * descuento y las utilidades del catálogo destino.
+     *
+     * Mismo molde que `eliminarLote`: una sola petición con la lista de identificadores, todo
+     * dentro de una transacción, todo o nada. La pertenencia de cada `id` y del `catalogo_id` al
+     * usuario ya la garantizó `MoverLoteArticulosRequest`.
+     *
+     * El recálculo usa `PrecioArticuloCalculator::calcularCadena()` artículo por artículo, la
+     * misma pieza que ya usan el alta, la edición, la importación CSV, el aumento de costos (021)
+     * y `Catalogo::booted()` (011, 033): un `UPDATE` masivo en SQL no sería portable por el techo
+     * a 2 decimales del markup.
+     */
+    public function moverLote(MoverLoteArticulosRequest $request): JsonResponse
+    {
+        $ids = $request->validated()['ids'];
+        $catalogo = Catalogo::findOrFail($request->validated()['catalogo_id']);
+
+        $movidos = DB::transaction(function () use ($request, $ids, $catalogo): int {
+            $articulos = $request->user()->articulos()->whereIn('id', $ids)->get();
+
+            foreach ($articulos as $articulo) {
+                $utilidadEfectiva = (float) ($articulo->utilidad_porcentaje ?? $catalogo->utilidad_porcentaje);
+                $utilidadDistribuidorEfectiva = (float) ($articulo->utilidad_distribuidor_porcentaje ?? $catalogo->utilidad_distribuidor_porcentaje);
+
+                $cadena = PrecioArticuloCalculator::calcularCadena(
+                    (float) $articulo->precio_proveedor,
+                    (float) $catalogo->descuento,
+                    $utilidadEfectiva,
+                    (float) $articulo->costo_goma,
+                    $articulo->objeto_imp,
+                    $utilidadDistribuidorEfectiva,
+                );
+
+                $articulo->update([
+                    'catalogo_id' => $catalogo->id,
+                    'costo_con_descuento' => $cadena['costo_con_descuento'],
+                    'precio_unitario_sin_iva' => $cadena['precio_unitario_sin_iva'],
+                    'precio_distribuidor_sin_iva' => $cadena['precio_distribuidor_sin_iva'],
+                ]);
+            }
+
+            return $articulos->count();
+        });
+
+        return response()->json(['movidos' => $movidos]);
     }
 
     /**

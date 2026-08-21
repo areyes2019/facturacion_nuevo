@@ -7,6 +7,23 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 const modelValue = defineModel<number | null>({ default: null })
 
 /**
+ * `incluirTodos` agrega una opción real y seleccionable "Todos los catálogos" (mapeada a `null`),
+ * para el filtro de /articulos (ver 034-filtro-catalogo-y-mover-lote-articulos.md). Sin ella, el
+ * componente sigue exigiendo elegir un catálogo concreto, como en los modales de importar CSV y
+ * subir imágenes que ya lo usan.
+ */
+const {
+  incluirTodos = false,
+  placeholder = 'Selecciona un catálogo',
+  size = 'default',
+} = defineProps<{
+  incluirTodos?: boolean
+  placeholder?: string
+  /** `sm` para celdas angostas, como la fila de filtros del listado de artículos. */
+  size?: 'sm' | 'default'
+}>()
+
+/**
  * El catálogo elegido completo, no solo su `id`.
  *
  * La carga masiva por pasos (023) necesita su `articulos_count` para saber si el paso de imágenes
@@ -41,13 +58,14 @@ defineExpose({ recargar: cargar })
 
 <template>
   <Select
-    :model-value="modelValue?.toString() ?? undefined"
-    @update:model-value="(v) => (modelValue = v ? Number(v) : null)"
+    :model-value="modelValue !== null ? modelValue.toString() : incluirTodos ? '0' : undefined"
+    @update:model-value="(v) => (modelValue = v && v !== '0' ? Number(v) : null)"
   >
-    <SelectTrigger class="w-full">
-      <SelectValue placeholder="Selecciona un catálogo" />
+    <SelectTrigger class="w-full" :size="size">
+      <SelectValue :placeholder="placeholder" />
     </SelectTrigger>
     <SelectContent>
+      <SelectItem v-if="incluirTodos" value="0">Todos los catálogos</SelectItem>
       <SelectItem v-for="opcion in opciones" :key="opcion.id" :value="opcion.id.toString()">
         {{ opcion.proveedor_nombre_comercial ?? '—' }} — {{ opcion.nombre }}
       </SelectItem>

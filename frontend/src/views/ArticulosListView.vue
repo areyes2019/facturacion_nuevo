@@ -6,6 +6,7 @@ import {
   PencilIcon,
   TrashIcon,
   ArrowDownTrayIcon,
+  ArrowsRightLeftIcon,
   ChevronDownIcon,
   DocumentArrowUpIcon,
   FolderIcon,
@@ -70,6 +71,12 @@ const seleccionados = ref<number[]>([])
 const mostrarEliminarLote = ref(false)
 const eliminandoLote = ref(false)
 const errorEliminarLote = ref<string | null>(null)
+
+/** Mover en lote a otro catálogo (ver 034-filtro-catalogo-y-mover-lote-articulos.md). */
+const mostrarMoverLote = ref(false)
+const catalogoDestino = ref<number | null>(null)
+const moviendoLote = ref(false)
+const errorMoverLote = ref<string | null>(null)
 
 // Cualquier cosa que cambie las filas en pantalla vacía la selección.
 watch(
@@ -174,19 +181,33 @@ function recargarConRebote() {
  * "Precio distribuidor" es el tercero (ver 033-precio-distribuidor.md): a diferencia de "Costo", no
  * lleva la goma, porque el distribuidor nunca la paga.
  *
+ * Las etiquetas son abreviadas ("P Directo", "P Dist") solo en esta tabla, para que quepan en una
+ * sola línea y liberar el ancho que ocupa la columna del filtro de catálogo
+ * (ver 034-filtro-catalogo-y-mover-lote-articulos.md). El nombre completo se queda igual en
+ * cualquier otra pantalla del sistema.
+ *
  * La misma lista dibuja su celda en la fila de cabeceras y en la de filtros, para que no puedan
  * quedar con distinto número de celdas.
  */
 const columnasNumericas: { clave: ArticuloSort; etiqueta: string }[] = [
   { clave: 'costo_total', etiqueta: 'Costo' },
-  { clave: 'precio_unitario_sin_iva', etiqueta: 'Precio de venta' },
-  { clave: 'precio_distribuidor_sin_iva', etiqueta: 'Precio distribuidor' },
+  { clave: 'precio_unitario_sin_iva', etiqueta: 'P Directo' },
+  { clave: 'precio_distribuidor_sin_iva', etiqueta: 'P Dist' },
 ]
 
 /** Un filtro tecleado cambia el estado y recarga con rebote. */
 function onFiltro(clave: ArticuloFiltroTexto, valor: string | number) {
   articulos.filtros[clave] = String(valor)
   recargarConRebote()
+}
+
+/**
+ * El filtro de catálogo recarga de inmediato, sin rebote: un `<select>` no genera una petición
+ * por tecla como Nombre y Modelo (ver 034-filtro-catalogo-y-mover-lote-articulos.md).
+ */
+function onFiltroCatalogo(catalogoId: number | null) {
+  articulos.filtros.catalogoId = catalogoId
+  articulos.fetchList(1)
 }
 
 const totalFiltrado = computed(() => articulos.meta?.total ?? 0)
@@ -235,6 +256,28 @@ async function confirmarEliminarLote() {
     errorEliminarLote.value = extractErrorMessage(err)
   } finally {
     eliminandoLote.value = false
+  }
+}
+
+function abrirMoverLote() {
+  mostrarMoverLote.value = true
+  catalogoDestino.value = null
+  errorMoverLote.value = null
+}
+
+async function confirmarMoverLote() {
+  if (!catalogoDestino.value) return
+
+  moviendoLote.value = true
+  errorMoverLote.value = null
+  try {
+    await articulos.moverLoteCatalogo([...seleccionados.value], catalogoDestino.value)
+    mostrarMoverLote.value = false
+    await articulos.fetchList(articulos.meta?.current_page ?? 1)
+  } catch (err) {
+    errorMoverLote.value = extractErrorMessage(err)
+  } finally {
+    moviendoLote.value = false
   }
 }
 
@@ -486,6 +529,10 @@ async function confirmarImportar() {
         </span>
         <div class="flex gap-2">
           <Button variant="outline" size="sm" @click="seleccionados = []">Quitar selección</Button>
+          <Button variant="outline" size="sm" @click="abrirMoverLote">
+            <ArrowsRightLeftIcon class="size-4" />
+            Mover a catálogo
+          </Button>
           <Button variant="destructive" size="sm" @click="mostrarEliminarLote = true">
             <TrashIcon class="size-4" />
             Eliminar
@@ -524,11 +571,11 @@ async function confirmarImportar() {
                      (ver 025-filtros-columna-listado-articulos.md). -->
                 <TableHead>Nombre</TableHead>
                 <TableHead class="w-32">Modelo</TableHead>
-                <TableHead
-                  v-for="columna in columnasNumericas"
-                  :key="columna.clave"
-                  class="w-40 whitespace-normal"
-                >
+                <!-- Columna de filtro, no de datos: la fila de cada artículo la deja vacía
+                     (ver 034-filtro-catalogo-y-mover-lote-articulos.md). El nombre del catálogo
+                     sigue sin mostrarse por fila; se consulta en la ficha (025). -->
+                <TableHead class="w-52">Catálogo</TableHead>
+                <TableHead v-for="columna in columnasNumericas" :key="columna.clave" class="w-24">
                   <ColumnaOrdenable
                     :etiqueta="columna.etiqueta"
                     :activa="articulos.sort === columna.clave"
@@ -562,6 +609,15 @@ async function confirmarImportar() {
                     @update:model-value="(v) => onFiltro('modelo', v)"
                   />
                 </TableHead>
+                <TableHead class="h-auto py-2">
+                  <CatalogoSelect
+                    :model-value="articulos.filtros.catalogoId"
+                    incluir-todos
+                    placeholder="Todos los catálogos"
+                    size="sm"
+                    @update:model-value="onFiltroCatalogo"
+                  />
+                </TableHead>
                 <!-- Las columnas de dinero no llevan filtro: se ordenan desde su cabecera. Su
                      celda va igual, vacía, porque las dos filas se dibujan con la misma lista y
                      deben tener el mismo número de celdas. -->
@@ -575,7 +631,7 @@ async function confirmarImportar() {
             </TableHeader>
             <TableBody>
               <TableRow v-if="!articulos.loading && articulos.items.length === 0">
-                <TableCell colspan="7" class="text-muted-foreground py-10 text-center">
+                <TableCell colspan="8" class="text-muted-foreground py-10 text-center">
                   {{
                     articulos.hayFiltros || articulos.search
                       ? 'Ningún artículo coincide con los filtros aplicados.'
@@ -610,6 +666,9 @@ async function confirmarImportar() {
                 <TableCell class="truncate" :title="articulo.modelo">{{
                   articulo.modelo
                 }}</TableCell>
+                <!-- Columna de filtro, no de datos: el catálogo del artículo se consulta en su
+                     ficha, no en esta celda (ver 034-filtro-catalogo-y-mover-lote-articulos.md). -->
+                <TableCell></TableCell>
                 <TableCell class="tabular-nums">${{ pesos(articulo.costo_total) }}</TableCell>
                 <TableCell class="tabular-nums">
                   ${{ pesos(articulo.precio_unitario_sin_iva) }}
@@ -708,6 +767,33 @@ async function confirmarImportar() {
             </Button>
             <Button variant="destructive" :disabled="eliminandoLote" @click="confirmarEliminarLote">
               {{ eliminandoLote ? 'Eliminando...' : 'Eliminar' }}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <!-- Mover en lote (ver 034-filtro-catalogo-y-mover-lote-articulos.md). Sin aviso de
+           irreversibilidad: a diferencia de eliminar, es una acción de bajo riesgo y reversible
+           con el mismo gesto. -->
+      <Dialog :open="mostrarMoverLote" @update:open="(v) => !v && (mostrarMoverLote = false)">
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Mover artículos</DialogTitle>
+            <DialogDescription>
+              Mover {{ seleccionados.length }} artículo{{ seleccionados.length === 1 ? '' : 's' }}
+              a:
+            </DialogDescription>
+          </DialogHeader>
+          <CatalogoSelect v-model="catalogoDestino" />
+          <Alert v-if="errorMoverLote" variant="destructive">
+            <AlertDescription>{{ errorMoverLote }}</AlertDescription>
+          </Alert>
+          <DialogFooter>
+            <Button variant="outline" :disabled="moviendoLote" @click="mostrarMoverLote = false">
+              Cancelar
+            </Button>
+            <Button :disabled="moviendoLote || !catalogoDestino" @click="confirmarMoverLote">
+              {{ moviendoLote ? 'Moviendo...' : 'Mover' }}
             </Button>
           </DialogFooter>
         </DialogContent>
