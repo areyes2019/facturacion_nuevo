@@ -4,18 +4,22 @@
 
 Como usuario, quiero marcar un grupo de artículos en `/articulos` —filtrando por catálogo y
 usando "seleccionar todos", o marcándolos uno por uno— y generar con un clic una lista de precios
-en PDF con el precio distribuidor de cada uno, para compartirla de inmediato por el menú nativo de
-Windows 11 con un cliente o un distribuidor, sin editar cada artículo ni armar el documento a mano.
+en PDF con la miniatura de su foto (si la tiene), su nombre, su modelo y su precio distribuidor,
+para compartirla de inmediato por el menú nativo de Windows 11 con un cliente o un distribuidor,
+sin editar cada artículo ni armar el documento a mano. La miniatura ayuda a reconocer cada
+artículo de un vistazo, sin depender de que el modelo por sí solo le diga algo a quien recibe la
+lista.
 
 ## Objetivo / Alcance
 
 Un botón nuevo, **"Compartir Lista"**, en la misma barra de selección que ya usan "Eliminar"
 ([021](021-mantenimiento-articulos-catalogos.md)) y "Mover a catálogo"
 ([034](034-filtro-catalogo-y-mover-lote-articulos.md)): con uno o más artículos marcados, genera un
-PDF con nombre, modelo y precio distribuidor (con IVA incluido) de cada artículo seleccionado, y lo
-entrega al menú de compartir del sistema operativo mediante el mecanismo que
-[`lib/compartir.ts`](../frontend/src/lib/compartir.ts) ya resuelve para cotizaciones, facturas y
-tickets.
+PDF con la miniatura de la foto (si el artículo tiene una, ver
+[020](020-imagenes-articulos.md)), el nombre, el modelo y el precio distribuidor (con IVA incluido)
+de cada artículo seleccionado, y lo entrega al menú de compartir del sistema operativo mediante el
+mecanismo que [`lib/compartir.ts`](../frontend/src/lib/compartir.ts) ya resuelve para cotizaciones,
+facturas y tickets.
 
 No se crea ningún mecanismo nuevo de selección: se reutilizan los checkboxes de la tabla, el
 filtro de catálogo de 034 y `compartirArchivo()` tal como están. Tampoco se crea un documento
@@ -47,7 +51,7 @@ solo del navegador, para no tener que sincronizar dos números si algún día ca
 ### `ArticuloController::listaPrecios`
 
 ```php
-public function listaPrecios(ListaPreciosArticulosRequest $request): Response
+public function listaPrecios(ListaPreciosArticulosRequest $request, ImagenArticuloService $imagenes): Response
 {
     $ids = $request->validated()['ids'];
 
@@ -56,6 +60,13 @@ public function listaPrecios(ListaPreciosArticulosRequest $request): Response
         ->with('catalogo')
         ->get()
         ->sortBy('nombre', SORT_NATURAL | SORT_FLAG_CASE);
+
+    // Miniatura como atributo transitorio (no persistido): la vista la lee como cualquier otro
+    // campo del artículo, sin que el controlador pase un mapa aparte ni la vista sepa nada de
+    // ImagenArticuloService.
+    foreach ($articulos as $articulo) {
+        $articulo->miniatura_base64 = $imagenes->miniaturaBase64($articulo, self::LADO_MINIATURA_LISTA_PRECIOS);
+    }
 
     $secciones = $articulos
         ->groupBy(fn (Articulo $articulo) => $articulo->catalogo?->nombre ?? 'Sin catálogo')
@@ -88,6 +99,51 @@ public function listaPrecios(ListaPreciosArticulosRequest $request): Response
   efímero, igual de espíritu a como el ticket de mostrador se genera al vuelo
   (`TicketPedidoService`).
 
+### La miniatura de la imagen
+
+`ImagenArticuloService` (ver [020](020-imagenes-articulos.md)) gana un método nuevo,
+`miniaturaBase64(Articulo $articulo, int $ladoMaximo): ?string`, hermano de `contenido()` que ya
+tenía:
+
+```php
+public function miniaturaBase64(Articulo $articulo, int $ladoMaximo): ?string
+{
+    $ruta = $this->rutaSiExiste($articulo);
+
+    if ($ruta === null) {
+        return null;
+    }
+
+    try {
+        $contenido = $this->procesador->procesar(Storage::disk('local')->path($ruta), $ladoMaximo);
+    } catch (Throwable) {
+        return null;
+    }
+
+    return 'data:image/webp;base64,'.base64_encode($contenido);
+}
+```
+
+- **Es un segundo tamaño, no la foto completa.** La imagen guardada del artículo ya está reducida a
+  `ImagenArticuloService::LADO_MAXIMO` (1200 puntos de lado largo), pensada para una ficha con una
+  sola foto grande. Incrustar esa versión en una tabla que puede llevar decenas de artículos
+  multiplicaría el peso del PDF y el tiempo de generación por cada fila. Se reprocesa con
+  `ProcesadorImagen` —la misma pieza que ya usan `ImagenArticuloService` y `LogoBancoService`, cada
+  una con su propio tamaño (ver [026](026-datos-bancarios-cotizacion.md))— a un lado máximo de
+  **120 puntos**, con la constante `ArticuloController::LADO_MINIATURA_LISTA_PRECIOS`.
+- **Se lee del disco por ruta, no por los bytes de `contenido()`.** `ProcesadorImagen::procesar()`
+  necesita una ruta real de archivo (usa `getimagesize()` e `imagecreatefromwebp()`), así que se
+  resuelve con `Storage::disk('local')->path($ruta)` en vez de pasar por `Storage::get()` y guardar
+  un archivo temporal.
+- **Sin imagen, sin archivo en disco o con un archivo dañado, devuelve `null` en silencio, sin
+  `Log::warning`.** A diferencia del logo del emisor —que si falta se nota en cada documento fiscal
+  y por eso 019 sí lo registra—, la miniatura de un artículo es puramente decorativa: perderla no
+  cambia ningún dato del PDF, y un artículo de cada varios sin foto es el caso normal, no una falla
+  que valga la pena anotar.
+- Se calcula en el controlador y se cuelga como atributo transitorio del modelo
+  (`$articulo->miniatura_base64 = ...`), sin persistirse: la vista lo lee igual que cualquier otro
+  campo del artículo.
+
 ### Vista `resources/views/pdf/lista-precios.blade.php`
 
 **No extiende `pdf.documento`.** Esa plantilla base asume una tabla de conceptos con cantidad,
@@ -111,9 +167,14 @@ Estructura:
   documentos.
 - **Por cada sección** (si `$mostrarSecciones`): un subtítulo con el nombre del catálogo, en el
   mismo estilo `.parte-titulo` de la plantilla base.
-- **Tabla por sección**: columnas Nombre, Modelo, Precio — con el mismo estilo de bordes y cabecera
-  que `.items` en `documento.blade.php`. Sin columnas de cantidad, descuento ni IVA: esta lista no
-  es una cotización.
+- **Tabla por sección**: columnas Miniatura, Nombre, Modelo, Precio — con el mismo estilo de bordes
+  y cabecera que `.items` en `documento.blade.php`. Sin columnas de cantidad, descuento ni IVA:
+  esta lista no es una cotización. La columna de miniatura es la primera, a la izquierda, sin texto
+  en su cabecera (una celda vacía, igual que la columna de la casilla de selección en la tabla de
+  `/articulos`); su celda de datos queda vacía cuando el artículo no tiene `miniatura_base64`, sin
+  ningún ícono de "sin foto" que la reemplace. La imagen se limita a 15×15 mm —en milímetros, no en
+  píxeles, mismo criterio que los logos del encabezado— para que quepa cómoda en el ancho de la
+  columna sin desbordar la fila.
 - **Pie**: *"Precios sujetos a cambio sin previo aviso — vigentes al {fecha en d/m/Y}."* (adición
   técnica 3), en el mismo estilo `.nota` que el resto de los documentos.
 
@@ -133,8 +194,20 @@ Feature tests sobre la base MySQL de trabajo con `php artisan test`, nunca `migr
 7. Un `id` ajeno o inexistente en la lista responde `422` y no genera ningún PDF.
 8. El PDF se genera igual sin logos del emisor cargados y con el emisor vacío, sin lanzar
    excepción — mismo criterio de "nunca se bloquea" que 019.
+9. Un artículo con imagen imprime su miniatura (una data URI `data:image/webp;base64,...`) en la
+   primera columna de su fila.
+10. Un artículo sin imagen no imprime ninguna miniatura, sin romper el PDF.
+11. `ImagenArticuloService::miniaturaBase64()` reduce la imagen ya guardada a un lado máximo menor
+    (probado con 120), sin importar el tamaño de la imagen original.
+12. `miniaturaBase64()` devuelve `null` tanto si el artículo no tiene imagen como si el archivo
+    referenciado por `imagen_ruta` ya no está en disco, sin lanzar ninguna excepción.
 
 ## Frontend (Vue 3)
+
+La miniatura no toca el frontend: es enteramente responsabilidad del PDF generado en el servidor,
+a partir de una imagen que ya existe (o no) por el flujo normal de carga de fotos de
+[020](020-imagenes-articulos.md). No hay ningún control nuevo para subir, cambiar o desactivar la
+miniatura desde `/articulos`.
 
 ### `stores/articulos.ts`
 
@@ -189,14 +262,23 @@ Mismo patrón que `pedidos.ticketBlob()` (`stores/pedidos.ts:213-216`).
   generación.
 - **Exportar a otro formato** (Excel, CSV, imagen). Solo PDF.
 - **Marca de agua, contraseña o cualquier protección del PDF.**
+- **Subir, cambiar o quitar la imagen del artículo desde esta pantalla.** La miniatura solo lee la
+  que ya exista; para tenerla, gestionarla o reemplazarla se sigue usando el flujo de 020.
+- **Un ícono o marcador genérico para "sin foto".** El artículo sin imagen deja la celda vacía, no
+  una silueta ni un texto sustituto.
+- **Recortar, encuadrar o editar la imagen para la miniatura.** Se usa la foto ya guardada tal cual,
+  solo reducida de tamaño; no hay selección de la parte de la imagen que se muestra.
+- **Registrar en el log una imagen faltante o dañada** al generar la lista de precios. Es
+  decorativa: la ausencia de una miniatura no es un error que valga la pena anotar (a diferencia
+  del logo del emisor en 019).
 - Roles, permisos diferenciados o multiempresa, como en todas las historias anteriores.
 
 ## Criterios de aceptación
 
 1. Con uno o más artículos marcados en `/articulos`, la barra de selección muestra "Compartir
    Lista" junto a "Mover a catálogo" y "Eliminar".
-2. Al hacer clic, se genera un PDF con nombre, modelo y precio distribuidor con IVA de cada
-   artículo seleccionado.
+2. Al hacer clic, se genera un PDF con la miniatura de la foto (si la tiene), nombre, modelo y
+   precio distribuidor con IVA de cada artículo seleccionado.
 3. Si todos los artículos seleccionados pertenecen al mismo catálogo, el PDF no muestra subtítulos
    de sección. Si pertenecen a más de un catálogo, aparecen agrupados bajo un subtítulo por
    catálogo.
@@ -217,13 +299,18 @@ Mismo patrón que `pedidos.ticketBlob()` (`stores/pedidos.ts:213-216`).
 12. Un lote con un artículo ajeno o inexistente responde `422` y no genera ningún PDF.
 13. Tras compartir o descargar la lista, la selección de artículos se mantiene tal como estaba.
 14. El PDF se genera igual con el emisor vacío o sin logos cargados, sin error.
-15. Pint corre sin errores sobre el backend, ESLint y Prettier sobre el frontend, la suite de Pest
+15. Un artículo con imagen aparece en el PDF con una miniatura de su foto en la primera columna de
+    su fila, reducida (no la imagen a tamaño completo).
+16. Un artículo sin imagen, o cuyo archivo de imagen ya no está en disco, deja esa celda vacía sin
+    romper el PDF y sin dejar rastro en el log.
+17. Pint corre sin errores sobre el backend, ESLint y Prettier sobre el frontend, la suite de Pest
     sigue pasando, y `npm run build` compila la SPA completa.
 
 ## Supuestos asumidos (registro completo)
 
 Los 11 primeros son las asunciones funcionales aceptadas al definir la historia; del 12 al 16, las
-cinco adiciones técnicas resueltas.
+cinco adiciones técnicas resueltas; del 17 al 20, la miniatura de imagen agregada en una revisión
+posterior.
 
 1. La selección de artículos para la lista de precios usa los mismos checkboxes que ya existen en
    la tabla de artículos, sin crear un mecanismo de selección nuevo.
@@ -256,3 +343,36 @@ cinco adiciones técnicas resueltas.
     de generar el PDF, sin bloquear la operación.
 16. **(Adición técnica)** La fecha de generación del PDF se imprime de forma visible en el
     encabezado del documento.
+17. Se agrega una miniatura de la fotografía del artículo (si la tiene) en una columna nueva, la
+    primera de la tabla, a la izquierda del nombre.
+18. La miniatura es una copia reducida de la imagen ya guardada del artículo (020), a un tamaño
+    bastante menor que el de esa imagen, no la original a tamaño completo — para no inflar el peso
+    ni el tiempo de generación del PDF cuando la lista lleva muchas fotos.
+19. Un artículo sin imagen, o cuyo archivo de imagen ya no está en disco, deja esa celda vacía, sin
+    ícono sustituto y sin registrar nada en el log: es decorativa, no algo que deba avisarse como
+    lo hace un logo faltante.
+20. No se ofrece ninguna forma de excluir la miniatura, elegir su tamaño o recortarla desde esta
+    pantalla; aparece siempre que el artículo tenga una imagen guardada.
+
+## Estado de implementación
+
+Implementada el 2026-08-22, en dos partes.
+
+- **Primera versión** (supuestos 1-16): endpoint, plantilla, botón "Compartir Lista" y su diálogo
+  de aviso. Verificada en un navegador real (Playwright/Chromium contra `php artisan serve` y
+  `npm run dev`, con usuario y artículos de prueba creados y eliminados al terminar): seleccionar
+  artículos y pulsar "Compartir Lista" generó el PDF (`200`, `application/pdf`) y, sin menú nativo
+  de compartir disponible en el entorno de prueba, se descargó mostrando "Lista descargada.".
+  Desplegada a producción el mismo día (commit `d7af4b7`).
+- **Miniatura de imagen** (supuestos 17-20), agregada el mismo día a partir de una petición de
+  seguimiento: `ImagenArticuloService::miniaturaBase64()`, la columna nueva en la plantilla y el
+  cambio en `ArticuloController::listaPrecios`. Sin cambios de frontend.
+
+**Verificación**: `php artisan test` completo en verde (614 pruebas, incluidas las 4 nuevas de
+`miniaturaBase64` en `ArticuloImagenesTest.php` y las 2 de contenido con/sin miniatura en
+`ArticulosTest.php`); Pint limpio sobre los archivos tocados. No se generó un PDF real con una
+fotografía para inspección visual en esta ronda —las pruebas comprueban que la miniatura se
+incrusta como una data URI válida y que reduce el tamaño de la imagen original, no cómo se ve
+maquetada la columna—, así que la maquetación final (si 15×15 mm y los anchos de columna quedan
+bien a simple vista) queda pendiente de una revisión visual la próxima vez que se genere una lista
+con artículos que sí tengan foto.

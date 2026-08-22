@@ -3,6 +3,7 @@
 use App\Models\Articulo;
 use App\Models\Catalogo;
 use App\Models\User;
+use App\Services\ImagenArticuloService;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 
@@ -106,6 +107,41 @@ test('un articulo sin imagen responde 404 al pedirla', function () {
     $articulo = Articulo::factory()->for($user)->create();
 
     $this->actingAs($user)->get("/api/v1/articulos/{$articulo->id}/imagen")->assertNotFound();
+});
+
+// Miniatura para la lista de precios (ver 028-lista-precios-pdf.md).
+
+test('miniaturaBase64 reduce la imagen ya guardada a un tamano mas chico', function () {
+    Storage::fake('local');
+    $user = User::factory()->create();
+    $articulo = Articulo::factory()->for($user)->create();
+
+    $this->actingAs($user)->post("/api/v1/articulos/{$articulo->id}/imagen", [
+        'archivo' => UploadedFile::fake()->image('foto.jpg', 1200, 900),
+    ])->assertOk();
+
+    $dataUri = app(ImagenArticuloService::class)->miniaturaBase64($articulo->fresh(), 120);
+
+    expect($dataUri)->toStartWith('data:image/webp;base64,');
+
+    $binario = base64_decode(substr($dataUri, strlen('data:image/webp;base64,')));
+    $medidas = getimagesizefromstring($binario);
+    expect(max($medidas[0], $medidas[1]))->toBeLessThanOrEqual(120);
+    expect($medidas[2])->toBe(IMAGETYPE_WEBP);
+});
+
+test('miniaturaBase64 devuelve null sin imagen', function () {
+    $articulo = Articulo::factory()->create();
+
+    expect(app(ImagenArticuloService::class)->miniaturaBase64($articulo, 120))->toBeNull();
+});
+
+test('miniaturaBase64 devuelve null si el archivo ya no esta en disco', function () {
+    Storage::fake('local');
+    $articulo = Articulo::factory()->create();
+    $articulo->forceFill(['imagen_ruta' => 'articulos/no-existe.webp'])->save();
+
+    expect(app(ImagenArticuloService::class)->miniaturaBase64($articulo, 120))->toBeNull();
 });
 
 test('no se puede tocar la imagen de un articulo ajeno', function () {

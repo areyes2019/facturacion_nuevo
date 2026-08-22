@@ -45,6 +45,11 @@
         .items thead { background: #f5f5f5; font-weight: bold; }
         .items th { text-align: left; }
         .num { text-align: right; }
+        /* En milímetros, no en píxeles: mismo criterio que los logos del encabezado. Es una caja
+           chica a propósito (ver 028-lista-precios-pdf.md): la miniatura solo ayuda a reconocer el
+           artículo de un vistazo, no reemplaza a la ficha con la foto completa. */
+        .miniatura-celda { text-align: center; padding: 3px; }
+        .miniatura { max-width: 15mm; max-height: 15mm; }
 
         .nota { text-align: center; margin-top: 14px; font-size: 7.5pt; color: #666; font-style: italic; border-top: 1px solid #eee; padding-top: 5px; }
     </style>
@@ -80,14 +85,20 @@
     <table class="items">
         <thead>
             <tr>
-                <th width="55%">Nombre</th>
-                <th width="25%">Modelo</th>
+                <th width="15%"></th>
+                <th width="42%">Nombre</th>
+                <th width="23%">Modelo</th>
                 <th width="20%" class="num">Precio</th>
             </tr>
         </thead>
         <tbody>
             @foreach ($articulos as $articulo)
                 <tr>
+                    <td class="miniatura-celda">
+                        @if ($articulo->miniatura_base64)
+                            <img src="{{ $articulo->miniatura_base64 }}" class="miniatura">
+                        @endif
+                    </td>
                     <td>{{ $articulo->nombre }}</td>
                     <td>{{ $articulo->modelo }}</td>
                     <td class="num">${{ number_format($articulo->precio_distribuidor_con_iva, 2) }}</td>

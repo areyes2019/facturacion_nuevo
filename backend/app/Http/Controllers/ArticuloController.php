@@ -16,6 +16,7 @@ use App\Rules\ClaveProdServValido;
 use App\Rules\ClaveUnidadValido;
 use App\Rules\ValorDeEnum;
 use App\Services\ConfiguracionService;
+use App\Services\ImagenArticuloService;
 use App\Services\PrecioArticuloCalculator;
 use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -88,6 +89,14 @@ class ArticuloController extends Controller
         'filtro_nombre' => 'nombre',
         'filtro_modelo' => 'modelo',
     ];
+
+    /**
+     * Lado largo máximo, en puntos, de la miniatura de la lista de precios (ver
+     * 028-lista-precios-pdf.md). Mucho más chico que `ImagenArticuloService::LADO_MAXIMO` (1200):
+     * ahí es una ficha con una sola foto grande, aquí puede haber decenas de miniaturas en el
+     * mismo PDF.
+     */
+    private const LADO_MINIATURA_LISTA_PRECIOS = 120;
 
     /**
      * Display a listing of the resource.
@@ -269,7 +278,7 @@ class ArticuloController extends Controller
      * genera al vuelo y se entrega en la propia respuesta, igual de espíritu que el ticket de
      * mostrador (`TicketPedidoService`).
      */
-    public function listaPrecios(ListaPreciosArticulosRequest $request): Response
+    public function listaPrecios(ListaPreciosArticulosRequest $request, ImagenArticuloService $imagenes): Response
     {
         $ids = $request->validated()['ids'];
 
@@ -278,6 +287,13 @@ class ArticuloController extends Controller
             ->with('catalogo')
             ->get()
             ->sortBy('nombre', SORT_NATURAL | SORT_FLAG_CASE);
+
+        // Miniatura como atributo transitorio (no persistido): la vista la lee como cualquier otro
+        // campo del artículo, sin que el controlador tenga que pasar un mapa aparte ni la vista
+        // sepa nada de `ImagenArticuloService`.
+        foreach ($articulos as $articulo) {
+            $articulo->miniatura_base64 = $imagenes->miniaturaBase64($articulo, self::LADO_MINIATURA_LISTA_PRECIOS);
+        }
 
         // Agrupar y ordenar en el mismo paso: `groupBy` conserva el orden relativo de la colección
         // de origen, así que ya no hace falta ordenar dentro de cada grupo por separado.

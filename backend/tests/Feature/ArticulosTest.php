@@ -6,6 +6,7 @@ use App\Models\Articulo;
 use App\Models\Catalogo;
 use App\Models\Proveedor;
 use App\Models\User;
+use App\Services\ImagenArticuloService;
 use App\Services\PrecioArticuloCalculator;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
@@ -1513,15 +1514,28 @@ test('una peticion sin los filtros nuevos responde lo mismo y proveedor_id sigue
 // endpoint real, que sí pasa por dompdf. Mismo criterio que 019-formato-pdf-documentos.md.
 
 /**
+ * Replica exactamente lo que hace `ArticuloController::listaPrecios`, incluida la miniatura (ver
+ * 028-lista-precios-pdf.md), para poder renderizar `pdf.lista-precios` directamente en los tests
+ * de contenido. El tamaño (120) es el mismo que
+ * `ArticuloController::LADO_MINIATURA_LISTA_PRECIOS`.
+ *
  * @return Collection<string, Collection<int, Articulo>>
  */
 function seccionesListaPrecios(array $ids): Collection
 {
-    return Articulo::query()
+    $imagenes = app(ImagenArticuloService::class);
+
+    $articulos = Articulo::query()
         ->whereIn('id', $ids)
         ->with('catalogo')
         ->get()
-        ->sortBy('nombre', SORT_NATURAL | SORT_FLAG_CASE)
+        ->sortBy('nombre', SORT_NATURAL | SORT_FLAG_CASE);
+
+    foreach ($articulos as $articulo) {
+        $articulo->miniatura_base64 = $imagenes->miniaturaBase64($articulo, 120);
+    }
+
+    return $articulos
         ->groupBy(fn (Articulo $articulo): string => $articulo->catalogo?->nombre ?? 'Sin catálogo')
         ->sortKeys();
 }
@@ -1621,6 +1635,41 @@ test('un articulo que no causa iva imprime su precio distribuidor sin el 16 por 
     ])->render();
 
     expect($html)->toContain('$100.00')->not->toContain('$116.00');
+});
+
+test('un articulo con imagen muestra su miniatura en la primera columna', function () {
+    Storage::fake('local');
+    $user = User::factory()->create();
+    $catalogo = Catalogo::factory()->for($user)->create();
+    $articulo = Articulo::factory()->for($user)->for($catalogo, 'catalogo')->create(['nombre' => 'Con foto']);
+
+    $this->actingAs($user)->post("/api/v1/articulos/{$articulo->id}/imagen", [
+        'archivo' => UploadedFile::fake()->image('foto.jpg', 500, 500),
+    ])->assertOk();
+
+    $secciones = seccionesListaPrecios([$articulo->id]);
+    $html = view('pdf.lista-precios', [
+        'secciones' => $secciones,
+        'mostrarSecciones' => false,
+        'fecha' => now(),
+    ])->render();
+
+    expect($html)->toContain('data:image/webp;base64,');
+});
+
+test('un articulo sin imagen no imprime ninguna miniatura', function () {
+    $user = User::factory()->create();
+    $catalogo = Catalogo::factory()->for($user)->create();
+    $articulo = Articulo::factory()->for($user)->for($catalogo, 'catalogo')->create(['nombre' => 'Sin foto']);
+
+    $secciones = seccionesListaPrecios([$articulo->id]);
+    $html = view('pdf.lista-precios', [
+        'secciones' => $secciones,
+        'mostrarSecciones' => false,
+        'fecha' => now(),
+    ])->render();
+
+    expect($html)->not->toContain('data:image/webp;base64,');
 });
 
 test('el endpoint de lista de precios genera un pdf real', function () {

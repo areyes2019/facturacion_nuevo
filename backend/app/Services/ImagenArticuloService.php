@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Articulo;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Throwable;
 
 /**
  * Puerta única por la que entra cualquier imagen de artículo (ver 020-imagenes-articulos.md).
@@ -69,13 +70,51 @@ class ImagenArticuloService
      */
     public function contenido(Articulo $articulo): ?string
     {
-        $ruta = $articulo->imagen_ruta;
+        $ruta = $this->rutaSiExiste($articulo);
 
-        if (! filled($ruta) || ! Storage::disk('local')->exists($ruta)) {
+        return $ruta === null ? null : Storage::disk('local')->get($ruta);
+    }
+
+    /**
+     * Miniatura de la imagen del artículo, ya reducida y codificada como data URI, lista para
+     * incrustarse en un PDF (ver 028-lista-precios-pdf.md).
+     *
+     * Es un segundo tamaño, no la foto de `contenido()`: mismo criterio que `LogoBancoService`
+     * (ver 026-datos-bancarios-cotizacion.md), que reutiliza el mismo `ProcesadorImagen` con otro
+     * número. La foto guardada ya está reducida a `LADO_MAXIMO` (1200), pero eso sigue siendo
+     * demasiado pesado para una miniatura de unos 15 mm en una tabla que puede llevar decenas de
+     * artículos: incrustarla entera multiplicaría el peso y el tiempo de generación del PDF por
+     * cada fila.
+     *
+     * Devuelve `null` sin registrar nada si no hay imagen, si el archivo ya no está en disco o si
+     * está dañado: a diferencia del logo del emisor, la miniatura de un artículo es decorativa, no
+     * algo que alguien vaya a extrañar en un log.
+     */
+    public function miniaturaBase64(Articulo $articulo, int $ladoMaximo): ?string
+    {
+        $ruta = $this->rutaSiExiste($articulo);
+
+        if ($ruta === null) {
             return null;
         }
 
-        return Storage::disk('local')->get($ruta);
+        try {
+            $contenido = $this->procesador->procesar(Storage::disk('local')->path($ruta), $ladoMaximo);
+        } catch (Throwable) {
+            return null;
+        }
+
+        return 'data:image/webp;base64,'.base64_encode($contenido);
+    }
+
+    /**
+     * La ruta guardada, solo si el archivo todavía existe en disco.
+     */
+    private function rutaSiExiste(Articulo $articulo): ?string
+    {
+        $ruta = $articulo->imagen_ruta;
+
+        return (filled($ruta) && Storage::disk('local')->exists($ruta)) ? $ruta : null;
     }
 
     private function borrarArchivo(?string $ruta): void
