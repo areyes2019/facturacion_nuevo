@@ -1,5 +1,10 @@
 import { defineStore } from 'pinia'
 import http from '../lib/http'
+import {
+  compartirArchivo,
+  type ArchivoCompartible,
+  type ResultadoCompartir,
+} from '../lib/compartir'
 import { extractErrorMessage } from '../lib/errors'
 import type { TipoDescuento, TasaIva } from './facturas'
 
@@ -193,6 +198,28 @@ export const useOrdenesCompraStore = defineStore('ordenesCompra', {
         responseType: 'blob',
       })
       descargarBlob(data, `orden-compra-${orden.folio}.pdf`, 'application/pdf')
+    },
+
+    /**
+     * Baja el PDF y lo deja listo en memoria. Se llama al entrar a la pantalla, nunca al apretar el
+     * botón de compartir: el menú del sistema solo se abre mientras el gesto del usuario sigue vivo
+     * (ver 012-ordenes-compra.md).
+     */
+    async archivoPdf(orden: OrdenCompra): Promise<ArchivoCompartible> {
+      const { data } = await http.get(`/ordenes-compra/${orden.id}/pdf`, {
+        responseType: 'blob',
+      })
+
+      return { contenido: data, nombre: `orden-compra-${orden.folio}.pdf` }
+    },
+
+    /**
+     * Entrega el PDF al menú de compartir del sistema —en Windows 11, el catálogo de envío con
+     * Drive, WhatsApp, Correo y lo que el usuario tenga instalado— sin texto que lo acompañe
+     * (ver 012-ordenes-compra.md).
+     */
+    async compartirPdf(archivo: ArchivoCompartible): Promise<ResultadoCompartir> {
+      return compartirArchivo(archivo.contenido, archivo.nombre)
     },
   },
 })

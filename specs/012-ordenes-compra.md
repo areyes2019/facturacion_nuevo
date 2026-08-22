@@ -352,6 +352,24 @@ registrado como el riesgo conocido de esta historia.
   - **"Marcar como recibida"**: visible solo si `estado = pagada`.
   - **"Duplicar"**: crea la copia y redirige a su detalle.
   - **"Descargar PDF"**.
+  - **"Compartir PDF"**: entrega el PDF de la orden al **menú de compartir del sistema
+    operativo** —en Windows 11, el catálogo de envío con Drive, WhatsApp, Correo, Bluetooth y lo
+    que el usuario tenga instalado— con `compartirArchivo` de `lib/compartir.ts`, el mismo
+    mecanismo ya usado por Factura ([007](007-facturacion.md)). No hay modal propio ni selector de
+    canal: el catálogo del sistema ya es el selector.
+    - Va **únicamente el PDF, sin texto de acompañamiento**, con el nombre
+      `orden-compra-{folio}.pdf`, el mismo que usa "Descargar PDF".
+    - A diferencia de Factura, aparece en **cualquier estado** de la orden
+      (`borrador`/`enviada`/`pagada`/`recibida`): la orden siempre puede generar su PDF al vuelo,
+      no depende de un estado tipo "timbrada".
+    - **Si el navegador no puede compartir archivos, el botón no se muestra.** Quedan "Descargar
+      PDF" y "Enviar" por correo/WhatsApp, que siempre funcionan.
+    - El PDF **se baja al entrar a la pantalla**, no al apretar el botón (que mientras tanto dice
+      "Preparando..."): el menú del sistema solo se abre mientras el gesto del usuario sigue vivo
+      (ver [029](029-pwa-mostrador.md)). Si aun así el menú se rechaza, el PDF queda descargado y
+      la pantalla lo dice; no se abre WhatsApp, porque aquí nadie eligió ese canal.
+    - **Compartir no cambia el estado de la orden** ni registra un envío: es un atajo de escritorio
+      independiente de "Enviar", que sigue siendo el camino para notificar al proveedor.
 - **Navegación**: se agrega "Órdenes de compra" al `AppLayout`, junto a Proveedores.
 
 ### Cambio en Tesorería (010)
@@ -507,6 +525,11 @@ Implementada el 2026-08-05.
     calculan sus totales con resultados idénticos a los del backend, verificado por ambas suites
     contra el fixture compartido.
 24. Pint, ESLint/Prettier y las suites de PHPUnit y Vitest corren sin errores sobre el código nuevo.
+25. Desde el detalle de una orden de compra, en cualquier estado, se comparte **el PDF y solo el
+    PDF** por el menú de compartir del sistema —en Windows 11, el catálogo de envío con Drive,
+    WhatsApp y los demás destinos instalados—, sin texto de acompañamiento y sin que el estado de
+    la orden cambie. Cerrar el menú sin elegir destino no muestra error. En un navegador que no
+    puede compartir archivos, el botón no aparece, y el PDF sigue disponible por "Descargar PDF".
 
 ## Supuestos asumidos (registro completo)
 
@@ -619,3 +642,22 @@ Implementada el 2026-08-05.
     siguiendo el patrón que 011 estableció para la cadena de precios. Cambiar una implementación sin
     la otra rompe la suite del lado no tocado. Con el componente compartido de líneas, esa red cubre
     a los tres documentos a la vez.
+43. **(Adición)** El detalle de la orden de compra agrega un botón **"Compartir PDF"** que entrega
+    el PDF al menú de compartir nativo del sistema operativo (en Windows 11, el catálogo de envío
+    con Drive, WhatsApp, Correo y demás destinos instalados), usando el mismo `compartirArchivo` de
+    `lib/compartir.ts` que ya usan Factura ([007](007-facturacion.md)) y el mostrador. No se escribe
+    un mecanismo de compartir aparte: sería una tercera copia del mismo código.
+44. **(Adición)** El botón se muestra u oculta según `puedeCompartirArchivos()` —si este navegador
+    tiene el menú del sistema, no según el ancho de pantalla ni el sistema operativo detectado— y,
+    a diferencia de Factura, aparece **sin importar el estado** de la orden, porque el PDF siempre
+    puede generarse al vuelo.
+45. **(Adición)** El PDF se descarga por adelantado al entrar a la pantalla del detalle, no al
+    apretar el botón (que mientras tanto dice "Preparando..."), porque el menú del sistema solo se
+    abre mientras el gesto del usuario sigue vivo (ver [029](029-pwa-mostrador.md)). Se comparte
+    **solo el archivo, sin texto**, con el nombre `orden-compra-{folio}.pdf`, el mismo que
+    "Descargar PDF"; si el menú del sistema rechaza la llamada, el respaldo es dejar el PDF
+    descargado y avisarlo en pantalla, sin abrir WhatsApp.
+46. **(Adición)** El almacén de datos (`stores/ordenesCompra.ts`) gana dos funciones, copiadas del
+    mismo patrón que ya tiene `stores/facturas.ts`: una que baja el PDF y lo deja listo en memoria
+    (`archivoPdf`) y otra que se lo entrega al menú de compartir (`compartirPdf`). El backend no
+    cambia: usan el mismo `GET /api/v1/ordenes-compra/{id}/pdf` que ya alimenta "Descargar PDF".

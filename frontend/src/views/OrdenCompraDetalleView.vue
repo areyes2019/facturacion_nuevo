@@ -8,6 +8,7 @@ import {
   DocumentDuplicateIcon,
   EnvelopeIcon,
   InboxArrowDownIcon,
+  ShareIcon,
 } from '@heroicons/vue/24/outline'
 import {
   useOrdenesCompraStore,
@@ -15,6 +16,7 @@ import {
   type OrdenCompra,
 } from '../stores/ordenesCompra'
 import { extractErrorMessage } from '../lib/errors'
+import { puedeCompartirArchivos, type ArchivoCompartible } from '../lib/compartir'
 import AppLayout from '../layouts/AppLayout.vue'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
@@ -64,6 +66,10 @@ async function cargar() {
   cargando.value = true
   try {
     orden.value = await ordenesStore.fetchOne(ordenId.value)
+
+    // El PDF se adelanta a la primera pulsación: el catálogo de envío de Windows solo abre mientras
+    // el gesto del usuario sigue vivo.
+    if (puedeCompartir) void precargarPdf()
   } catch (err) {
     errorGeneral.value = extractErrorMessage(err)
   } finally {
@@ -129,6 +135,52 @@ async function onDescargarPdf() {
     errorDescarga.value = extractErrorMessage(err)
   } finally {
     descargandoPdf.value = false
+  }
+}
+
+// Compartir el PDF por el menú del sistema: en Windows 11, el catálogo de envío con Drive,
+// WhatsApp, Correo y lo que el usuario tenga instalado (ver 012-ordenes-compra.md).
+const puedeCompartir = puedeCompartirArchivos()
+const archivoPdf = ref<ArchivoCompartible | null>(null)
+const compartiendo = ref(false)
+const avisoCompartir = ref<string | null>(null)
+
+/**
+ * El PDF se baja al entrar a la pantalla, no al apretar el botón: el menú del sistema solo se abre
+ * mientras el gesto del usuario sigue vivo, y esperar ahí a una descarga lo agota (ver 029).
+ */
+async function precargarPdf() {
+  if (!orden.value || archivoPdf.value !== null) return
+
+  compartiendo.value = true
+  try {
+    archivoPdf.value = await ordenesStore.archivoPdf(orden.value)
+  } catch {
+    // Que la precarga falle no interrumpe la pantalla: el botón vuelve a intentarlo, y ahí sí se
+    // dice lo que pasó.
+  } finally {
+    compartiendo.value = false
+  }
+}
+
+async function onCompartirPdf() {
+  if (!orden.value) return
+
+  avisoCompartir.value = null
+  errorDescarga.value = null
+  compartiendo.value = true
+  try {
+    if (archivoPdf.value === null) {
+      archivoPdf.value = await ordenesStore.archivoPdf(orden.value)
+    }
+
+    if ((await ordenesStore.compartirPdf(archivoPdf.value)) === 'descargado') {
+      avisoCompartir.value = 'El menú de compartir no se abrió: el PDF quedó en tus descargas.'
+    }
+  } catch (err) {
+    errorDescarga.value = extractErrorMessage(err)
+  } finally {
+    compartiendo.value = false
   }
 }
 
@@ -266,7 +318,20 @@ async function onDuplicar() {
             <DocumentDuplicateIcon class="size-4" />
             Duplicar
           </Button>
+          <Button
+            v-if="puedeCompartir"
+            variant="outline"
+            :disabled="compartiendo"
+            @click="onCompartirPdf"
+          >
+            <ShareIcon class="size-4" />
+            {{ compartiendo ? 'Preparando...' : 'Compartir PDF' }}
+          </Button>
         </div>
+
+        <Alert v-if="avisoCompartir">
+          <AlertDescription>{{ avisoCompartir }}</AlertDescription>
+        </Alert>
 
         <Alert v-if="errorDescarga" variant="destructive">
           <AlertDescription>{{ errorDescarga }}</AlertDescription>
