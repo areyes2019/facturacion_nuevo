@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Enums\ObjetoImpuesto;
 use App\Enums\TamanoGoma;
 use App\Http\Requests\Articulos\EliminarLoteArticulosRequest;
+use App\Http\Requests\Articulos\ListaPreciosArticulosRequest;
 use App\Http\Requests\Articulos\MoverLoteArticulosRequest;
 use App\Http\Requests\Articulos\StoreArticuloRequest;
 use App\Http\Requests\Articulos\UpdateArticuloRequest;
@@ -258,6 +259,41 @@ class ArticuloController extends Controller
         });
 
         return response()->json(['movidos' => $movidos]);
+    }
+
+    /**
+     * Genera en el servidor el PDF de una lista de precios con los artículos seleccionados en el
+     * listado (ver 028-lista-precios-pdf.md), con su precio distribuidor con IVA incluido.
+     *
+     * Es un documento efímero: no se guarda ningún registro ni se asocia a ningún cliente, se
+     * genera al vuelo y se entrega en la propia respuesta, igual de espíritu que el ticket de
+     * mostrador (`TicketPedidoService`).
+     */
+    public function listaPrecios(ListaPreciosArticulosRequest $request): Response
+    {
+        $ids = $request->validated()['ids'];
+
+        $articulos = $request->user()->articulos()
+            ->whereIn('id', $ids)
+            ->with('catalogo')
+            ->get()
+            ->sortBy('nombre', SORT_NATURAL | SORT_FLAG_CASE);
+
+        // Agrupar y ordenar en el mismo paso: `groupBy` conserva el orden relativo de la colección
+        // de origen, así que ya no hace falta ordenar dentro de cada grupo por separado.
+        $secciones = $articulos
+            ->groupBy(fn (Articulo $articulo): string => $articulo->catalogo?->nombre ?? 'Sin catálogo')
+            ->sortKeys();
+
+        $pdf = app('dompdf.wrapper')->loadView('pdf.lista-precios', [
+            // Solo se muestran subtítulos de sección cuando la selección mezcla más de un
+            // catálogo: con uno solo, un único encabezado de sección sería ruido.
+            'secciones' => $secciones,
+            'mostrarSecciones' => $secciones->count() > 1,
+            'fecha' => now(),
+        ]);
+
+        return $pdf->stream('lista-precios-'.now()->format('Y-m-d').'.pdf');
     }
 
     /**

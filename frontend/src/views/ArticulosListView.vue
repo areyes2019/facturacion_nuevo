@@ -11,6 +11,7 @@ import {
   DocumentArrowUpIcon,
   FolderIcon,
   PhotoIcon,
+  ShareIcon,
 } from '@heroicons/vue/24/outline'
 import {
   useArticulosStore,
@@ -21,7 +22,8 @@ import {
   type ImagenesReporte,
 } from '../stores/articulos'
 import type { Catalogo } from '../stores/catalogos'
-import { extractErrorMessage } from '../lib/errors'
+import { extractErrorMessage, mensajeDeFallaDeDescarga } from '../lib/errors'
+import { compartirArchivo } from '../lib/compartir'
 import AppLayout from '../layouts/AppLayout.vue'
 import CatalogoSelect from '../components/CatalogoSelect.vue'
 import ColumnaOrdenable from '../components/ColumnaOrdenable.vue'
@@ -77,6 +79,19 @@ const mostrarMoverLote = ref(false)
 const catalogoDestino = ref<number | null>(null)
 const moviendoLote = ref(false)
 const errorMoverLote = ref<string | null>(null)
+
+/**
+ * Compartir la selección como lista de precios en PDF (ver 028-lista-precios-pdf.md).
+ *
+ * A diferencia de Eliminar y Mover, compartir no cambia nada en el servidor, así que la selección
+ * no se limpia al terminar: el usuario puede querer generar la lista de nuevo o seguir ajustando
+ * qué artículos lleva.
+ */
+const UMBRAL_AVISO_LISTA_PRECIOS = 100
+const mostrarAvisoListaGrande = ref(false)
+const compartiendoLista = ref(false)
+const errorCompartirLista = ref<string | null>(null)
+const avisoCompartirLista = ref<string | null>(null)
 
 // Cualquier cosa que cambie las filas en pantalla vacía la selección.
 watch(
@@ -282,6 +297,46 @@ async function confirmarMoverLote() {
     errorMoverLote.value = extractErrorMessage(err)
   } finally {
     moviendoLote.value = false
+  }
+}
+
+/**
+ * Con más de 100 artículos seleccionados, avisa antes de generar el PDF (puede tardar unos
+ * segundos); con 100 o menos, genera de inmediato sin interrumpir el gesto de compartir.
+ */
+function onCompartirLista() {
+  errorCompartirLista.value = null
+  avisoCompartirLista.value = null
+
+  if (seleccionados.value.length > UMBRAL_AVISO_LISTA_PRECIOS) {
+    mostrarAvisoListaGrande.value = true
+    return
+  }
+
+  void generarYCompartirLista()
+}
+
+async function generarYCompartirLista() {
+  mostrarAvisoListaGrande.value = false
+  compartiendoLista.value = true
+  errorCompartirLista.value = null
+  avisoCompartirLista.value = null
+
+  try {
+    const blob = await articulos.listaPreciosBlob([...seleccionados.value])
+    const nombreArchivo = `lista-precios-${new Date().toISOString().slice(0, 10)}.pdf`
+    // Sin texto acompañante: igual que el resto de los PDF de escritorio (cotización, factura),
+    // sin texto no hay canal que elegir, así que el respaldo es dejar el archivo descargado, sin
+    // abrir WhatsApp por su cuenta.
+    const resultado = await compartirArchivo(blob, nombreArchivo)
+
+    if (resultado === 'descargado') {
+      avisoCompartirLista.value = 'Lista descargada.'
+    }
+  } catch (err) {
+    errorCompartirLista.value = await mensajeDeFallaDeDescarga(err)
+  } finally {
+    compartiendoLista.value = false
   }
 }
 
@@ -549,6 +604,15 @@ async function confirmarImportar() {
             <ArrowsRightLeftIcon class="size-4" />
             Mover a catálogo
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            :disabled="compartiendoLista"
+            @click="onCompartirLista"
+          >
+            <ShareIcon class="size-4" />
+            {{ compartiendoLista ? 'Generando...' : 'Compartir Lista' }}
+          </Button>
           <Button variant="destructive" size="sm" @click="mostrarEliminarLote = true">
             <TrashIcon class="size-4" />
             Eliminar
@@ -561,6 +625,12 @@ async function confirmarImportar() {
       </Alert>
       <Alert v-if="errorExportar" variant="destructive">
         <AlertDescription>{{ errorExportar }}</AlertDescription>
+      </Alert>
+      <Alert v-if="errorCompartirLista" variant="destructive">
+        <AlertDescription>{{ errorCompartirLista }}</AlertDescription>
+      </Alert>
+      <Alert v-if="avisoCompartirLista">
+        <AlertDescription>{{ avisoCompartirLista }}</AlertDescription>
       </Alert>
 
       <Card>
@@ -796,6 +866,27 @@ async function confirmarImportar() {
             <Button :disabled="moviendoLote || !catalogoDestino" @click="confirmarMoverLote">
               {{ moviendoLote ? 'Moviendo...' : 'Mover' }}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <!-- Compartir Lista (ver 028-lista-precios-pdf.md). Solo avisa con selecciones grandes; no
+           hay tope que impida generar el PDF, solo un momento para confirmar que puede tardar. -->
+      <Dialog
+        :open="mostrarAvisoListaGrande"
+        @update:open="(v) => !v && (mostrarAvisoListaGrande = false)"
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Lista de precios grande</DialogTitle>
+            <DialogDescription>
+              Vas a generar una lista con {{ seleccionados.length }} artículos. Puede tardar unos
+              segundos en generarse. ¿Continuar?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" @click="mostrarAvisoListaGrande = false">Cancelar</Button>
+            <Button @click="generarYCompartirLista">Continuar</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

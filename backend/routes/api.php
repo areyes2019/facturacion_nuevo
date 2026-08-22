@@ -82,6 +82,11 @@ Route::middleware(['auth:sanctum'])->group(function () {
     // molde y misma razón de estar antes del apiResource que eliminar-lote, arriba.
     Route::post('articulos/mover-lote', [ArticuloController::class, 'moverLote']);
 
+    // Lista de precios en PDF de los artículos seleccionados (ver 028-lista-precios-pdf.md). Va
+    // aquí por la misma razón que eliminar-lote y mover-lote: es una ruta específica, no un
+    // recurso de {articulo}.
+    Route::post('articulos/lista-precios', [ArticuloController::class, 'listaPrecios']);
+
     // Imágenes de artículo (ver 020-imagenes-articulos.md). Van ANTES del apiResource: con
     // {articulo}/imagen después, el resource no las capturaría, pero se mantiene el orden por la
     // misma razón que exportar-csv arriba — las rutas más específicas primero, sin excepciones que

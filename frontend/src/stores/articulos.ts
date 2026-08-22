@@ -280,6 +280,19 @@ export const useArticulosStore = defineStore('articulos', {
       return data.movidos
     },
 
+    /**
+     * El PDF de la lista de precios, dibujado por el servidor, como Blob listo para compartir
+     * (ver 028-lista-precios-pdf.md). Mismo patrón que `pedidos.ticketBlob()`.
+     */
+    async listaPreciosBlob(ids: number[]): Promise<Blob> {
+      const { data } = await http.post(
+        '/articulos/lista-precios',
+        { ids },
+        { responseType: 'blob' },
+      )
+      return new Blob([data], { type: 'application/pdf' })
+    },
+
     async importarCsv(catalogoId: number, archivo: File): Promise<ImportarCsvReporte> {
       const formData = new FormData()
       formData.append('archivo', archivo)
