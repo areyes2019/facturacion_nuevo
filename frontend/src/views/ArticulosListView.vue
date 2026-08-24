@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import {
   PlusIcon,
   PencilIcon,
@@ -21,7 +21,7 @@ import {
   type ImportarCsvReporte,
   type ImagenesReporte,
 } from '../stores/articulos'
-import type { Catalogo } from '../stores/catalogos'
+import { useCatalogosStore, type Catalogo } from '../stores/catalogos'
 import { extractErrorMessage, mensajeDeFallaDeDescarga } from '../lib/errors'
 import { compartirArchivo } from '../lib/compartir'
 import AppLayout from '../layouts/AppLayout.vue'
@@ -58,6 +58,9 @@ import {
 } from '../components/ui/dropdown-menu'
 
 const articulos = useArticulosStore()
+const catalogos = useCatalogosStore()
+const route = useRoute()
+const router = useRouter()
 
 const articuloAEliminar = ref<Articulo | null>(null)
 const eliminando = ref(false)
@@ -168,7 +171,41 @@ const ningunaEmparejo = computed(
     reporteImagenes.value.errores.length > 0,
 )
 
-onMounted(() => articulos.fetchList())
+onMounted(async () => {
+  await restaurarFiltroCatalogoDesdeUrl()
+  articulos.fetchList()
+})
+
+/**
+ * El filtro de catálogo sobrevive a un recargado del navegador reflejándose en la URL
+ * (`?catalogo=`, ver revisión de 035-ajustes-tabla-articulos.md), en vez de `localStorage`, para
+ * que además el enlace sea compartible.
+ *
+ * Se valida contra los catálogos del usuario antes de aplicarlo (`CatalogoProveedorController::show`
+ * responde 404 ante un id ajeno o inexistente): un id inválido se ignora en silencio, dejando el
+ * filtro en "Todos los catálogos" en vez de mandar al servidor un `filtro_catalogo_id` que
+ * filtraría el listado a cero resultados sin ninguna explicación.
+ */
+async function restaurarFiltroCatalogoDesdeUrl() {
+  const idTexto = route.query.catalogo
+  const id = typeof idTexto === 'string' ? Number(idTexto) : NaN
+
+  if (!Number.isInteger(id) || id <= 0) {
+    if (idTexto !== undefined) await limpiarCatalogoDeUrl()
+    return
+  }
+
+  try {
+    await catalogos.fetchOne(id)
+    articulos.filtros.catalogoId = id
+  } catch {
+    await limpiarCatalogoDeUrl()
+  }
+}
+
+function limpiarCatalogoDeUrl() {
+  return router.replace({ query: { ...route.query, catalogo: undefined } })
+}
 
 /**
  * Vuelve a pedir el listado tras una pausa, para no lanzar una petición por tecla.
@@ -204,6 +241,12 @@ function recargarConRebote() {
  * costo total (ver 035-ajustes-tabla-articulos.md). No es un porcentaje ni la utilidad del
  * distribuidor. No lleva filtro de rango, solo ordenación, igual que las otras tres.
  *
+ * "P Directo" muestra el precio **con IVA incluido** (`precio_unitario_con_iva`, ver revisión de
+ * 035): es el precio que de verdad paga el público, el que hace falta para tasar precios y ver
+ * márgenes de ganancia. Ordenar por su cabecera y su filtro de rango (025) siguen operando sobre el
+ * valor sin IVA en el servidor, sin cambio de comportamiento — solo cambió el número visible en la
+ * celda. "P Dist" y "Utilidad" no cambiaron: siguen sin IVA.
+ *
  * La misma lista dibuja su celda en la fila de cabeceras y en la de filtros, para que no puedan
  * quedar con distinto número de celdas.
  */
@@ -223,9 +266,14 @@ function onFiltro(clave: ArticuloFiltroTexto, valor: string | number) {
 /**
  * El filtro de catálogo recarga de inmediato, sin rebote: un `<select>` no genera una petición
  * por tecla como Nombre y Modelo (ver 034-filtro-catalogo-y-mover-lote-articulos.md).
+ *
+ * También actualiza la URL con `router.replace()`, no `router.push()` (ver revisión de
+ * 035-ajustes-tabla-articulos.md): cambiar de catálogo varias veces no debe llenar el historial del
+ * navegador con una entrada por cada uno.
  */
 function onFiltroCatalogo(catalogoId: number | null) {
   articulos.filtros.catalogoId = catalogoId
+  router.replace({ query: { ...route.query, catalogo: catalogoId?.toString() } })
   articulos.fetchList(1)
 }
 
@@ -741,7 +789,7 @@ async function confirmarImportar() {
                 }}</TableCell>
                 <TableCell class="tabular-nums">${{ pesos(articulo.costo_total) }}</TableCell>
                 <TableCell class="tabular-nums">
-                  ${{ pesos(articulo.precio_unitario_sin_iva) }}
+                  ${{ pesos(articulo.precio_unitario_con_iva) }}
                 </TableCell>
                 <TableCell class="tabular-nums">
                   ${{ pesos(articulo.precio_distribuidor_sin_iva) }}

@@ -4,12 +4,15 @@
 
 Como usuario que trabaja todos los días con el listado de `/articulos`, quiero acotarlo por
 catálogo sin que ese control ocupe una columna de la tabla, quiero ver de un vistazo cuántos pesos
-de utilidad deja cada artículo sin tener que abrir su ficha, y quiero leer el nombre completo de
-cada artículo aunque sea largo, en vez de que se corte con puntos suspensivos.
+de utilidad deja cada artículo sin tener que abrir su ficha, quiero leer el nombre completo de cada
+artículo aunque sea largo, en vez de que se corte con puntos suspensivos, quiero que la columna "P
+Directo" muestre el precio que de verdad paga el público —con IVA incluido— para poder tasar mis
+precios y ver los porcentajes de ganancia que puedo dar, y quiero que el filtro de catálogo no se
+pierda si recargo la página.
 
 ## Objetivo / Alcance
 
-Tres cambios sobre `/articulos`, que comparten pantalla y se resuelven juntos:
+Cinco cambios sobre `/articulos`, que comparten pantalla y se resuelven juntos:
 
 1. **El filtro de catálogo sale de la tabla** y se coloca junto al buscador global, arriba de la
    tabla. Deja de existir la columna "Catálogo" que agregó
@@ -25,15 +28,23 @@ Tres cambios sobre `/articulos`, que comparten pantalla y se resuelven juntos:
 3. **El nombre del artículo se muestra completo**, envuelto en las líneas que haga falta, en vez de
    recortado con "...". La columna conserva el mismo ancho que tiene hoy; lo que cambia es que una
    fila con un nombre largo crece de alto en vez de recortar el texto.
+4. **La columna "P Directo" pasa a mostrar el precio con IVA incluido** (`precio_unitario_con_iva`),
+   el que de verdad paga el público, en vez del precio sin IVA que mostraba hasta ahora. Es el
+   número que hace falta para tasar precios y calcular márgenes de ganancia contra lo que paga el
+   cliente.
+5. **El filtro de catálogo sobrevive a un recargado del navegador** (F5): se refleja en la URL como
+   parámetro de consulta, así que al recargar la página el filtro se vuelve a aplicar solo, sin que
+   el usuario tenga que elegirlo de nuevo.
 
 **No se toca la columna "Costo"** (costo interno del artículo: lo que cuesta el aparato con
-descuento más la goma). Se consideró agregar una columna de precio con IVA incluido y se descartó:
-ver "Fuera de alcance".
+descuento más la goma), ni se agrega ninguna columna nueva de precio con IVA: el valor con IVA
+reemplaza, en la misma columna, al que ya mostraba "P Directo".
 
-Con estos tres cambios la tabla vuelve a tener 8 columnas: casilla, Nombre, Modelo, Costo, P
-Directo, P Dist, Utilidad, Acciones — el mismo número que tiene hoy (034 quitó Catálogo(+1) para
-poner Utilidad(+1) en su lugar), así que sigue viéndose completa sin scroll horizontal en escritorio
-sin necesidad de acortar ninguna cabecera más.
+Con estos cambios la tabla vuelve a tener 8 columnas: casilla, Nombre, Modelo, Costo, P Directo, P
+Dist, Utilidad, Acciones — el mismo número que tiene hoy (034 quitó Catálogo(+1) para poner
+Utilidad(+1) en su lugar); los cambios de precio con IVA y de persistencia en la URL no afectan el
+número de columnas. La tabla sigue viéndose completa sin scroll horizontal en escritorio sin
+necesidad de acortar ninguna cabecera más.
 
 ## Backend (Laravel)
 
@@ -62,7 +73,23 @@ tuvo una cabecera clicable.
 ### El filtro de catálogo no cambia de lado del servidor
 
 Sigue siendo `filtro_catalogo_id`, aplicado exactamente igual que desde 025/034
-(`ArticuloController.php:589-592`). Esta historia no toca una sola línea de ese código.
+(`ArticuloController.php:589-592`). Esta historia no toca una sola línea de ese código. Reflejarlo
+en la URL del navegador es un cambio exclusivamente de enrutamiento del frontend
+(`vue-router`); el servidor sigue recibiendo el mismo parámetro de siempre.
+
+### La columna "P Directo" con IVA tampoco necesita ningún cambio en el servidor
+
+`ArticuloResource` ya expone `precio_unitario_con_iva` desde
+[033](033-precio-distribuidor.md) (`ArticuloResource.php:55`), calculado por el accessor
+`precioUnitarioConIva` de `Articulo` (`app/Models/Articulo.php:134-140`). `ArticuloController::index`
+ya lo devuelve para cada artículo del listado; el cambio es únicamente qué campo lee la celda en el
+frontend.
+
+**La ordenación y el filtro de rango de esa columna siguen sobre el valor sin IVA.**
+`ORDENACIONES` y `RANGOS` (`ArticuloController.php:61-79`) no cambian: la clave
+`precio_unitario_sin_iva` sigue siendo la que ordena y filtra por rango al hacer clic en "P
+Directo" o al escribir un mínimo/máximo. No se agrega una ordenación ni un filtro de rango nuevos
+sobre el valor con IVA.
 
 ## Frontend (Vue 3)
 
@@ -119,15 +146,54 @@ Sigue siendo `filtro_catalogo_id`, aplicado exactamente igual que desde 025/034
   no cambia: cuando una fila crece de alto porque su nombre ocupa dos o más líneas, esas celdas
   siguen con su contenido de una sola línea, solo se estira la fila completa.
 
+### La columna "P Directo" muestra el precio con IVA incluido
+
+- La celda de cada fila (`ArticulosListView.vue:744`, hoy `${{ pesos(articulo.precio_unitario_sin_iva) }}`)
+  pasa a leer `articulo.precio_unitario_con_iva`, campo que la API ya entrega en cada artículo del
+  listado. No hace falta ningún cálculo en el frontend: el valor ya viene calculado del servidor.
+- **Ordenar y filtrar por rango en esa columna siguen funcionando sobre el valor sin IVA** (ver
+  "Backend"): el número que se ve en la celda cambia, pero el clic en la cabecera y el rango de la
+  fila de filtros siguen ordenando/filtrando contra `precio_unitario_sin_iva` en el servidor, sin
+  cambio de comportamiento respecto a hoy.
+- **La columna "Utilidad" no cambia de cálculo**: sigue siendo precio directo sin IVA menos costo
+  total, el mismo número que mostraba antes de este cambio. Como consecuencia, "P Directo" (ahora
+  con IVA) menos "Costo" deja de coincidir a simple vista con "Utilidad" — Utilidad sigue midiendo
+  el margen sin impuesto, que es lo que de verdad gana el negocio; el IVA es dinero que se entrega
+  al SAT, no utilidad.
+- **La columna "P Dist" no cambia**: sigue mostrando `precio_distribuidor_sin_iva`, sin IVA, tal
+  como hoy. Este cambio solo toca "P Directo".
+
+### El filtro de catálogo se conserva en la URL al recargar
+
+- Al elegir un catálogo en el `CatalogoSelect` de arriba de la tabla, la URL de la pantalla gana un
+  parámetro de consulta (por ejemplo, `/articulos?catalogo=7`). Elegir "Todos los catálogos" quita
+  el parámetro de la URL.
+- El cambio de URL usa `router.replace()`, no `router.push()`: cambiar de catálogo no agrega una
+  entrada nueva al historial del navegador, así que el botón "Atrás" saca de `/articulos` en un
+  solo paso, sin tener que pasar por cada catálogo que se probó antes.
+- Al entrar a `/articulos` —incluida una recarga completa del navegador—, si la URL trae
+  `?catalogo=`, ese valor se usa para inicializar `articulos.filtros.catalogoId` antes de la
+  primera petición al servidor, así que el listado sale ya filtrado sin mostrar primero todos los
+  artículos.
+- **Un `catalogo` en la URL que no existe o no pertenece al usuario se ignora en silencio.** Se
+  valida contra la lista de catálogos del usuario que ya carga `CatalogoSelect` (`catalogos`
+  store): si el id de la URL no está en esa lista, el filtro queda en "Todos los catálogos" y no se
+  muestra ningún error — en vez de dejar la tabla filtrada a cero resultados sin ninguna
+  explicación, que es lo que pasaría si el id inválido se mandara tal cual al servidor.
+
 ## Fuera de alcance
 
-- **Una columna de "costo total" o precio con IVA incluido.** Se planteó durante esta historia y se
-  descartó: la columna "Costo" que ya existe (costo interno del artículo) se queda exactamente como
-  está, sin ningún cambio ni columna adicional.
+- **Una columna nueva de "costo total".** Se planteó durante esta historia y se descartó: la
+  columna "Costo" que ya existe (costo interno del artículo) se queda exactamente como está, sin
+  ningún cambio ni columna adicional. El precio con IVA no es una columna nueva: reemplaza el valor
+  que ya mostraba "P Directo".
 - **Filtro de rango sobre "Utilidad"** (mínimo/máximo). Solo se puede ordenar por esa columna,
   igual que Costo, P Directo y P Dist.
-- **Recordar la posición o el ancho del filtro de catálogo** entre visitas. Sigue sin guardarse en
-  `localStorage` ni en la URL, mismo criterio que el resto de los filtros (025).
+- **Recordar cualquier filtro que no sea el de catálogo, entre recargas de página** (Nombre,
+  Modelo, rangos de precio, orden o página). Esos siguen reiniciándose al recargar, mismo criterio
+  que antes (025).
+- **Guardar el filtro de catálogo en `localStorage`.** Se refleja en la URL, no en el
+  almacenamiento del navegador, para que además el enlace sea compartible y quede marcable.
 - **Limitar el nombre a un máximo de líneas** (por ejemplo, con `line-clamp-2`). El nombre se
   envuelve en las líneas que necesite, sin tope.
 - **Exportar "Utilidad" al CSV.** El CSV de exportación (`exportarCsv`) sigue con las mismas
@@ -205,7 +271,21 @@ Implementada el 2026-08-21.
     mostraba antes de esta historia.
 12. En escritorio (≥1280px), con las ocho columnas y su fila de filtros, la tabla se sigue viendo
     completa **sin barra de desplazamiento horizontal**.
-13. Pint corre sin errores sobre el código de backend, ESLint y Prettier sobre el de frontend, la
+13. La columna "P Directo" muestra el precio con IVA incluido de cada artículo
+    (`precio_unitario_con_iva`), no el precio sin IVA que mostraba antes de este cambio.
+14. Ordenar por "P Directo" y filtrar por su rango en la fila de filtros siguen operando sobre el
+    precio sin IVA en el servidor, con el mismo resultado de orden y de filtrado que antes de este
+    cambio.
+15. Las columnas "P Dist" y "Utilidad" no cambian de valor tras este cambio.
+16. Elegir un catálogo en el filtro agrega o actualiza un parámetro de catálogo en la URL de la
+    pantalla; elegir "Todos los catálogos" lo quita.
+17. Recargar el navegador (F5) con un parámetro de catálogo en la URL vuelve a aplicar ese filtro de
+    inmediato, sin que el usuario tenga que elegirlo de nuevo.
+18. Cambiar el catálogo filtrado varias veces seguidas no agrega una entrada nueva al historial del
+    navegador por cada cambio: un solo "Atrás" saca de `/articulos`.
+19. Un parámetro de catálogo en la URL que no existe o no pertenece al usuario se ignora: el
+    listado se muestra sin filtrar ("Todos los catálogos"), sin ningún error visible.
+20. Pint corre sin errores sobre el código de backend, ESLint y Prettier sobre el de frontend, la
     suite de Pest sigue pasando, y `npm run build` compila la SPA completa.
 
 ## Supuestos asumidos (registro completo)
@@ -216,8 +296,9 @@ Implementada el 2026-08-21.
    sigue recargando de inmediato, sigue regresando a la página 1, sigue contando para "Limpiar
    filtros" y para "N artículos con los filtros aplicados".
 3. Al sacar la columna "Catálogo", la tabla queda en 7 columnas base antes de sumar "Utilidad".
-4. La columna "Costo" que ya existe no cambia. No se agrega ninguna columna de "costo total" ni de
-   precio con IVA incluido — se planteó durante la conversación y se descartó explícitamente.
+4. La columna "Costo" que ya existe no cambia, y no se agrega ninguna columna nueva de "costo
+   total": en vez de eso, la columna "P Directo" que ya existe pasa a mostrar el precio con IVA
+   incluido en lugar del precio sin IVA, para que refleje lo que de verdad paga el público.
 5. La columna nueva "Utilidad" muestra el monto en **pesos** de la utilidad **directa** del
    artículo (P Directo menos Costo) — no un porcentaje, y no la utilidad del distribuidor. Se
    planteó primero como porcentaje y se corrigió: un porcentaje de utilidad no dice nada por sí
@@ -244,3 +325,28 @@ Implementada el 2026-08-21.
 14. **(Adición técnica)** Mover el filtro de catálogo fuera de la tabla no toca el servidor en
     absoluto: es la misma casilla, el mismo parámetro `filtro_catalogo_id`, solo cambia su lugar en
     la pantalla.
+
+Los supuestos 15 a 23 se agregaron en una revisión posterior, para que "P Directo" muestre el
+precio con IVA y el filtro de catálogo sobreviva a un recargado de página.
+
+15. La columna "P Directo" muestra el precio con IVA incluido (`precio_unitario_con_iva`), no el
+    precio sin IVA que mostraba hasta ahora — es el precio que de verdad paga el público, el que
+    hace falta para tasar precios y ver márgenes de ganancia.
+16. La columna "P Dist" no cambia: sigue mostrando el precio distribuidor sin IVA, tal como hoy.
+    Solo se pidió cambiar "P Directo".
+17. El campo `precio_unitario_con_iva` ya lo calcula y entrega el servidor desde 033; no hace falta
+    ningún cambio de backend, solo cambiar qué campo lee la celda en el frontend.
+18. Ordenar por "P Directo" y filtrar por su rango siguen operando sobre el valor sin IVA en el
+    servidor: no se cambia la clave de ordenación ni el filtro de rango existentes.
+19. La columna "Utilidad" no cambia de cálculo (sigue siendo precio directo sin IVA menos costo
+    total), aunque como consecuencia deje de coincidir a simple vista con "P Directo" (ahora con
+    IVA) menos "Costo".
+20. Solo se persiste el filtro de catálogo entre recargas de página; los demás filtros (Nombre,
+    Modelo, rangos de precio), el orden y la página siguen reiniciándose al recargar, igual que hoy.
+21. El filtro de catálogo se persiste en la URL como parámetro de consulta, no en `localStorage`,
+    para que además el enlace sea compartible.
+22. **(Adición técnica)** Cambiar el catálogo filtrado actualiza la URL con `router.replace()`, no
+    con `router.push()`, para no acumular una entrada de historial por cada catálogo que se prueba.
+23. **(Adición técnica)** Un id de catálogo en la URL que no existe o no pertenece al usuario se
+    ignora: el filtro queda en "Todos los catálogos" sin mostrar ningún error, en vez de dejar la
+    tabla filtrada a cero resultados sin explicación.
