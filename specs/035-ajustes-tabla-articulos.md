@@ -7,12 +7,14 @@ catálogo sin que ese control ocupe una columna de la tabla, quiero ver de un vi
 de utilidad deja cada artículo sin tener que abrir su ficha, quiero leer el nombre completo de cada
 artículo aunque sea largo, en vez de que se corte con puntos suspensivos, quiero que la columna "P
 Directo" muestre el precio que de verdad paga el público —con IVA incluido— para poder tasar mis
-precios y ver los porcentajes de ganancia que puedo dar, y quiero que el filtro de catálogo no se
-pierda si recargo la página.
+precios y ver los porcentajes de ganancia que puedo dar, quiero exactamente lo mismo del lado del
+precio distribuidor —verlo con IVA incluido y ver cuántos pesos de utilidad me deja— para saber si
+me conviene el precio que estoy estableciendo para ese tipo de cliente, y quiero que el filtro de
+catálogo no se pierda si recargo la página.
 
 ## Objetivo / Alcance
 
-Cinco cambios sobre `/articulos`, que comparten pantalla y se resuelven juntos:
+Siete cambios sobre `/articulos`, que comparten pantalla y se resuelven juntos:
 
 1. **El filtro de catálogo sale de la tabla** y se coloca junto al buscador global, arriba de la
    tabla. Deja de existir la columna "Catálogo" que agregó
@@ -35,16 +37,25 @@ Cinco cambios sobre `/articulos`, que comparten pantalla y se resuelven juntos:
 5. **El filtro de catálogo sobrevive a un recargado del navegador** (F5): se refleja en la URL como
    parámetro de consulta, así que al recargar la página el filtro se vuelve a aplicar solo, sin que
    el usuario tenga que elegirlo de nuevo.
+6. **La columna "P Dist" pasa a mostrar el precio distribuidor con IVA incluido**
+   (`precio_distribuidor_con_iva`), el mismo cambio que el punto 4 le aplica a "P Directo": el
+   distribuidor también paga el IVA cuando el artículo lo causa, y ese es el número que hace falta
+   para tasar el precio distribuidor contra lo que en verdad se le cobraría.
+7. **Columna nueva "Util Dist"**, con el monto en pesos de la utilidad que deja el precio
+   distribuidor de cada artículo: precio distribuidor (sin IVA) menos el costo del artículo **sin
+   goma** — el distribuidor nunca la paga, la misma regla que ya rige para calcular su precio
+   ([033](033-precio-distribuidor.md)). Se agrega después de "Utilidad" y antes de "Acciones", y es
+   ordenable por su cabecera igual que las demás columnas de dinero.
 
 **No se toca la columna "Costo"** (costo interno del artículo: lo que cuesta el aparato con
-descuento más la goma), ni se agrega ninguna columna nueva de precio con IVA: el valor con IVA
-reemplaza, en la misma columna, al que ya mostraba "P Directo".
+descuento más la goma), ni se agrega ninguna columna nueva de precio con IVA: los valores con IVA
+reemplazan, en las mismas columnas, a los que ya mostraban "P Directo" y "P Dist".
 
-Con estos cambios la tabla vuelve a tener 8 columnas: casilla, Nombre, Modelo, Costo, P Directo, P
-Dist, Utilidad, Acciones — el mismo número que tiene hoy (034 quitó Catálogo(+1) para poner
-Utilidad(+1) en su lugar); los cambios de precio con IVA y de persistencia en la URL no afectan el
-número de columnas. La tabla sigue viéndose completa sin scroll horizontal en escritorio sin
-necesidad de acortar ninguna cabecera más.
+Con estos cambios la tabla queda en 9 columnas: casilla, Nombre, Modelo, Costo, P Directo, P Dist,
+Utilidad, Util Dist, Acciones — una más que las 8 de antes de esta revisión, porque "Util Dist" es
+columna nueva mientras que "P Dist" solo cambia de valor, igual que ya le pasó a "P Directo". La
+tabla se verifica de nuevo en escritorio; si las nueve columnas no caben sin scroll horizontal con
+los anchos actuales, se acortan los que haga falta, sin quitar ninguna columna.
 
 ## Backend (Laravel)
 
@@ -90,6 +101,55 @@ frontend.
 `precio_unitario_sin_iva` sigue siendo la que ordena y filtra por rango al hacer clic en "P
 Directo" o al escribir un mínimo/máximo. No se agrega una ordenación ni un filtro de rango nuevos
 sobre el valor con IVA.
+
+### La columna "P Dist" con IVA tampoco necesita ningún cambio en el servidor
+
+`ArticuloResource` ya expone `precio_distribuidor_con_iva` desde
+[033](033-precio-distribuidor.md) (`ArticuloResource.php:57`), calculado por el accessor
+`precioDistribuidorConIva` de `Articulo` (`app/Models/Articulo.php:148-156`) — espejo exacto de
+`precioUnitarioConIva`, mismo `PrecioArticuloCalculator::factorIva($this->objeto_imp)`.
+`ArticuloController::index` ya lo devuelve para cada artículo del listado; el cambio es
+únicamente qué campo lee la celda en el frontend.
+
+**La ordenación de esa columna sigue sobre el valor sin IVA**, mismo criterio que "P Directo": la
+clave `precio_distribuidor_sin_iva` de `ORDENACIONES` sigue siendo la que ordena al hacer clic en
+"P Dist". No se agrega una ordenación nueva sobre el valor con IVA. "P Dist" no tiene filtro de
+rango expuesto en pantalla, así que no aplica ningún cambio ahí.
+
+### Utilidad distribuidor: cálculo nuevo, espejo de "Utilidad"
+
+`Articulo` gana un accessor **`utilidadDistribuidor`**, espejo exacto de `utilidad`
+(`app/Models/Articulo.php:179-187`), pero medido contra `costo_con_descuento` en vez de
+`costo_total`, porque el precio distribuidor tampoco lleva el costo de la goma (033):
+
+```php
+protected function utilidadDistribuidor(): Attribute
+{
+    return Attribute::make(
+        get: fn (): float => PrecioArticuloCalculator::utilidad(
+            (float) $this->precio_distribuidor_sin_iva,
+            (float) $this->costo_con_descuento,
+        ),
+    );
+}
+```
+
+Reutiliza `PrecioArticuloCalculator::utilidad()` sin cambios: la función ya es una resta genérica
+(precio de venta menos costo), así que no hace falta ningún método nuevo en el calculador — solo
+qué par de valores se le pasan.
+
+`ArticuloResource` agrega `utilidad_distribuidor` junto a `utilidad`, sin condición (mismo
+criterio: no depende de que la relación `catalogo` esté cargada, a diferencia de los porcentajes
+efectivos).
+
+`ArticuloController::ORDENACIONES` gana una clave nueva, paralela a `utilidad`:
+
+```php
+'utilidad_distribuidor' => 'precio_distribuidor_sin_iva - costo_con_descuento',
+```
+
+Igual que `utilidad`, no gana entrada en `RANGOS`: se puede ordenar por su cabecera, no acotar por
+un mínimo/máximo — la columna en pantalla no lleva caja de filtro.
 
 ## Frontend (Vue 3)
 
@@ -160,8 +220,31 @@ sobre el valor con IVA.
   con IVA) menos "Costo" deja de coincidir a simple vista con "Utilidad" — Utilidad sigue midiendo
   el margen sin impuesto, que es lo que de verdad gana el negocio; el IVA es dinero que se entrega
   al SAT, no utilidad.
-- **La columna "P Dist" no cambia**: sigue mostrando `precio_distribuidor_sin_iva`, sin IVA, tal
-  como hoy. Este cambio solo toca "P Directo".
+
+### La columna "P Dist" muestra el precio distribuidor con IVA incluido
+
+- La celda de cada fila (hoy `${{ pesos(articulo.precio_distribuidor_sin_iva) }}`) pasa a leer
+  `articulo.precio_distribuidor_con_iva`, campo que la API ya entrega en cada artículo desde 033.
+  Mismo criterio que "P Directo": ningún cálculo en el frontend, el valor ya viene del servidor.
+- **Ordenar en esa columna sigue funcionando sobre el valor sin IVA** (ver "Backend"): el clic en
+  la cabecera sigue ordenando contra `precio_distribuidor_sin_iva` en el servidor, sin cambio de
+  comportamiento — solo cambió el número visible en la celda.
+- **La columna "Util Dist" no se ve afectada por este cambio**: sigue siendo precio distribuidor
+  sin IVA menos costo sin goma, el mismo criterio que "Utilidad" aplica del lado directo.
+
+### Columna nueva "Util Dist"
+
+- `columnasNumericas` (`ArticulosListView.vue:253-258`) gana un quinto elemento:
+  `{ clave: 'utilidad_distribuidor', etiqueta: 'Util Dist' }`. Como la cabecera y la fila de
+  filtros de las columnas de dinero ya se dibujan iterando esa lista, la cabecera ordenable y la
+  celda vacía de filtro salen solas, sin tocar el template de esas dos filas.
+- La fila de datos de cada artículo gana una celda nueva junto a "Utilidad" y antes de "Acciones",
+  con el mismo ancho (`w-24`) y el mismo formato que las otras columnas de dinero:
+  `${{ pesos(articulo.utilidad_distribuidor) }}` — "$" más dos decimales. No es porcentaje.
+- El `colspan` de la fila de "sin resultados" sube de 8 a 9: la tabla queda en nueve columnas.
+- `ArticuloSort` (`stores/articulos.ts`) gana `'utilidad_distribuidor'` como quinto valor posible,
+  mismo patrón que ganó `'utilidad'` en 035: es una clave que el servidor ya reconoce (ver
+  "Backend"), lo nuevo es solo agregarla al tipo del frontend para que `toggleSort` la acepte.
 
 ### El filtro de catálogo se conserva en la URL al recargar
 
@@ -198,9 +281,9 @@ sobre el valor con IVA.
   envuelve en las líneas que necesite, sin tope.
 - **Exportar "Utilidad" al CSV.** El CSV de exportación (`exportarCsv`) sigue con las mismas
   columnas de siempre; esta historia no le agrega ninguna.
-- **Mostrar el porcentaje de utilidad, o la utilidad del distribuidor.** "Utilidad" es siempre el
-  monto en pesos de la utilidad **directa** (P Directo menos Costo), nunca un porcentaje ni la
-  utilidad que deja el precio distribuidor.
+- **Mostrar el porcentaje de utilidad**, del lado directo o del distribuidor. Tanto "Utilidad" como
+  "Util Dist" son siempre un monto en **pesos**, nunca un porcentaje.
+- **Filtro de rango sobre "Util Dist"**. Igual que "Utilidad", solo se puede ordenar.
 - Roles/permisos diferenciados o multiempresa, como en todas las historias anteriores.
 
 ## Estado de implementación
@@ -244,11 +327,37 @@ Implementada el 2026-08-21.
   dos decimales (por ejemplo "$0.05", igual a P Directo menos Costo), y ordena correctamente al
   hacer clic.
 
+### Revisión del 2026-08-24: "P Dist" con IVA y la columna "Util Dist"
+
+Implementada el 2026-08-24 (supuestos 24 a 33).
+
+- **Archivos modificados**: backend — `app/Models/Articulo.php` (accessor `utilidadDistribuidor`),
+  `app/Http/Resources/ArticuloResource.php` (`utilidad_distribuidor`),
+  `app/Http/Controllers/ArticuloController.php` (`ORDENACIONES`),
+  `tests/Feature/ArticulosTest.php`; frontend — `frontend/src/stores/articulos.ts` (`Articulo`,
+  `ArticuloSort`) y `frontend/src/views/ArticulosListView.vue` (`columnasNumericas`, celdas de la
+  fila, `colspan`).
+- `precio_distribuidor_con_iva` no necesitó ningún cambio de backend: ya lo calculaba y entregaba
+  desde 033; el cambio fue solo qué campo lee la celda de "P Dist".
+- **Verificación**: Pint limpio; la suite de Pest completa pasa (619 tests, incluida la nueva
+  variante `utilidad distribuidor` del test parametrizado de ordenación y la aserción de
+  `utilidad_distribuidor` agregada al test de utilidad distribuidor propia); ESLint sin
+  advertencias; Prettier limpio; Vitest en verde (95 tests); `npm run build` compila la SPA
+  completa con `vue-tsc`. **Se verificó visualmente en un navegador real** (Playwright/Chromium
+  contra el `php artisan serve` y el `npm run dev` que ya estaban levantados en el entorno, con un
+  usuario, un proveedor, un catálogo y dos artículos de prueba —uno con utilidad distribuidor
+  propia— creados y eliminados al terminar): la tabla muestra las nueve columnas en el orden
+  esperado (casilla, Nombre, Modelo, Costo, P Directo, P Dist, Utilidad, Util Dist, Acciones); no
+  hay barra de desplazamiento horizontal a 1440px
+  (`document.body.scrollWidth === document.body.clientWidth`); "P Dist" muestra el precio
+  distribuidor con IVA; "Util Dist" muestra la utilidad distribuidor en pesos; y hacer clic en la
+  cabecera "Util Dist" la ordena correctamente (flecha ascendente, filas en orden creciente).
+
 ## Criterios de aceptación
 
 1. La fila de filtros de `/articulos` ya no tiene columna "Catálogo": ni cabecera ni celda de
-   filtro. La tabla tiene 8 columnas: casilla, Nombre, Modelo, Costo, P Directo, P Dist, Utilidad,
-   Acciones.
+   filtro. La tabla tiene 9 columnas: casilla, Nombre, Modelo, Costo, P Directo, P Dist, Utilidad,
+   Util Dist, Acciones.
 2. El filtro de catálogo aparece junto al buscador global, arriba de la tabla, como lista
    desplegable con "Todos los catálogos" y cada catálogo del usuario.
 3. Elegir un catálogo en ese filtro acota el listado de inmediato, sin esperar una pausa de tecleo,
@@ -256,11 +365,12 @@ Implementada el 2026-08-21.
    1.
 4. El filtro de catálogo sigue contando para "Limpiar filtros" y para "N artículos con los filtros
    aplicados", igual que antes de moverse.
-5. La tabla tiene una columna "Utilidad" entre "P Dist" y "Acciones", con el monto en pesos de la
+5. La tabla tiene una columna "Utilidad" entre "P Dist" y "Util Dist", con el monto en pesos de la
    utilidad directa de cada artículo, mostrado con "$" y dos decimales como las demás columnas de
    dinero.
-6. El valor de "Utilidad" de cada artículo es igual a su "P Directo" menos su "Costo", tanto si su
-   precio viene de una utilidad propia como si viene de la utilidad del catálogo.
+6. El valor de "Utilidad" de cada artículo es igual a su precio directo **sin IVA** menos su
+   "Costo", tanto si su precio viene de una utilidad propia como si viene de la utilidad del
+   catálogo — no coincide con "P Directo" (que muestra el precio con IVA) menos "Costo".
 7. Hacer clic en la cabecera "Utilidad" ordena el listado por ese monto, ascendente y luego
    descendente, igual que las demás columnas de dinero.
 8. "Utilidad" no tiene caja de filtro en la fila de filtros: solo se puede ordenar.
@@ -269,23 +379,36 @@ Implementada el 2026-08-21.
 10. La columna "Nombre" conserva el mismo ancho que tenía antes de este cambio.
 11. La columna "Costo" no cambia: sigue mostrando el mismo valor (costo interno del artículo) que
     mostraba antes de esta historia.
-12. En escritorio (≥1280px), con las ocho columnas y su fila de filtros, la tabla se sigue viendo
+12. En escritorio (≥1280px), con las nueve columnas y su fila de filtros, la tabla se sigue viendo
     completa **sin barra de desplazamiento horizontal**.
 13. La columna "P Directo" muestra el precio con IVA incluido de cada artículo
     (`precio_unitario_con_iva`), no el precio sin IVA que mostraba antes de este cambio.
 14. Ordenar por "P Directo" y filtrar por su rango en la fila de filtros siguen operando sobre el
     precio sin IVA en el servidor, con el mismo resultado de orden y de filtrado que antes de este
     cambio.
-15. Las columnas "P Dist" y "Utilidad" no cambian de valor tras este cambio.
-16. Elegir un catálogo en el filtro agrega o actualiza un parámetro de catálogo en la URL de la
+15. La columna "Utilidad" no cambia de valor tras este cambio.
+16. La columna "P Dist" muestra el precio distribuidor con IVA incluido de cada artículo
+    (`precio_distribuidor_con_iva`), no el precio sin IVA que mostraba antes de este cambio.
+17. Ordenar por "P Dist" sigue operando sobre el precio distribuidor sin IVA en el servidor, con el
+    mismo resultado de orden que antes de este cambio.
+18. La tabla tiene una columna "Util Dist" entre "Utilidad" y "Acciones", con el monto en pesos de
+    la utilidad que deja el precio distribuidor de cada artículo, mostrado con "$" y dos decimales
+    como las demás columnas de dinero.
+19. El valor de "Util Dist" de cada artículo es igual a su "P Dist" **sin IVA** menos el costo del
+    artículo **sin goma** (`costo_con_descuento`), tanto si su precio distribuidor viene de una
+    utilidad propia como si viene de la del catálogo.
+20. Hacer clic en la cabecera "Util Dist" ordena el listado por ese monto, ascendente y luego
+    descendente, igual que las demás columnas de dinero.
+21. "Util Dist" no tiene caja de filtro en la fila de filtros: solo se puede ordenar.
+22. Elegir un catálogo en el filtro agrega o actualiza un parámetro de catálogo en la URL de la
     pantalla; elegir "Todos los catálogos" lo quita.
-17. Recargar el navegador (F5) con un parámetro de catálogo en la URL vuelve a aplicar ese filtro de
+23. Recargar el navegador (F5) con un parámetro de catálogo en la URL vuelve a aplicar ese filtro de
     inmediato, sin que el usuario tenga que elegirlo de nuevo.
-18. Cambiar el catálogo filtrado varias veces seguidas no agrega una entrada nueva al historial del
+24. Cambiar el catálogo filtrado varias veces seguidas no agrega una entrada nueva al historial del
     navegador por cada cambio: un solo "Atrás" saca de `/articulos`.
-19. Un parámetro de catálogo en la URL que no existe o no pertenece al usuario se ignora: el
+25. Un parámetro de catálogo en la URL que no existe o no pertenece al usuario se ignora: el
     listado se muestra sin filtrar ("Todos los catálogos"), sin ningún error visible.
-20. Pint corre sin errores sobre el código de backend, ESLint y Prettier sobre el de frontend, la
+26. Pint corre sin errores sobre el código de backend, ESLint y Prettier sobre el de frontend, la
     suite de Pest sigue pasando, y `npm run build` compila la SPA completa.
 
 ## Supuestos asumidos (registro completo)
@@ -350,3 +473,35 @@ precio con IVA y el filtro de catálogo sobreviva a un recargado de página.
 23. **(Adición técnica)** Un id de catálogo en la URL que no existe o no pertenece al usuario se
     ignora: el filtro queda en "Todos los catálogos" sin mostrar ningún error, en vez de dejar la
     tabla filtrada a cero resultados sin explicación.
+
+Los supuestos 24 a 33 se agregaron en una revisión posterior, para que "P Dist" también muestre el
+precio con IVA y para agregar la utilidad que deja el precio distribuidor.
+
+24. La columna "P Dist" deja de mostrar el precio distribuidor sin IVA y pasa a mostrar el precio
+    distribuidor con IVA incluido (`precio_distribuidor_con_iva`) — el mismo cambio que el supuesto
+    15 ya le había aplicado a "P Directo". No se agrega una columna aparte para el precio con IVA:
+    se reemplaza el valor de la que ya existe.
+25. Se agrega una columna nueva "Util Dist" que muestra, en pesos, la utilidad que deja vender al
+    precio distribuidor: precio distribuidor sin IVA menos el costo del artículo **sin goma** — el
+    distribuidor nunca la paga, la misma regla que ya rige para calcular su precio
+    ([033](033-precio-distribuidor.md)).
+26. "Util Dist" se coloca después de "Utilidad" (la directa) y antes de "Acciones".
+27. "Util Dist" es ordenable por su cabecera, igual que las demás columnas de dinero, y no lleva
+    caja de filtro por rango.
+28. Ordenar por "P Dist" sigue ordenando por el valor sin IVA en el servidor, aunque en pantalla
+    ahora se vea con IVA — mismo criterio que ya aplica a "P Directo" (supuesto 18).
+29. Ninguna otra pantalla cambia: ni el formulario de artículo o catálogo, ni la ficha que se
+    comparte al cliente, ni el CSV de importación/exportación. Esto es solo sobre la tabla de
+    `/articulos`.
+30. **(Adición técnica)** El precio distribuidor con IVA no necesita ningún cambio en el servidor:
+    `precio_distribuidor_con_iva` ya lo calcula y entrega desde 033 en cada artículo del listado;
+    solo cambia qué campo lee la celda en el navegador.
+31. **(Adición técnica)** La utilidad distribuidor es un accessor nuevo en el backend
+    (`utilidadDistribuidor`), espejo de `utilidad` pero medido contra `costo_con_descuento` en vez
+    de `costo_total`, reutilizando `PrecioArticuloCalculator::utilidad()` sin cambios: la función ya
+    es una resta genérica, solo cambia qué par de valores se le pasan.
+32. **(Adición técnica)** `ORDENACIONES` gana la clave `utilidad_distribuidor`, paralela a
+    `utilidad`, sin entrada nueva en `RANGOS` porque la columna no lleva filtro de rango.
+33. **(Adición técnica)** La tabla pasa de 8 a 9 columnas; se verifica visualmente que sigue sin
+    necesitar barra de desplazamiento horizontal en escritorio, y si no cabe se ajustan anchos de
+    columna en vez de quitar alguna.

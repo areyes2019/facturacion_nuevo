@@ -233,19 +233,22 @@ function recargarConRebote() {
  * "Precio distribuidor" es el tercero (ver 033-precio-distribuidor.md): a diferencia de "Costo", no
  * lleva la goma, porque el distribuidor nunca la paga.
  *
- * Las etiquetas son abreviadas ("P Directo", "P Dist") solo en esta tabla, para que quepan en una
- * sola línea (ver 034-filtro-catalogo-y-mover-lote-articulos.md). El nombre completo se queda igual
- * en cualquier otra pantalla del sistema.
+ * Las etiquetas son abreviadas ("P Directo", "P Dist", "Util Dist") solo en esta tabla, para que
+ * quepan en una sola línea (ver 034-filtro-catalogo-y-mover-lote-articulos.md). El nombre completo
+ * se queda igual en cualquier otra pantalla del sistema.
  *
- * "Utilidad" es el monto en pesos de la utilidad **directa** del artículo: precio directo menos
- * costo total (ver 035-ajustes-tabla-articulos.md). No es un porcentaje ni la utilidad del
- * distribuidor. No lleva filtro de rango, solo ordenación, igual que las otras tres.
+ * "Utilidad" es el monto en pesos de la utilidad **directa** del artículo: precio directo sin IVA
+ * menos costo total (ver 035-ajustes-tabla-articulos.md). "Util Dist" es su espejo del lado
+ * distribuidor: precio distribuidor sin IVA menos el costo **sin goma** (`costo_con_descuento`),
+ * porque el distribuidor tampoco la paga. Ninguna de las dos es un porcentaje. Ninguna lleva filtro
+ * de rango, solo ordenación, igual que las demás columnas de dinero.
  *
- * "P Directo" muestra el precio **con IVA incluido** (`precio_unitario_con_iva`, ver revisión de
- * 035): es el precio que de verdad paga el público, el que hace falta para tasar precios y ver
- * márgenes de ganancia. Ordenar por su cabecera y su filtro de rango (025) siguen operando sobre el
- * valor sin IVA en el servidor, sin cambio de comportamiento — solo cambió el número visible en la
- * celda. "P Dist" y "Utilidad" no cambiaron: siguen sin IVA.
+ * "P Directo" y "P Dist" muestran el precio **con IVA incluido** (`precio_unitario_con_iva`,
+ * `precio_distribuidor_con_iva`, ver revisión de 035): son los precios que de verdad se cobran, los
+ * que hacen falta para tasar precios y ver márgenes de ganancia. Ordenar por su cabecera (y el
+ * filtro de rango de "P Directo", 025) siguen operando sobre el valor sin IVA en el servidor, sin
+ * cambio de comportamiento — solo cambió el número visible en la celda. "Utilidad" y "Util Dist" no
+ * cambian por esto: siguen midiéndose sin IVA.
  *
  * La misma lista dibuja su celda en la fila de cabeceras y en la de filtros, para que no puedan
  * quedar con distinto número de celdas.
@@ -255,6 +258,7 @@ const columnasNumericas: { clave: ArticuloSort; etiqueta: string }[] = [
   { clave: 'precio_unitario_sin_iva', etiqueta: 'P Directo' },
   { clave: 'precio_distribuidor_sin_iva', etiqueta: 'P Dist' },
   { clave: 'utilidad', etiqueta: 'Utilidad' },
+  { clave: 'utilidad_distribuidor', etiqueta: 'Util Dist' },
 ]
 
 /** Un filtro tecleado cambia el estado y recarga con rebote. */
@@ -752,7 +756,7 @@ async function confirmarImportar() {
             </TableHeader>
             <TableBody>
               <TableRow v-if="!articulos.loading && articulos.items.length === 0">
-                <TableCell colspan="8" class="text-muted-foreground py-10 text-center">
+                <TableCell colspan="9" class="text-muted-foreground py-10 text-center">
                   {{
                     articulos.hayFiltros || articulos.search
                       ? 'Ningún artículo coincide con los filtros aplicados.'
@@ -792,9 +796,12 @@ async function confirmarImportar() {
                   ${{ pesos(articulo.precio_unitario_con_iva) }}
                 </TableCell>
                 <TableCell class="tabular-nums">
-                  ${{ pesos(articulo.precio_distribuidor_sin_iva) }}
+                  ${{ pesos(articulo.precio_distribuidor_con_iva) }}
                 </TableCell>
                 <TableCell class="tabular-nums">${{ pesos(articulo.utilidad) }}</TableCell>
+                <TableCell class="tabular-nums">
+                  ${{ pesos(articulo.utilidad_distribuidor) }}
+                </TableCell>
                 <!-- Los botones van en un `div` y no en el propio `td`: un `display:flex` sobre la
                      celda la saca del algoritmo de la tabla y deja de respetar el ancho de su
                      columna, que es justo lo que los desbordaba. -->

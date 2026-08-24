@@ -29,6 +29,7 @@ export interface Articulo {
   precio_distribuidor_sin_iva: number
   precio_distribuidor_con_iva: number
   utilidad: number
+  utilidad_distribuidor: number
   created_at: string
   updated_at: string
 }
@@ -134,7 +135,11 @@ interface PaginationMeta {
  * vuelve al quitar la ordenación (ver 025-filtros-columna-listado-articulos.md).
  */
 export type ArticuloSort =
-  'costo_total' | 'precio_unitario_sin_iva' | 'precio_distribuidor_sin_iva' | 'utilidad'
+  | 'costo_total'
+  | 'precio_unitario_sin_iva'
+  | 'precio_distribuidor_sin_iva'
+  | 'utilidad'
+  | 'utilidad_distribuidor'
 export type SortDirection = 'asc' | 'desc'
 
 /**

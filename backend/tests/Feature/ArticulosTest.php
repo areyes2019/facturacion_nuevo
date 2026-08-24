@@ -94,6 +94,8 @@ test('un articulo con utilidad distribuidor propia calcula su precio distribuido
     $response->assertJsonPath('data.precio_distribuidor_sin_iva', 270.69);
     $response->assertJsonPath('data.precio_distribuidor_con_iva', 314);
     $response->assertJsonPath('data.utilidad_distribuidor_porcentaje_efectivo', 35);
+    // Utilidad distribuidor: 270.69 - 200 (costo con descuento, sin goma) = 70.69.
+    $response->assertJsonPath('data.utilidad_distribuidor', 70.69);
 });
 
 test('omitir la utilidad distribuidor hereda la del catalogo', function () {
@@ -686,17 +688,20 @@ test('el listado ordena por las columnas numericas en ambas direcciones', functi
     $catalogo = Catalogo::factory()->for($user)->create(['descuento' => 0, 'utilidad_porcentaje' => 0]);
 
     // Barato: costo 100, venta 110, utilidad 10, distribuidor 300 (a propósito el más alto: prueba
-    // que ordenar por distribuidor es independiente de ordenar por precio directo).
+    // que ordenar por distribuidor es independiente de ordenar por precio directo), utilidad
+    // distribuidor 300 - 100 = 200.
     Articulo::factory()->for($user)->for($catalogo)->create([
         'nombre' => 'Barato', 'precio_proveedor' => 100, 'utilidad_porcentaje' => 10,
         'costo_con_descuento' => 100, 'precio_unitario_sin_iva' => 110, 'precio_distribuidor_sin_iva' => 300,
     ]);
-    // Caro: costo 200, venta 220, utilidad 20, distribuidor 100.
+    // Caro: costo 200, venta 220, utilidad 20, distribuidor 100, utilidad distribuidor
+    // 100 - 200 = -100 (negativa a propósito: prueba que el orden distingue de los positivos).
     Articulo::factory()->for($user)->for($catalogo)->create([
         'nombre' => 'Caro', 'precio_proveedor' => 200, 'utilidad_porcentaje' => 10,
         'costo_con_descuento' => 200, 'precio_unitario_sin_iva' => 220, 'precio_distribuidor_sin_iva' => 100,
     ]);
-    // Rentable: costo 150, venta 300, utilidad 150, distribuidor 200.
+    // Rentable: costo 150, venta 300, utilidad 150, distribuidor 200, utilidad distribuidor
+    // 200 - 150 = 50.
     Articulo::factory()->for($user)->for($catalogo)->create([
         'nombre' => 'Rentable', 'precio_proveedor' => 150, 'utilidad_porcentaje' => 100,
         'costo_con_descuento' => 150, 'precio_unitario_sin_iva' => 300, 'precio_distribuidor_sin_iva' => 200,
@@ -714,6 +719,7 @@ test('el listado ordena por las columnas numericas en ambas direcciones', functi
     'precio de venta' => ['precio_unitario_sin_iva', ['Barato', 'Caro', 'Rentable']],
     'utilidad' => ['utilidad', ['Barato', 'Caro', 'Rentable']],
     'precio distribuidor' => ['precio_distribuidor_sin_iva', ['Caro', 'Rentable', 'Barato']],
+    'utilidad distribuidor' => ['utilidad_distribuidor', ['Caro', 'Rentable', 'Barato']],
 ]);
 
 test('un sort no reconocido se ignora y el listado cae al orden de captura', function () {

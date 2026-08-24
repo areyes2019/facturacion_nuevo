@@ -55,14 +55,16 @@ class ArticuloController extends Controller
      * (ver 014-costo-elaboracion-goma.md). `precio_distribuidor_sin_iva` sí está persistida (ver
      * 033-precio-distribuidor.md), así que se ordena por la columna directamente.
      *
-     * Son las únicas cuatro: el orden de captura no se pide, es el que sale cuando no se pide nada
-     * (ver 025-filtros-columna-listado-articulos.md).
+     * `utilidad_distribuidor` es la utilidad del precio distribuidor: se mide contra
+     * `costo_con_descuento`, sin la goma, porque el distribuidor tampoco la paga (ver
+     * 035-ajustes-tabla-articulos.md).
      */
     private const ORDENACIONES = [
         'costo_total' => 'costo_con_descuento + costo_goma',
         'precio_unitario_sin_iva' => 'precio_unitario_sin_iva',
         'utilidad' => 'precio_unitario_sin_iva - (costo_con_descuento + costo_goma)',
         'precio_distribuidor_sin_iva' => 'precio_distribuidor_sin_iva',
+        'utilidad_distribuidor' => 'precio_distribuidor_sin_iva - costo_con_descuento',
     ];
 
     /**

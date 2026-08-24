@@ -187,6 +187,22 @@ class Articulo extends Model
     }
 
     /**
+     * Utilidad en pesos por unidad del precio distribuidor (sin IVA): precio distribuidor − costo
+     * con descuento, sin la goma, porque el distribuidor tampoco la paga (ver
+     * 033-precio-distribuidor.md, 035-ajustes-tabla-articulos.md). Espejo exacto de `utilidad`, solo
+     * cambia qué precio y qué costo se le pasan a la misma resta.
+     */
+    protected function utilidadDistribuidor(): Attribute
+    {
+        return Attribute::make(
+            get: fn (): float => PrecioArticuloCalculator::utilidad(
+                (float) $this->precio_distribuidor_sin_iva,
+                (float) $this->costo_con_descuento,
+            ),
+        );
+    }
+
+    /**
      * @return array<string, string>
      */
     protected function casts(): array

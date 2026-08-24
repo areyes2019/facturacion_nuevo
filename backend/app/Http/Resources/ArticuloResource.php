@@ -56,6 +56,7 @@ class ArticuloResource extends JsonResource
             'precio_distribuidor_sin_iva' => (float) $this->precio_distribuidor_sin_iva,
             'precio_distribuidor_con_iva' => $this->precio_distribuidor_con_iva,
             'utilidad' => $this->utilidad,
+            'utilidad_distribuidor' => $this->utilidad_distribuidor,
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
         ];
