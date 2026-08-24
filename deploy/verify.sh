@@ -86,10 +86,16 @@ else
         # sin enviar correo. Sirve para comprobar que la ruta cruzada de origen
         # (prosello.com.mx -> app.prosello.com.mx/api/v1/contacto) sigue viva sin
         # mandar un correo real en cada verify.sh.
+        #
+        # Sin acentos ni ningún carácter fuera de ASCII en este JSON: el curl.exe
+        # de Git Bash en Windows corrompe los bytes no-ASCII de un argumento -d
+        # inline (pero no los de --data-binary @archivo), y eso rompe el parseo
+        # del JSON en el servidor antes de llegar al honeypot — un 422 que no
+        # tiene nada que ver con la landing ni con producción.
         CONTACTO_CODIGO="$(curl -s -o /dev/null -w '%{http_code}' -X POST "$SITE_URL/api/v1/contacto" \
             -H 'Content-Type: application/json' \
             -H "Origin: $APEX_URL" \
-            -d '{"nombre":"verify.sh","correo":"verify@ejemplo.com","telefono":"0000000000","mensaje":"prueba automática","empresa_web":"relleno"}')"
+            -d '{"nombre":"verify.sh","correo":"verify@ejemplo.com","telefono":"0000000000","mensaje":"prueba automatica","empresa_web":"relleno"}')"
         comprobar "POST /api/v1/contacto con honeypot responde 200 sin CORS bloqueado" 200 "$CONTACTO_CODIGO"
     fi
 fi
