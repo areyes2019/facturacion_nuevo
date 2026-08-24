@@ -60,7 +60,7 @@ const erroresPorCampo = ref<Record<string, string>>({})
 // Mismo módulo de cálculo que usa el componente de líneas para su desglose y que replica al
 // backend, atado a él por el fixture compartido (ver 012-ordenes-compra.md, adición técnica 42).
 const totales = computed(() =>
-  calcularTotales(lineas.value, form.descuento_global_tipo, form.descuento_global_valor),
+  calcularTotales(lineas.value, form.descuento_global_tipo, form.descuento_global_valor, true),
 )
 
 onMounted(async () => {

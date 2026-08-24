@@ -267,6 +267,11 @@ Implementada el 2026-08-17, salvo la verificación en el sandbox de facturapi.io
   espejo `ajusteAlPeso` de `totalesDocumento.ts`. Los cuatro llamadores del calculador que sí
   redondean lo piden con `redondearAlPeso: true`; `OrdenCompraController` e `InventarioController`
   no se tocaron y siguen dando los mismos números.
+- **`FacturaFormView`, `CotizacionFormView` y `PedidoFormView` llaman `calcularTotales(...,
+  redondearAlPeso: true)`** para el total que de verdad se envía al guardar, igual que
+  `DocumentoLineas` lo pide para el renglón "Ajuste al peso" que muestran en pantalla: los dos
+  cálculos tienen que coincidir entre sí y con el que hace el backend, o el criterio de aceptación 9
+  se rompe y el guardado se rechaza con 422 por diferencia de centavos.
 - **Un solo test existente cambió de números**: `DescuentoClienteTest` mandaba totales escritos a
   mano ($985.99 y $887.39) que ahora son $986.00 y $888.00. Ninguna otra prueba de las 566 se movió,
   que es la señal de que el eslabón no alteró subtotales, importes por línea ni IVA.

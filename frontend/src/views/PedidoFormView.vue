@@ -45,7 +45,7 @@ const erroresPorCampo = ref<Record<string, string>>({})
 const sugerencia = ref<{ cliente_nombre: string; cliente_correo: string | null } | null>(null)
 
 const totales = computed(() =>
-  calcularTotales(lineas.value, form.descuento_global_tipo, form.descuento_global_valor),
+  calcularTotales(lineas.value, form.descuento_global_tipo, form.descuento_global_valor, true),
 )
 
 onMounted(async () => {
