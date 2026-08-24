@@ -3,38 +3,32 @@ import { enlaceWhatsapp } from '@/lib/whatsapp'
 </script>
 
 <template>
-  <section id="inicio" class="relative overflow-hidden">
-    <div class="absolute inset-0">
-      <img
-        src="/img/hero.webp"
-        alt="Sellos y mecanismos Prosello"
-        class="h-full w-full object-cover"
-      />
-      <div class="from-primary/95 via-primary/85 absolute inset-0 bg-gradient-to-r to-transparent" />
-    </div>
+  <section id="inicio">
+    <!-- El banner ya trae su propio mensaje y su propia gráfica (ver catalogo/banner.png), así
+         que va sin overlay ni texto encima: cualquier título superpuesto compediría con el suyo. -->
+    <img
+      src="/img/banner.png"
+      alt="Insumos para sellos. Todo lo que necesitas, cerca de ti. Compra desde 1 pieza, amplio surtido para fabricantes, entrega rápida en Celaya y Gto."
+      class="w-full"
+    />
 
-    <div class="relative mx-auto max-w-6xl px-4 py-24 sm:py-32">
-      <div class="max-w-xl">
-        <h1 class="font-heading text-4xl font-extrabold text-white sm:text-5xl">
-          Sellos e insumos para quienes viven de vender sellos.
-        </h1>
-        <p class="mt-5 text-lg text-white/90">
-          Abastece tu imprenta, fabricación o negocio con mecanismos, sellos e insumos de
-          proveedores especializados.
-        </p>
+    <div class="bg-muted">
+      <div class="mx-auto max-w-6xl px-4 py-8">
+        <!-- Título real para SEO/lectores de pantalla: el del banner es una imagen, no texto. -->
+        <h1 class="sr-only">Sellos e insumos para quienes viven de vender sellos.</h1>
 
-        <div class="mt-8 flex flex-wrap gap-4">
+        <div class="flex flex-wrap justify-center gap-4">
           <a
             :href="enlaceWhatsapp('general')"
             target="_blank"
             rel="noopener"
-            class="bg-whatsapp text-whatsapp-foreground inline-flex items-center justify-center rounded-full px-6 py-3 text-base font-semibold shadow-lg transition hover:brightness-95"
+            class="bg-whatsapp text-whatsapp-foreground inline-flex items-center justify-center rounded-full px-6 py-3 text-base font-semibold shadow-sm transition hover:brightness-95"
           >
             Hablar por WhatsApp
           </a>
           <a
             href="#soluciones"
-            class="inline-flex items-center justify-center rounded-full border border-white/60 px-6 py-3 text-base font-semibold text-white transition hover:bg-white/10"
+            class="border-primary text-primary inline-flex items-center justify-center rounded-full border px-6 py-3 text-base font-semibold transition hover:bg-white"
           >
             Conocer más
           </a>
@@ -43,7 +37,7 @@ import { enlaceWhatsapp } from '@/lib/whatsapp'
     </div>
 
     <p
-      class="bg-accent text-accent-foreground relative py-3 text-center text-sm font-semibold sm:text-base"
+      class="bg-accent text-accent-foreground py-3 text-center text-sm font-semibold sm:text-base"
     >
       Tu negocio necesita un proveedor. Nosotros estamos para surtirte.
     </p>
