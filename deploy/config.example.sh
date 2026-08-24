@@ -24,7 +24,13 @@ REMOTE_PHP="/usr/bin/php"
 # URL pública del sistema, sin barra final. La usa deploy/verify.sh.
 SITE_URL="https://app.ejemplo.com"
 
-# Dominio raíz, sin barra final. El sistema NO vive aquí: este dominio queda
-# libre para la página de clientes y, mientras esa página no exista, redirige al
-# sistema (ver specs/022-subdominio-app.md). verify.sh comprueba esa redirección.
+# Dominio raíz, sin barra final. El sistema NO vive aquí: mientras la landing de
+# specs/037-landing-prosello.md no esté publicada, redirige al sistema (ver
+# specs/022-subdominio-app.md); verify.sh detecta cuál de los dos casos aplica
+# mirando la respuesta real del servidor, no hace falta indicarlo aquí.
 APEX_URL="https://ejemplo.com"
+
+# Docroot del dominio raíz — mismo docroot que APEX_URL, hoy con la redirección
+# de la 022 y a partir de deploy-landing.sh con la landing real (ver
+# specs/037-landing-prosello.md).
+REMOTE_LANDING_DOCROOT="/home/uXXXXXXXX/domains/ejemplo.com/public_html"

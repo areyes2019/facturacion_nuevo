@@ -8,6 +8,7 @@ use App\Http\Controllers\CatalogoProveedorController;
 use App\Http\Controllers\ClienteController;
 use App\Http\Controllers\ConfiguracionController;
 use App\Http\Controllers\ConstanciaFiscalController;
+use App\Http\Controllers\ContactoLandingController;
 use App\Http\Controllers\CotizacionController;
 use App\Http\Controllers\CuentaController;
 use App\Http\Controllers\DatoBancarioController;
@@ -36,12 +37,15 @@ Route::get('ordenes-compra/{ordenCompra}/pdf-publico', [OrdenCompraController::c
 // sistema (ver 027-venta-mostrador-ticket.md). Lo protege el token de 64 caracteres del pedido, no
 // una firma temporal: el enlace tiene que sobrevivir hasta el cierre del mes.
 //
-// Son las únicas rutas que cualquiera en internet puede llamar, y por eso las únicas con límite de
-// peticiones explícito.
+// Y el formulario de contacto de la landing pública (ver 037-landing-prosello.md), llamado desde
+// otro origen (prosello.com.mx) por quien todavía no es cliente. Son las únicas rutas que
+// cualquiera en internet puede llamar, y por eso las únicas con límite de peticiones explícito.
 Route::middleware('throttle:20,1')->group(function () {
     Route::get('autofactura/{token}', [AutofacturaController::class, 'show']);
     Route::post('autofactura/{token}', [AutofacturaController::class, 'store']);
 });
+
+Route::middleware('throttle:10,1')->post('contacto', [ContactoLandingController::class, 'store']);
 
 // Los dos catálogos que el cliente necesita para llenar sus datos fiscales en el portal público.
 // Salen del grupo autenticado porque los llama una página abierta, y no revelan nada del negocio:

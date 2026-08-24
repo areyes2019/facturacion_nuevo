@@ -1,0 +1,30 @@
+# =============================================================================
+# landing/.gitignore  --  Vite (ver frontend/.gitignore, mismo criterio)
+#
+# .env.production y .env.development SÍ se versionan: son la URL pública del
+# API de contacto, no un secreto (ver 037-landing-prosello.md). *.local es la
+# convención de Vite para el override personal de cada desarrollador.
+# =============================================================================
+
+# --- Dependencias ------------------------------------------------------------
+node_modules
+
+# --- Salida de compilación -----------------------------------------------------
+dist
+*.tsbuildinfo
+
+# --- Overrides personales (convención de Vite) -------------------------------
+*.local
+
+# --- Logs ----------------------------------------------------------------------
+logs
+*.log
+npm-debug.log*
+
+# --- Editores ------------------------------------------------------------------
+.vscode/*
+!.vscode/extensions.json
+.idea
+
+# --- Sistema operativo -----------------------------------------------------------
+.DS_Store

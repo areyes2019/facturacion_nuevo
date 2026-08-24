@@ -19,7 +19,16 @@ return [
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => [env('FRONTEND_URL', 'http://localhost:3000')],
+    // FRONTEND_URL es el SPA del sistema (mismo origen en producción; distinto solo en desarrollo
+    // local). LANDING_URL es la landing pública en otro dominio (ver 037-landing-prosello.md), que
+    // solo llama a POST /api/v1/contacto sin sesión ni cookies —su fetch no manda credenciales—.
+    // 'supports_credentials' sigue en true por el SPA, pero SESSION_SAME_SITE=lax (config/session.php)
+    // ya impide que el navegador adjunte la cookie de sesión en una petición cross-site como esta,
+    // así que agregar este origen no abre una vía nueva hacia las rutas autenticadas.
+    'allowed_origins' => array_filter([
+        env('FRONTEND_URL', 'http://localhost:3000'),
+        env('LANDING_URL'),
+    ]),
 
     'allowed_origins_patterns' => [],
 

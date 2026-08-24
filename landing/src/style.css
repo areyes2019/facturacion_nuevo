@@ -1,0 +1,57 @@
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;800&family=Open+Sans:wght@400;500;600;700&display=swap');
+@import 'tailwindcss';
+
+@theme inline {
+  --font-sans: 'Open Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-heading: 'Roboto', ui-sans-serif, system-ui, sans-serif;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-whatsapp: var(--whatsapp);
+  --color-whatsapp-foreground: var(--whatsapp-foreground);
+}
+
+/*
+ * Paleta propia de la marca comercial "Prosello Distribuciones" — deliberadamente distinta del
+ * indigo/violeta del sistema interno (spec 003): esta landing representa al negocio frente a
+ * clientes, no es una pantalla del sistema de facturación.
+ */
+:root {
+  --background: #ffffff;
+  --foreground: #0f172a; /* slate-900 */
+
+  --primary: #1e3a5f; /* azul acero, transmite solidez/profesional */
+  --primary-foreground: #ffffff;
+
+  --accent: #d97706; /* ámbar, guiño industrial a la tinta/sello */
+  --accent-foreground: #ffffff;
+
+  --muted: #f1f5f9; /* slate-100 */
+  --muted-foreground: #475569; /* slate-600 */
+
+  --border: #e2e8f0; /* slate-200 */
+
+  --whatsapp: #25d366;
+  --whatsapp-foreground: #ffffff;
+}
+
+@layer base {
+  body {
+    @apply bg-background text-foreground font-sans overflow-x-hidden;
+  }
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    @apply font-heading;
+  }
+}

@@ -24,6 +24,7 @@ fi
 : "${REMOTE_PHP:?falta REMOTE_PHP en deploy/config.sh}"
 : "${SITE_URL:?falta SITE_URL en deploy/config.sh}"
 : "${APEX_URL:?falta APEX_URL en deploy/config.sh (ver config.example.sh)}"
+: "${REMOTE_LANDING_DOCROOT:?falta REMOTE_LANDING_DOCROOT en deploy/config.sh (ver config.example.sh)}"
 
 if [ -t 1 ]; then
     C_TITLE=$'\033[1;36m'; C_OK=$'\033[0;32m'; C_WARN=$'\033[0;33m'

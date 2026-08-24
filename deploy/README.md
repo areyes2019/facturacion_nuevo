@@ -113,11 +113,49 @@ como error**, así que el service worker viejo sobreviviría intacto. Por eso el
 `.htaccess` excluye `sw.js` de la redirección y ahí hay un archivo real que borra
 las cachés, se desregistra y recarga la ventana.
 
-**El día que se publique la página de clientes:** ese sitio reemplaza el
-`.htaccess`, y las comprobaciones del dominio raíz de `verify.sh` empiezan a
-fallar. Es deseable: el verificador avisa de que hay algo que actualizar en vez
-de callarse. El `sw.js` conviene conservarlo mientras queden instalaciones
-antiguas dando vueltas.
+**El día que se publique la landing** (specs/037-landing-prosello.md,
+`deploy/deploy-landing.sh`), ese sitio reemplaza el `.htaccess` de redirección.
+`verify.sh` detecta el cambio solo —mirando si `GET /` del dominio raíz responde
+302 (todavía redirigiendo) o 200 (la landing ya está ahí)— y comprueba lo que
+corresponda en cada caso, sin que haga falta tocar ninguna bandera. El `sw.js`
+conviene conservarlo mientras queden instalaciones antiguas de la PWA dando
+vueltas: no estorba a la landing, que no lo usa.
+
+---
+
+## La landing (`prosello.com.mx`)
+
+Publicar `landing/` en el dominio raíz (specs/037-landing-prosello.md) requiere
+que la mudanza de la sección anterior ya haya terminado en el servidor —se
+escribe sobre el mismo docroot que hoy tiene la redirección—.
+
+**Primera vez:**
+
+1. `REMOTE_LANDING_DOCROOT` en `deploy/config.sh` (mismo docroot que `APEX_URL`,
+   ver `config.example.sh`).
+2. En el backend, `.env` gana `LANDING_URL` (el origen de la landing, para que
+   `config/cors.php` acepte su `POST /api/v1/contacto`) y
+   `LANDING_CONTACTO_EMAIL` (a dónde llega el formulario). Sin
+   `bash deploy/artisan.sh config:cache` después de tocar `.env`, el cambio no
+   se ve.
+3. Subir el `.htaccess`:
+   ```bash
+   scp deploy/hostinger/htaccess-landing \
+       prosello:$REMOTE_LANDING_DOCROOT/.htaccess
+   ```
+   Este paso reemplaza al `.htaccess` de redirección de la sección anterior —a
+   partir de aquí el dominio raíz deja de redirigir y sirve la landing.
+4. `bash deploy/deploy-landing.sh` compila `landing/` y sube `dist/`.
+5. `bash deploy/verify.sh` — el bloque "Dominio raíz" pasa a comprobar la
+   landing en vez de la redirección (ver arriba).
+
+**Cambios normales**, ya con lo anterior hecho: `bash deploy/deploy-landing.sh`
+compila y sube; no toca `.htaccess` ni ningún archivo del backend.
+
+**Qué no hace este script:** no toca `REMOTE_APP` ni `REMOTE_DOCROOT` (el
+sistema, en `app.prosello.com.mx`), no borra el `sw.js` de apagado de la PWA
+vieja, y no reinicia nada en el backend — el formulario de contacto vive del
+lado de `deploy-backend.sh`, como cualquier otra ruta del API.
 
 ---
 
@@ -357,7 +395,14 @@ a mano y con un respaldo delante.
 | `public_html/robots.txt` | Se sube una sola vez. |
 | `facturacion/` | Territorio del backend. |
 
-Ambos usan `rsync --delete`, así que un archivo borrado en el repositorio
+`deploy-landing.sh` **nunca** escribe en:
+
+| Ruta | Por qué |
+|---|---|
+| `.htaccess` del docroot de la landing | Se sube a mano una sola vez (ver "La landing" arriba). |
+| `app.prosello.com.mx/` (`REMOTE_APP`/`REMOTE_DOCROOT`) | Es otro dominio; territorio del sistema. |
+
+Los tres usan `rsync --delete`, así que un archivo borrado en el repositorio
 desaparece también del servidor. Las rutas excluidas quedan protegidas de ese
 borrado: rsync no elimina lo que no mira.
 

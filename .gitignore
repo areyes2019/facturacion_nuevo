@@ -6,6 +6,7 @@
 #
 #   backend/.gitignore    ->  vendor/, .env, caches de PHP
 #   frontend/.gitignore   ->  node_modules/, dist/, *.local
+#   landing/.gitignore    ->  node_modules/, dist/, *.local (landing de prosello.com.mx)
 #
 # CUIDADO CON LAS RUTAS: una regla que empieza con "/" aplica SOLO a la carpeta
 # donde vive el .gitignore. Aqui "/vendor" NO ignoraria "backend/vendor", y

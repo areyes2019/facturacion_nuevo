@@ -52,4 +52,8 @@ return [
         'whatsapp_from' => env('TWILIO_WHATSAPP_FROM'),
     ],
 
+    'landing' => [
+        'contacto_email' => env('LANDING_CONTACTO_EMAIL'),
+    ],
+
 ];

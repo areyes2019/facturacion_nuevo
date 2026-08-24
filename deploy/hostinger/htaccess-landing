@@ -1,0 +1,44 @@
+# =============================================================================
+# .htaccess del docroot de la landing pública (specs/037-landing-prosello.md)
+#
+# Se copia a public_html/.htaccess del dominio raíz (SIN el prefijo
+# "htaccess-" ni la extensión ".txt" — ver deploy-landing.sh), reemplazando ahí
+# al .htaccess de redirección de la 022 una vez que esa mudanza haya terminado
+# en el servidor.
+#
+# Deliberadamente más simple que el de app.prosello.com.mx
+# (htaccess-public_html): esta es una sola página estática, sin Laravel detrás
+# y sin rutas de cliente que resolver — no hace falta el fallback a
+# index.html para rutas "profundas".
+# =============================================================================
+
+DirectoryIndex index.html
+
+<IfModule mod_negotiation.c>
+    Options -MultiViews -Indexes
+</IfModule>
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Host canónico y HTTPS, derivados de la petición y no escritos a mano —
+    # mismo criterio que htaccess-public_html: mudar de dominio no debería
+    # obligar a editar este archivo.
+    RewriteCond %{HTTPS} !=on
+    RewriteCond %{HTTP:X-Forwarded-Proto} !=https
+    RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+    RewriteCond %{HTTP_HOST} ^www\.(.+)$ [NC]
+    RewriteRule ^ https://%1%{REQUEST_URI} [L,R=301]
+</IfModule>
+
+<IfModule mod_headers.c>
+    # Solo los archivos con hash de contenido en el nombre son inmutables.
+    <FilesMatch "-[A-Za-z0-9_-]{8,}\.(js|css)$">
+        Header set Cache-Control "public, max-age=31536000, immutable"
+    </FilesMatch>
+
+    <Files "index.html">
+        Header set Cache-Control "no-cache, must-revalidate"
+    </Files>
+</IfModule>

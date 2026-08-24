@@ -47,18 +47,51 @@ if [ "$APEX_URL" = "$SITE_URL" ]; then
     warn "todavía no se completó. Comprobaciones del dominio raíz OMITIDAS."
 else
     APEX_HOST="${APEX_URL#https://}"
+    APEX_CODIGO="$(codigo "$APEX_URL/")"
 
-    # 302 y no 301: un 301 aquí lo cachearía el navegador durante meses, y el día
-    # que exista la página de clientes sus visitantes seguirían siendo lanzados al
-    # sistema sin verla. Que este número sea el correcto es parte del criterio.
-    comprobar "el dominio raíz redirige con 302"  302 "$(codigo "$APEX_URL/")"
-    comprobar "y apunta al sistema"               "$SITE_URL/" "$(cabecera "$APEX_URL/")"
-    comprobar "www. del dominio raíz va al sistema" "$SITE_URL/" "$(cabecera "https://www.$APEX_HOST/")"
+    if [ "$APEX_CODIGO" = "302" ]; then
+        # Todavía en transición (ver 022): el dominio raíz redirige al sistema
+        # porque la landing de specs/037-landing-prosello.md aún no se publicó.
+        #
+        # 302 y no 301: un 301 aquí lo cachearía el navegador durante meses, y el
+        # día que la landing exista sus visitantes seguirían siendo lanzados al
+        # sistema sin verla. Que este número sea el correcto es parte del criterio.
+        comprobar "el dominio raíz redirige con 302"    302 "$APEX_CODIGO"
+        comprobar "y apunta al sistema"                 "$SITE_URL/" "$(cabecera "$APEX_URL/")"
+        comprobar "www. del dominio raíz va al sistema" "$SITE_URL/" "$(cabecera "https://www.$APEX_HOST/")"
 
-    # El service worker de apagado tiene que servirse como archivo real. Si lo
-    # alcanzara la redirección, el navegador trataría la actualización como error
-    # y el service worker de la PWA vieja sobreviviría sirviendo su caché.
-    comprobar "sw.js del dominio raíz se sirve sin redirigir" 200 "$(codigo "$APEX_URL/sw.js")"
+        # El service worker de apagado tiene que servirse como archivo real. Si lo
+        # alcanzara la redirección, el navegador trataría la actualización como
+        # error y el service worker de la PWA vieja sobreviviría sirviendo su
+        # caché.
+        comprobar "sw.js del dominio raíz se sirve sin redirigir" 200 "$(codigo "$APEX_URL/sw.js")"
+    else
+        # La landing ya se publicó (deploy-landing.sh) y reemplazó la
+        # redirección: se comprueban esas cosas en vez de las de arriba. No hace
+        # falta ninguna bandera para saber cuál de los dos casos aplica — se
+        # deduce de la respuesta real del servidor, igual que el resto del
+        # script.
+        comprobar "GET / de la landing responde 200"    200 "$APEX_CODIGO"
+
+        LANDING_TITULO="$(curl -s --max-time 20 "$APEX_URL/" | grep -o '<title>[^<]*' | head -1)"
+        case "$LANDING_TITULO" in
+            *Prosello*) ok "el <title> de la landing menciona Prosello" ;;
+            *) warn "el <title> de la landing no menciona Prosello ('$LANDING_TITULO')"
+               FALLOS=$((FALLOS + 1)) ;;
+        esac
+
+        comprobar "robots.txt de la landing permite el rastreo" 200 "$(codigo "$APEX_URL/robots.txt")"
+
+        # Honeypot lleno: mismo criterio que ContactoLandingTest — responde 200
+        # sin enviar correo. Sirve para comprobar que la ruta cruzada de origen
+        # (prosello.com.mx -> app.prosello.com.mx/api/v1/contacto) sigue viva sin
+        # mandar un correo real en cada verify.sh.
+        CONTACTO_CODIGO="$(curl -s -o /dev/null -w '%{http_code}' -X POST "$SITE_URL/api/v1/contacto" \
+            -H 'Content-Type: application/json' \
+            -H "Origin: $APEX_URL" \
+            -d '{"nombre":"verify.sh","correo":"verify@ejemplo.com","telefono":"0000000000","mensaje":"prueba automática","empresa_web":"relleno"}')"
+        comprobar "POST /api/v1/contacto con honeypot responde 200 sin CORS bloqueado" 200 "$CONTACTO_CODIGO"
+    fi
 fi
 
 say "Separación entre SPA y API"
