@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ArrowLeftIcon, ShareIcon } from '@heroicons/vue/24/outline'
 import { usePedidosStore, type Pedido, type PedidoPayload } from '../../stores/pedidos'
+import type { TipoDescuento } from '../../stores/facturas'
 import { calcularTotales } from '../../lib/totalesDocumento'
 import { compartirArchivo } from '../../lib/compartir'
 import { mensajeDeFalla } from '../../lib/errors'
@@ -59,6 +60,10 @@ const sugerencia = ref<{ cliente_nombre: string; cliente_correo: string | null }
 const cuentaId = ref<number | null>(null)
 const monto = ref<number | null>(null)
 
+/** Descuento global de la venta (ver 036-descuento-venta-mostrador.md). */
+const descuentoGlobalTipo = ref<TipoDescuento | null>(null)
+const descuentoGlobalValor = ref<number | null>(null)
+
 /** El pedido, una vez creado. Sobrevive a un cobro fallido: existe aunque el pago no entrara. */
 const pedido = ref<Pedido | null>(null)
 const cobrando = ref(false)
@@ -70,7 +75,9 @@ const ticketBlob = ref<Blob | null>(null)
 const compartiendo = ref(false)
 const avisoTicket = ref<string | null>(null)
 
-const totales = computed(() => calcularTotales(lineas.value, null, null, true))
+const totales = computed(() =>
+  calcularTotales(lineas.value, descuentoGlobalTipo.value, descuentoGlobalValor.value, true),
+)
 
 const clienteCompleto = computed(
   () => form.cliente_nombre.trim() !== '' && form.cliente_telefono.trim() !== '',
@@ -143,8 +150,8 @@ async function cobrar() {
       cliente_nombre: form.cliente_nombre.trim(),
       cliente_telefono: form.cliente_telefono.trim(),
       cliente_correo: form.cliente_correo.trim() || null,
-      descuento_global_tipo: null,
-      descuento_global_valor: null,
+      descuento_global_tipo: descuentoGlobalTipo.value,
+      descuento_global_valor: descuentoGlobalValor.value,
       lineas: lineas.value.map((linea) => ({
         articulo_id: linea.articulo_id,
         cantidad: linea.cantidad,
@@ -241,6 +248,8 @@ function nuevaVenta() {
   form.cliente_correo = ''
   lineas.value = []
   sugerencia.value = null
+  descuentoGlobalTipo.value = null
+  descuentoGlobalValor.value = null
   pedido.value = null
   monto.value = null
   errorPedido.value = null
@@ -320,7 +329,13 @@ function nuevaVenta() {
         @terminar="avanzar"
       />
 
-      <CarritoMostrador v-else-if="paso === 2" v-model:lineas="lineas" />
+      <CarritoMostrador
+        v-else-if="paso === 2"
+        v-model:lineas="lineas"
+        v-model:descuento-global-tipo="descuentoGlobalTipo"
+        v-model:descuento-global-valor="descuentoGlobalValor"
+        permite-descuento-global
+      />
 
       <!-- Paso 3: cobro. -->
       <div v-else-if="paso === 3" class="space-y-5">

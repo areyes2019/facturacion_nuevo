@@ -1,0 +1,1 @@
+No se aplican los descuentos en la nota de venta

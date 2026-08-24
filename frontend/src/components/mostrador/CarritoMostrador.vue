@@ -3,7 +3,10 @@ import { computed } from 'vue'
 import { MinusIcon, PlusIcon, TrashIcon } from '@heroicons/vue/24/outline'
 import { calcularTotales, importeNetoLinea } from '../../lib/totalesDocumento'
 import type { LineaEditable } from '../DocumentoLineas.vue'
+import type { TipoDescuento } from '../../stores/facturas'
 import { Button } from '../ui/button'
+import { Input } from '../ui/input'
+import { Label } from '../ui/label'
 
 /**
  * El carrito del mostrador (ver 029-pwa-mostrador.md): lo capturado, con sus cantidades, en su
@@ -19,9 +22,25 @@ import { Button } from '../ui/button'
  * explicarle a un cliente.
  */
 
+withDefaults(defineProps<{ permiteDescuentoGlobal?: boolean }>(), {
+  permiteDescuentoGlobal: false,
+})
+
 const lineas = defineModel<LineaEditable[]>('lineas', { required: true })
 
-const totales = computed(() => calcularTotales(lineas.value, null, null, true))
+/**
+ * Descuento global, exclusivo de "Venta al público" (ver 036-descuento-venta-mostrador.md).
+ * Factura y Cotización de mostrador no pasan `permiteDescuentoGlobal` ni estos dos modelos, así
+ * que quedan en `null` y calculan exactamente igual que antes de este cambio.
+ */
+const descuentoGlobalTipo = defineModel<TipoDescuento | null>('descuentoGlobalTipo', {
+  default: null,
+})
+const descuentoGlobalValor = defineModel<number | null>('descuentoGlobalValor', { default: null })
+
+const totales = computed(() =>
+  calcularTotales(lineas.value, descuentoGlobalTipo.value, descuentoGlobalValor.value, true),
+)
 
 function cambiarCantidad(indice: number, delta: number) {
   const linea = lineas.value[indice]
@@ -87,12 +106,41 @@ function quitar(indice: number) {
       </li>
     </ul>
 
-    <div
-      v-if="lineas.length > 0"
-      class="border-border flex items-baseline justify-between border-t pt-3"
-    >
-      <span class="text-muted-foreground">Total</span>
-      <span class="text-2xl font-semibold">${{ totales.total.toFixed(2) }}</span>
+    <div v-if="permiteDescuentoGlobal && lineas.length > 0" class="flex gap-2">
+      <div class="flex-1 space-y-1.5">
+        <Label>Descuento</Label>
+        <select
+          v-model="descuentoGlobalTipo"
+          class="border-input bg-background h-12 w-full rounded-md border px-3 text-base"
+        >
+          <option :value="null">Sin descuento</option>
+          <option value="porcentaje">Porcentaje</option>
+          <option value="monto">Monto fijo</option>
+        </select>
+      </div>
+      <div v-if="descuentoGlobalTipo" class="w-28 space-y-1.5">
+        <Label>Valor</Label>
+        <Input
+          :model-value="descuentoGlobalValor ?? undefined"
+          type="number"
+          inputmode="decimal"
+          min="0"
+          step="0.01"
+          class="h-12 text-base"
+          @update:model-value="(v) => (descuentoGlobalValor = v === '' ? null : Number(v))"
+        />
+      </div>
+    </div>
+
+    <div v-if="lineas.length > 0" class="border-border space-y-1 border-t pt-3">
+      <div v-if="totales.total_descuento > 0" class="text-muted-foreground flex justify-between">
+        <span>Descuento</span>
+        <span>-${{ totales.total_descuento.toFixed(2) }}</span>
+      </div>
+      <div class="flex items-baseline justify-between">
+        <span class="text-muted-foreground">Total</span>
+        <span class="text-2xl font-semibold">${{ totales.total.toFixed(2) }}</span>
+      </div>
     </div>
   </div>
 </template>

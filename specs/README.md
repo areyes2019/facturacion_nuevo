@@ -15,3 +15,5 @@ Opciones: Propón 4 opciones de respuesta más una quinta opción ("Otra") para 
 Adiciones técnicas: Si propones mejoras o adiciones técnicas, lístalas usando numeros (1, 2, 3...) y analizaremos una por una después de ajustar las asunciones iniciales. Debes explicarme cada adicion técnica como si jamas huibiera oido hablar del tema, con sensilles y claridad. No utilices lenguaje demasiado técnico.
 
 Cierre: Al finalizar el proceso, me confirmarás que ya estás listo para redactar la especificación final.
+
+
