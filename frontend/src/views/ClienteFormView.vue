@@ -34,6 +34,7 @@ const form = reactive({
   telefono: '',
   direccion_comercial: '',
   descuento_permanente: 0 as number | string,
+  es_distribuidor: false,
 })
 
 const cargando = ref(false)
@@ -129,6 +130,7 @@ onMounted(async () => {
     form.telefono = cliente.telefono ?? ''
     form.direccion_comercial = cliente.direccion_comercial ?? ''
     form.descuento_permanente = cliente.descuento_permanente
+    form.es_distribuidor = cliente.es_distribuidor
   } catch (err) {
     errorGeneral.value = extractErrorMessage(err)
   } finally {
@@ -153,6 +155,7 @@ async function onSubmit() {
     // Un campo en blanco equivale a 0%: el backend aplica el mismo criterio (ver
     // 015-descuento-permanente-cliente.md).
     descuento_permanente: Number(form.descuento_permanente) || 0,
+    es_distribuidor: form.es_distribuidor,
   }
 
   try {
@@ -323,6 +326,21 @@ async function onSubmit() {
               </p>
               <p v-if="erroresPorCampo.descuento_permanente" class="text-destructive text-sm">
                 {{ erroresPorCampo.descuento_permanente }}
+              </p>
+            </div>
+
+            <div class="space-y-1.5">
+              <label class="flex items-center gap-2 font-medium">
+                <input
+                  v-model="form.es_distribuidor"
+                  type="checkbox"
+                  class="accent-primary size-4"
+                />
+                Es distribuidor
+              </label>
+              <p class="text-muted-foreground text-sm">
+                Sus cotizaciones y facturas usarán el precio distribuidor de cada artículo en vez
+                del precio de lista.
               </p>
             </div>
           </CardContent>

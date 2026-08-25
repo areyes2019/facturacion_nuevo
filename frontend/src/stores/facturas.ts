@@ -47,6 +47,8 @@ export interface Factura {
   cliente_razon_social: string | null
   cliente_rfc: string | null
   cliente_correo: string | null
+  /** Vigente, no congelado (ver 033-precio-distribuidor.md). */
+  cliente_es_distribuidor: boolean
   uso_cfdi: string
   forma_pago: string
   metodo_pago: MetodoPago

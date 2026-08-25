@@ -23,6 +23,9 @@ class CotizacionResource extends JsonResource
             'cliente_rfc' => $this->whenLoaded('cliente', fn () => $this->cliente->rfc),
             'cliente_correo' => $this->whenLoaded('cliente', fn () => $this->cliente->correo_contacto),
             'cliente_telefono' => $this->whenLoaded('cliente', fn () => $this->cliente->telefono),
+            // Vigente, no congelado: a diferencia del descuento, el precio de un artículo no
+            // necesita explicar de dónde salió (ver 033-precio-distribuidor.md).
+            'cliente_es_distribuidor' => $this->whenLoaded('cliente', fn () => (bool) $this->cliente->es_distribuidor),
             // Copia congelada: el descuento que tenía el cliente al capturar esta cotización, no el
             // vigente (ver 015-descuento-permanente-cliente.md).
             'descuento_cliente_porcentaje' => (float) $this->descuento_cliente_porcentaje,

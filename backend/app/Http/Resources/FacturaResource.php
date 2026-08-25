@@ -24,6 +24,9 @@ class FacturaResource extends JsonResource
             // detalle del mostrador costaría una segunda petición (ver 031-mostrador-consulta.md).
             'cliente_rfc' => $this->whenLoaded('cliente', fn () => $this->cliente->rfc),
             'cliente_correo' => $this->whenLoaded('cliente', fn () => $this->cliente->correo_contacto),
+            // Cliente vigente: al editar una factura, `esClienteDistribuidorActual` arranca de
+            // aquí (ver 033-precio-distribuidor.md).
+            'cliente_es_distribuidor' => $this->whenLoaded('cliente', fn () => (bool) $this->cliente->es_distribuidor),
             'uso_cfdi' => $this->uso_cfdi,
             'forma_pago' => $this->forma_pago,
             'metodo_pago' => $this->metodo_pago->value,

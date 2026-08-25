@@ -19,6 +19,8 @@ export interface ClienteResultado {
   razon_social: string
   rfc: string
   descuento_permanente: number
+  /** Sus cotizaciones y facturas precargan el precio distribuidor (ver 033-precio-distribuidor.md). */
+  es_distribuidor: boolean
 }
 
 /**

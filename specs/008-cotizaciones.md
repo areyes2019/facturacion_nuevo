@@ -58,7 +58,9 @@ cancelación de cotizaciones, notas de crédito, ni multiempresa.
 
 Mismo esquema que `FacturaLinea` de 007: `cotizacion_id`, `articulo_id` (propio del usuario),
 `cantidad` (entero, mínimo 1), `descripcion` y `modelo` (precargados del artículo, editables
-in-place, copias desacopladas del catálogo), `precio_unitario` (precargado, editable, mayor a 0),
+in-place, copias desacopladas del catálogo), `precio_unitario` (precargado, editable, mayor a 0 —
+precargado con el precio distribuidor del artículo en vez del directo cuando el cliente elegido es
+distribuidor, ver [033](033-precio-distribuidor.md)),
 `descuento_tipo`/`descuento_valor` (opcional, `porcentaje`|`monto`), `tasa_iva`
 (`16`|`0`|`exento`), `importe` e `iva_importe` (calculados en backend, mismo criterio que en 007:
 `importe` es el neto de línea sin IVA, `iva_importe` se desglosa aparte).

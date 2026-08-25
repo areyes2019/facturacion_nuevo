@@ -49,6 +49,8 @@ export interface Cotizacion {
   cliente_rfc: string | null
   cliente_correo: string | null
   cliente_telefono: string | null
+  /** Vigente, no congelado (ver 033-precio-distribuidor.md). */
+  cliente_es_distribuidor: boolean
   /** Copia congelada del descuento que tenía el cliente al capturar la cotización. */
   descuento_cliente_porcentaje: number
   descuento_global_tipo: TipoDescuento | null

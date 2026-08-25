@@ -32,6 +32,12 @@ class UpdateClienteRequest extends FormRequest
         if ($this->has('descuento_permanente') && in_array($this->descuento_permanente, [null, ''], true)) {
             $this->merge(['descuento_permanente' => 0]);
         }
+
+        // Mismo criterio que en el alta: ausente o vacío equivale a "no distribuidor" (ver
+        // 033-precio-distribuidor.md).
+        if ($this->has('es_distribuidor') && in_array($this->es_distribuidor, [null, ''], true)) {
+            $this->merge(['es_distribuidor' => false]);
+        }
     }
 
     /**
@@ -59,6 +65,7 @@ class UpdateClienteRequest extends FormRequest
             'telefono' => ['nullable', 'string', 'max:20'],
             'direccion_comercial' => ['nullable', 'string', 'max:255'],
             'descuento_permanente' => ['sometimes', 'numeric', 'min:0', 'max:50', 'decimal:0,2'],
+            'es_distribuidor' => ['sometimes', 'boolean'],
         ];
     }
 }

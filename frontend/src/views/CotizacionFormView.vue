@@ -12,6 +12,7 @@ import { Alert, AlertDescription } from '../components/ui/alert'
 import AppLayout from '../layouts/AppLayout.vue'
 import ClienteCombobox, { type ClienteResultado } from '../components/ClienteCombobox.vue'
 import DocumentoLineas, { type LineaEditable } from '../components/DocumentoLineas.vue'
+import { aplicarPrecioCliente } from '../lib/precioClienteLinea'
 
 const route = useRoute()
 const router = useRouter()
@@ -38,6 +39,12 @@ const lineas = ref<LineaEditable[]>([])
  */
 const descuentoClienteActual = ref(0)
 const nombreClienteActual = ref<string | null>(null)
+/**
+ * El cliente elegido es distribuidor (ver 033-precio-distribuidor.md): precarga cada línea nueva
+ * con el precio distribuidor. Arranca del cliente vigente, no de una copia congelada: a diferencia
+ * del descuento, el precio de un artículo no necesita un renglón que explique de dónde salió.
+ */
+const esClienteDistribuidorActual = ref(false)
 
 const cargando = ref(false)
 const guardando = ref(false)
@@ -59,6 +66,7 @@ onMounted(async () => {
     form.cliente_id = cotizacion.cliente_id
     descuentoClienteActual.value = cotizacion.descuento_cliente_porcentaje
     nombreClienteActual.value = cotizacion.cliente_razon_social
+    esClienteDistribuidorActual.value = cotizacion.cliente_es_distribuidor
     form.descuento_global_tipo = cotizacion.descuento_global_tipo
     form.descuento_global_valor = cotizacion.descuento_global_valor
     lineas.value = cotizacion.lineas.map((l) => ({
@@ -79,20 +87,27 @@ onMounted(async () => {
 })
 
 /**
- * Cambiar de cliente reemplaza el descuento de TODAS las líneas ya capturadas por el del cliente
- * nuevo, incluso si eso las deja sin descuento: las ediciones manuales previas se hicieron pensando
- * en otro cliente (ver 015-descuento-permanente-cliente.md, supuesto 12).
+ * Cambiar de cliente reemplaza el descuento y el precio de TODAS las líneas ya capturadas por los
+ * del cliente nuevo, incluso si eso las deja sin descuento o a precio de lista: las ediciones
+ * manuales previas se hicieron pensando en otro cliente (ver 015-descuento-permanente-cliente.md,
+ * supuesto 12, y 033-precio-distribuidor.md).
  */
-function onClienteSeleccionado(cliente: ClienteResultado | null) {
+async function onClienteSeleccionado(cliente: ClienteResultado | null) {
   descuentoClienteActual.value = cliente?.descuento_permanente ?? 0
   nombreClienteActual.value = cliente?.razon_social ?? null
+  esClienteDistribuidorActual.value = cliente?.es_distribuidor ?? false
 
   const tieneDescuento = descuentoClienteActual.value > 0
-  lineas.value = lineas.value.map((linea) => ({
+  const conDescuentoReemplazado = lineas.value.map((linea) => ({
     ...linea,
-    descuento_tipo: tieneDescuento ? 'porcentaje' : null,
+    descuento_tipo: tieneDescuento ? ('porcentaje' as const) : null,
     descuento_valor: tieneDescuento ? descuentoClienteActual.value : null,
   }))
+
+  lineas.value = await aplicarPrecioCliente(
+    conDescuentoReemplazado,
+    esClienteDistribuidorActual.value,
+  )
 }
 
 async function onSubmit() {
@@ -151,11 +166,18 @@ async function onSubmit() {
           </CardContent>
         </Card>
 
-        <Alert v-if="descuentoClienteActual > 0">
-          <AlertDescription>
-            <strong>{{ nombreClienteActual ?? 'Este cliente' }}</strong> tiene un descuento
-            permanente de <strong>{{ descuentoClienteActual }}%</strong>, ya aplicado en cada línea.
-            Podés modificarlo línea por línea si esta cotización es una excepción.
+        <Alert v-if="descuentoClienteActual > 0 || esClienteDistribuidorActual">
+          <AlertDescription class="space-y-1">
+            <p v-if="descuentoClienteActual > 0">
+              <strong>{{ nombreClienteActual ?? 'Este cliente' }}</strong> tiene un descuento
+              permanente de <strong>{{ descuentoClienteActual }}%</strong>, ya aplicado en cada
+              línea. Podés modificarlo línea por línea si esta cotización es una excepción.
+            </p>
+            <p v-if="esClienteDistribuidorActual">
+              <strong>{{ nombreClienteActual ?? 'Este cliente' }}</strong> es distribuidor: cada
+              línea usa el precio distribuidor. Podés cambiarlo línea por línea si esta cotización
+              es una excepción.
+            </p>
           </AlertDescription>
         </Alert>
 
@@ -165,6 +187,7 @@ async function onSubmit() {
           v-model:descuento-global-valor="form.descuento_global_valor"
           :error-lineas="erroresPorCampo.lineas"
           :descuento-por-defecto-porcentaje="descuentoClienteActual"
+          :precio-distribuidor="esClienteDistribuidorActual"
           redondear-al-peso
         />
 

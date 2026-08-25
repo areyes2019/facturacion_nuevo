@@ -32,6 +32,9 @@ class ClienteFactory extends Factory
             // Sin descuento por defecto, para que los tests de 004/007/008 no cambien de resultado
             // al aparecer la columna (ver 015-descuento-permanente-cliente.md).
             'descuento_permanente' => 0,
+            // No distribuidor por defecto, mismo criterio que descuento_permanente (ver
+            // 033-precio-distribuidor.md).
+            'es_distribuidor' => false,
         ];
     }
 

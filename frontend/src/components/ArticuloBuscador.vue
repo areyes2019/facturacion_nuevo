@@ -18,6 +18,8 @@ export interface ArticuloResultado {
   modelo: string
   /** Precio de venta al cliente (factura y cotización). */
   precio_unitario_sin_iva: number
+  /** Precio de venta para clientes distribuidores (ver 033-precio-distribuidor.md). */
+  precio_distribuidor_sin_iva: number
   /** Costo real: lo que le pagas al proveedor (orden de compra), ver 011. */
   costo_con_descuento: number
 }

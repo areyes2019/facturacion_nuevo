@@ -15,6 +15,8 @@ export interface Cliente {
   direccion_comercial: string | null
   /** Descuento permanente en porcentaje, 0 a 50 (ver 015-descuento-permanente-cliente.md). */
   descuento_permanente: number
+  /** Sus cotizaciones y facturas precargan el precio distribuidor (ver 033-precio-distribuidor.md). */
+  es_distribuidor: boolean
   created_at: string
   updated_at: string
 }
@@ -29,6 +31,7 @@ export interface ClientePayload {
   telefono: string | null
   direccion_comercial: string | null
   descuento_permanente: number
+  es_distribuidor: boolean
 }
 
 interface PaginationMeta {

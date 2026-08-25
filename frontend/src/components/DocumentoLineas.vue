@@ -33,6 +33,13 @@ export interface LineaEditable {
   descuento_tipo: TipoDescuento | null
   descuento_valor: number | null
   tasa_iva: TasaIva
+  /**
+   * Precios del artículo en el momento en que se agregó (o se refrescó) la línea, cacheados solo
+   * para poder reemplazar `precio_unitario` sin volver a consultar el artículo cuando cambia el
+   * cliente (ver 033-precio-distribuidor.md). No viajan al backend.
+   */
+  precio_directo_sin_iva?: number
+  precio_distribuidor_sin_iva?: number
 }
 
 /**
@@ -59,6 +66,12 @@ const props = withDefaults(
      */
     descuentoPorDefectoPorcentaje?: number
     /**
+     * El cliente elegido es distribuidor (ver 033-precio-distribuidor.md): cada línea nueva nace
+     * con el precio distribuidor del artículo en vez del directo. En `false` —orden de compra y
+     * venta de mostrador, que no la pasan— el componente se comporta exactamente como hoy.
+     */
+    precioDistribuidor?: boolean
+    /**
      * Habilita el botón de línea libre: una fila sin artículo del catálogo, con descripción y
      * precio escritos a mano. Solo la venta de mostrador la usa (ver 027).
      */
@@ -75,6 +88,7 @@ const props = withDefaults(
     soloLectura: false,
     errorLineas: null,
     descuentoPorDefectoPorcentaje: 0,
+    precioDistribuidor: false,
     permiteLineaLibre: false,
     redondearAlPeso: false,
   },
@@ -129,17 +143,27 @@ function onArticuloSeleccionado(articulo: ArticuloResultado) {
     descripcion: articulo.nombre,
     modelo: articulo.modelo,
     // El precio precargado es editable; capturar otro no modifica el catálogo (ver 012,
-    // supuestos #8 y #10).
+    // supuestos #8 y #10). Si el cliente es distribuidor, nace con el precio distribuidor en vez
+    // del directo (ver 033-precio-distribuidor.md).
     precio_unitario:
       props.origenPrecio === 'costo'
         ? articulo.costo_con_descuento
-        : articulo.precio_unitario_sin_iva,
+        : props.precioDistribuidor
+          ? articulo.precio_distribuidor_sin_iva
+          : articulo.precio_unitario_sin_iva,
     // El descuento precargado queda en su columna, editable como cualquier otro; reemplazarlo en
     // las líneas ya capturadas al cambiar de cliente es responsabilidad de la vista.
     descuento_tipo: props.descuentoPorDefectoPorcentaje > 0 ? 'porcentaje' : null,
     descuento_valor:
       props.descuentoPorDefectoPorcentaje > 0 ? props.descuentoPorDefectoPorcentaje : null,
     tasa_iva: '16',
+    // Cacheados solo para poder reemplazar el precio si cambia el cliente, sin volver a consultar
+    // el artículo (ver 033-precio-distribuidor.md). No aplica a orden de compra (origenPrecio
+    // 'costo'), que no usa ninguno de los dos precios de venta.
+    precio_directo_sin_iva:
+      props.origenPrecio === 'costo' ? undefined : articulo.precio_unitario_sin_iva,
+    precio_distribuidor_sin_iva:
+      props.origenPrecio === 'costo' ? undefined : articulo.precio_distribuidor_sin_iva,
   })
 }
 

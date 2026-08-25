@@ -103,6 +103,7 @@ function elegir(cliente: Cliente | ClienteResultado) {
     razon_social: cliente.razon_social,
     rfc: cliente.rfc,
     descuento_permanente: cliente.descuento_permanente,
+    es_distribuidor: cliente.es_distribuidor,
   })
 }
 
@@ -202,6 +203,7 @@ async function darDeAlta(campos: CamposConstancia) {
       telefono: null,
       direccion_comercial: campos.direccion_comercial,
       descuento_permanente: 0,
+      es_distribuidor: false,
     })
 
     subiendoRfc.value = false
@@ -265,6 +267,7 @@ async function guardarNuevo() {
       telefono: nuevo.value.telefono.trim() || null,
       direccion_comercial: null,
       descuento_permanente: 0,
+      es_distribuidor: false,
     })
 
     capturando.value = false

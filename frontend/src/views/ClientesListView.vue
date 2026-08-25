@@ -8,6 +8,7 @@ import { Button } from '../components/ui/button'
 import { Card, CardContent } from '../components/ui/card'
 import { Input } from '../components/ui/input'
 import { Alert, AlertDescription } from '../components/ui/alert'
+import { Badge } from '../components/ui/badge'
 import {
   Table,
   TableBody,
@@ -89,12 +90,13 @@ async function confirmarEliminar() {
                 <TableHead>Nombre comercial</TableHead>
                 <TableHead>Régimen fiscal</TableHead>
                 <TableHead class="text-right">Descuento</TableHead>
+                <TableHead>Distribuidor</TableHead>
                 <TableHead class="text-right">Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               <TableRow v-if="!clientes.loading && clientes.items.length === 0">
-                <TableCell colspan="6" class="text-muted-foreground py-10 text-center">
+                <TableCell colspan="7" class="text-muted-foreground py-10 text-center">
                   No hay clientes registrados todavía.
                 </TableCell>
               </TableRow>
@@ -105,6 +107,10 @@ async function confirmarEliminar() {
                 <TableCell>{{ cliente.regimen_fiscal }}</TableCell>
                 <TableCell class="text-right">
                   {{ cliente.descuento_permanente > 0 ? `${cliente.descuento_permanente}%` : '—' }}
+                </TableCell>
+                <TableCell>
+                  <Badge v-if="cliente.es_distribuidor" variant="secondary">Distribuidor</Badge>
+                  <span v-else class="text-muted-foreground">—</span>
                 </TableCell>
                 <TableCell class="flex justify-end gap-2 text-right">
                   <Button as-child variant="outline" size="icon-sm">

@@ -120,6 +120,7 @@ async function cargarCotizacion(id: number) {
       razon_social: cotizacion.cliente_razon_social ?? '',
       rfc: cotizacion.cliente_rfc ?? '',
       descuento_permanente: cotizacion.descuento_cliente_porcentaje,
+      es_distribuidor: cotizacion.cliente_es_distribuidor,
     }
     descuentoGlobalTipo.value = cotizacion.descuento_global_tipo
     descuentoGlobalValor.value = cotizacion.descuento_global_valor

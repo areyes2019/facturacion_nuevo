@@ -174,7 +174,9 @@ nuestra).
   criterio que `descripcion` (copia editable, no referencia viva).
 - `precio_unitario`: decimal, obligatorio, mayor a 0. Se precarga con
   `Articulo.precio_unitario_sin_iva` al agregar la línea, pero es **editable** — tampoco es una
-  referencia viva al artículo.
+  referencia viva al artículo. Si el cliente elegido es distribuidor, se precarga con
+  `Articulo.precio_distribuidor_sin_iva` en su lugar
+  ([033](033-precio-distribuidor.md)).
 - `descuento_tipo` (`porcentaje`|`monto`, nullable), `descuento_valor` (nullable; si
   `porcentaje`, entre 0 y 100).
 - `tasa_iva` (`16`|`0`|`exento`, obligatorio, por línea).

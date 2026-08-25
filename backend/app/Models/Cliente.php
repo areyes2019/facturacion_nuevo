@@ -21,6 +21,7 @@ use PhpCfdi\Rfc\Rfc;
     'telefono',
     'direccion_comercial',
     'descuento_permanente',
+    'es_distribuidor',
 ])]
 class Cliente extends Model
 {
@@ -34,6 +35,7 @@ class Cliente extends Model
     {
         return [
             'descuento_permanente' => 'decimal:2',
+            'es_distribuidor' => 'boolean',
         ];
     }
 

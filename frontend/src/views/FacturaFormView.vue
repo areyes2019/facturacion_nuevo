@@ -10,11 +10,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Label } from '../components/ui/label'
 import { Alert, AlertDescription } from '../components/ui/alert'
 import AppLayout from '../layouts/AppLayout.vue'
-import ClienteCombobox from '../components/ClienteCombobox.vue'
+import ClienteCombobox, { type ClienteResultado } from '../components/ClienteCombobox.vue'
 import UsoCfdiCombobox from '../components/UsoCfdiCombobox.vue'
 import FormaPagoSelect from '../components/FormaPagoSelect.vue'
 import MetodoPagoSelect from '../components/MetodoPagoSelect.vue'
 import DocumentoLineas, { type LineaEditable } from '../components/DocumentoLineas.vue'
+import { aplicarPrecioCliente } from '../lib/precioClienteLinea'
 
 const route = useRoute()
 const router = useRouter()
@@ -40,6 +41,12 @@ const clienteFijoNombre = ref<string | null>(null)
  * dentro del precio unitario (ver 015-descuento-permanente-cliente.md).
  */
 const descuentoCotizacionOrigen = ref(0)
+/**
+ * El cliente elegido es distribuidor (ver 033-precio-distribuidor.md): precarga cada línea nueva
+ * con el precio distribuidor. A diferencia del descuento permanente (015), sí aplica en una
+ * factura creada desde cero.
+ */
+const esClienteDistribuidorActual = ref(false)
 
 const form = reactive({
   cliente_id: null as number | null,
@@ -69,6 +76,7 @@ onMounted(async () => {
     try {
       const factura = await facturas.fetchOne(facturaId.value)
       form.cliente_id = factura.cliente_id
+      esClienteDistribuidorActual.value = factura.cliente_es_distribuidor
       form.uso_cfdi = factura.uso_cfdi
       form.forma_pago = factura.forma_pago
       form.metodo_pago = factura.metodo_pago
@@ -102,6 +110,9 @@ onMounted(async () => {
       form.cliente_id = cotizacion.cliente_id
       clienteFijoNombre.value = cotizacion.cliente_razon_social
       descuentoCotizacionOrigen.value = cotizacion.descuento_cliente_porcentaje
+      // El cliente es fijo en esta pantalla, pero el combobox de artículos sigue activo: si se
+      // agrega una línea nueva antes de guardar, debe nacer con el precio correcto (ver 033).
+      esClienteDistribuidorActual.value = cotizacion.cliente_es_distribuidor
       // El descuento global sí viaja tal cual: el usuario lo capturó explícitamente para este
       // documento y no hace falta plegarlo para que los totales cuadren (ver 015).
       form.descuento_global_tipo = cotizacion.descuento_global_tipo
@@ -125,6 +136,18 @@ onMounted(async () => {
     }
   }
 })
+
+/**
+ * Solo se dispara cuando el combobox está visible, es decir, en una factura creada desde cero o en
+ * edición (nunca cuando viene de una cotización, donde el cliente es fijo). Reemplaza el precio de
+ * las líneas ya capturadas por el que corresponda al cliente nuevo (ver 033-precio-distribuidor.md).
+ * A diferencia del descuento permanente (015), aquí sí aplica: no hay un documento intermedio que
+ * explique de dónde salió el precio.
+ */
+async function onClienteSeleccionado(cliente: ClienteResultado | null) {
+  esClienteDistribuidorActual.value = cliente?.es_distribuidor ?? false
+  lineas.value = await aplicarPrecioCliente(lineas.value, esClienteDistribuidorActual.value)
+}
 
 async function onSubmit() {
   guardando.value = true
@@ -196,7 +219,11 @@ async function onSubmit() {
           <CardContent class="space-y-4">
             <div class="space-y-1.5">
               <Label>Cliente</Label>
-              <ClienteCombobox v-if="!clienteFijoNombre" v-model="form.cliente_id" />
+              <ClienteCombobox
+                v-if="!clienteFijoNombre"
+                v-model="form.cliente_id"
+                @seleccion="onClienteSeleccionado"
+              />
               <p
                 v-else
                 class="border-input bg-muted text-muted-foreground rounded-md border px-3 py-2 text-sm"
@@ -242,11 +269,18 @@ async function onSubmit() {
           </AlertDescription>
         </Alert>
 
+        <Alert v-if="esClienteDistribuidorActual">
+          <AlertDescription>
+            Este cliente es distribuidor: cada línea usa el precio distribuidor.
+          </AlertDescription>
+        </Alert>
+
         <DocumentoLineas
           v-model:lineas="lineas"
           v-model:descuento-global-tipo="form.descuento_global_tipo"
           v-model:descuento-global-valor="form.descuento_global_valor"
           :error-lineas="erroresPorCampo.lineas"
+          :precio-distribuidor="esClienteDistribuidorActual"
           redondear-al-peso
         />
 

@@ -26,6 +26,7 @@ class ClienteResource extends JsonResource
             'telefono' => $this->telefono,
             'direccion_comercial' => $this->direccion_comercial,
             'descuento_permanente' => (float) $this->descuento_permanente,
+            'es_distribuidor' => (bool) $this->es_distribuidor,
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
         ];

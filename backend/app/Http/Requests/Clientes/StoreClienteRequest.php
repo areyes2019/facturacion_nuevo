@@ -33,6 +33,12 @@ class StoreClienteRequest extends FormRequest
         if ($this->has('descuento_permanente') && in_array($this->descuento_permanente, [null, ''], true)) {
             $this->merge(['descuento_permanente' => 0]);
         }
+
+        // Mismo criterio: ausente o vacío equivale a "no distribuidor" (ver
+        // 033-precio-distribuidor.md). La columna es NOT NULL con default false.
+        if ($this->has('es_distribuidor') && in_array($this->es_distribuidor, [null, ''], true)) {
+            $this->merge(['es_distribuidor' => false]);
+        }
     }
 
     /**
@@ -61,6 +67,7 @@ class StoreClienteRequest extends FormRequest
             // Tope de 50% validado en el servidor, no solo en la pantalla. Aplica al dato del
             // cliente, no al descuento efectivo (un descuento global encima puede superarlo).
             'descuento_permanente' => ['sometimes', 'numeric', 'min:0', 'max:50', 'decimal:0,2'],
+            'es_distribuidor' => ['sometimes', 'boolean'],
         ];
     }
 }
