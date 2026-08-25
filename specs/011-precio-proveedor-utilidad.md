@@ -346,15 +346,17 @@ ya no existen. Se cierra por dos vías:
 
 ## Fuera de alcance
 
-- **Reportes de rentabilidad** (cuánto gané/perdí hoy, esta semana, este mes; rentabilidad agregada
-  por catálogo o proveedor). Queda como historia futura `012`. Responder "cuánto gané" requiere
-  además que las líneas vendidas guarden el costo del momento, lo cual **no** se hace en esta
-  historia.
-- Cualquier modificación a [Facturación](007-facturacion.md), [Cotizaciones](008-cotizaciones.md) o
-  [Tesorería](010-tesoreria.md). Las líneas de factura y cotización siguen guardando su propia copia
-  de `precio_unitario` (desacoplada del catálogo) y **no** guardan costo ni utilidad.
-- Mostrar la utilidad al armar una cotización o factura, incluso cuando se aplica un descuento por
-  línea que erosiona el margen.
+- **Reportes de rentabilidad agregados** (cuánto gané/perdí hoy, esta semana, este mes; rentabilidad
+  por catálogo o proveedor). Sigue sin existir una pantalla ni un endpoint que sume utilidad por
+  periodo: [010](010-tesoreria.md) sí resuelve el caso más acotado de "cuánto gané en esta venta",
+  mostrando la utilidad de cada cotización o pedido cobrado en su propio movimiento de Tesorería, con
+  el costo que sus líneas guardan desde esa historia — pero no la agrega ni la grafica.
+- Cualquier modificación a [Facturación](007-facturacion.md). Las líneas de factura siguen guardando
+  su propia copia de `precio_unitario` (desacoplada del catálogo) y **no** guardan costo ni utilidad,
+  porque Facturación no genera movimientos en Tesorería y no lo necesita.
+- Mostrar la utilidad al armar una cotización, un pedido o una factura mientras se captura — esta
+  historia solo calcula el precio de venta en vivo; la utilidad de la venta ya cobrada se consulta
+  después, en Tesorería ([010](010-tesoreria.md)).
 - **Precio calculado por margen sobre la venta** (`costo ÷ (1 − % / 100)`), y cualquier selector que
   permita elegir entre markup y margen por catálogo o por artículo. El porcentaje siempre es markup
   sobre el costo.
@@ -493,11 +495,16 @@ ya no existen. Se cierra por dos vías:
     `utilidad_porcentaje` **opcional** (celda vacía = hereda del catálogo destino). Importación y
     exportación usan exactamente las mismas 7 columnas, y los valores calculados no viajan en el
     archivo.
-22. Facturación y Cotizaciones no se tocan en esta historia; no se guarda utilidad ni costo por
-    documento emitido.
-23. No hay reportes en esta historia. Responder "¿cuánto gané/perdí hoy, esta semana, este mes?" y
-    "¿de cuánto dinero puedo disponer?" queda como historia futura `012`, porque cruza Artículos,
-    Cotizaciones, Facturas y Tesorería, y exige guardar el costo en cada línea vendida.
+22. **(Redefinido por [010](010-tesoreria.md))** Facturación y Cotizaciones no se tocan en esta
+    historia (011); no se guarda utilidad ni costo por documento emitido aquí. 010 sí extiende
+    Cotizaciones y Pedidos para guardar el costo por línea y mostrar la utilidad de la venta ya
+    cobrada en Tesorería — Facturación queda fuera también de ese alcance, porque no genera
+    movimientos.
+23. **(Redefinido por [010](010-tesoreria.md))** No hay reportes agregados en esta historia.
+    Responder "¿cuánto gané en esta cotización o pedido?" ya se resuelve en 010, movimiento por
+    movimiento; "¿cuánto gané hoy/esta semana/este mes en total?" y "¿de cuánto dinero puedo
+    disponer?" siguen sin pantalla propia — quedan como una historia futura si hace falta agregarlos
+    o graficarlos.
 24. No hay historial de cambios de precio, costo ni porcentaje, ni posibilidad de revertir un
     recálculo.
 25. Todo en MXN; no hay moneda del proveedor ni tipo de cambio.

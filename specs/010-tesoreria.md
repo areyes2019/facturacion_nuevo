@@ -14,8 +14,9 @@ Implementar el módulo de Tesorería sobre la base ya existente de Laravel API +
 [003](003-design-system-tailwind.md), y conectado al módulo de [Cotizaciones](008-cotizaciones.md).
 Incluye: administración de cuentas financieras, registro manual de ingresos, egresos,
 transferencias entre cuentas y ajustes de saldo, consulta de movimientos con filtros, consulta de
-saldos por cuenta, y la integración automática que convierte cada pago de cotización en un
-movimiento de ingreso.
+saldos por cuenta, la integración automática que convierte cada pago de cotización o de pedido en un
+movimiento de ingreso, y — sobre esos dos orígenes — la utilidad de venta que le queda al usuario en
+cada uno.
 
 Tesorería **no** administra ventas, compras ni facturación; únicamente registra el efecto
 financiero que dichos módulos producen. Ese desacoplamiento es deliberado: el módulo debe poder
@@ -188,14 +189,110 @@ cotización solo puede eliminarse en estado `borrador`, y en `borrador` todavía
 ningún pago registrado (los botones de pago solo aparecen en `enviada`). Por lo tanto, ninguna
 cotización con movimientos financieros asociados es elegible para borrado.
 
-### Integración con futuros módulos
+### Integración con Pedidos (027)
 
-Las Órdenes de Compra (RN-014) y un módulo de Ventas propio (RN-015) no existen todavía en este
-sistema. El mecanismo de integración queda genérico y listo (la relación polimórfica
-`documentable` de `Movimiento` más el servicio que crea el movimiento y recalcula el saldo), pero
-esta historia **no implementa ningún caso de uso real de Órdenes de Compra**. RN-015 ("los ingresos
-generados por ventas producen movimientos automáticos") queda cubierta, en el estado actual del
-sistema, por los pagos de cotización.
+Los pagos de un `Pedido` (venta de mostrador, [027](027-venta-mostrador-ticket.md)) generan
+movimientos de ingreso por el mismo mecanismo que los de Cotización: al registrarse un `PedidoPago`
+—el anticipo, un abono o el saldo cobrado al entregar— `TesoreriaService` crea de inmediato un
+`Movimiento` de `tipo = ingreso` sobre la cuenta elegida, con `documentable` apuntando a ese
+`PedidoPago` y con el concepto generado por el sistema que ya define 027 (`"Pago de Pedido
+PED-00042"` o `"Saldo al entregar de Pedido PED-00042"`, según el caso).
+
+Lo que faltaba —y que esta historia corrige— es que `MovimientoResource::documentoOrigen()` solo
+reconocía `CotizacionPago` y `OrdenCompra`. Un movimiento generado por un `PedidoPago` ya era
+automático internamente (`es_automatico = true`, acciones de editar/eliminar deshabilitadas por esa
+misma bandera), pero al no tener documento origen expuesto aparecía en `/tesoreria/movimientos` con
+Origen "Manual" y sin enlace, indistinguible de un movimiento capturado a mano. Se agrega el tercer
+caso:
+
+```php
+if ($documento instanceof PedidoPago) {
+    $pedido = $documento->pedido;
+
+    return [
+        'tipo' => 'pedido',
+        'etiqueta' => 'PED-'.str_pad((string) $pedido->folio, 5, '0', STR_PAD_LEFT),
+        'ruta' => 'pedidos-detalle',
+        'id' => $pedido->id,
+    ];
+}
+```
+
+Con esto, un movimiento originado por un Pedido enlaza a `/pedidos/{id}` igual que uno de Cotización
+enlaza a `/cotizaciones/{id}`.
+
+### RN-014 y RN-015, cerradas
+
+Cuando se escribió esta historia, ni Órdenes de Compra ni un módulo de Ventas propio existían
+todavía: el mecanismo quedó genérico (la relación polimórfica `documentable` de `Movimiento`, más el
+servicio que crea el movimiento y recalcula el saldo) a la espera de que alguno los usara. Hoy los
+dos existen y ya lo hacen:
+
+- **Órdenes de Compra ([012](012-ordenes-compra.md))**: pagar una orden de compra genera un
+  `Movimiento` de `tipo = egreso` sobre la cuenta elegida, con `documentable` apuntando a la
+  `OrdenCompra`. `MovimientoResource` ya lo reconoce.
+- **Pedidos ([027](027-venta-mostrador-ticket.md))**: cubre RN-015 ("los ingresos generados por
+  ventas producen movimientos automáticos"), tal como se anticipaba. Ver "Integración con Pedidos"
+  arriba para el detalle y la corrección que faltaba.
+
+Esta especificación no repite la lógica de negocio propia de esos dos módulos (folios, estados,
+validaciones): esa vive en 012 y 027. Aquí solo importa su efecto sobre Tesorería.
+
+### Utilidad de venta en movimientos automáticos
+
+Un movimiento que viene de una venta cobrada —Cotización o Pedido— expone además cuánto le quedó de
+utilidad al usuario por esa venta, para responder justo lo que un movimiento manual como "Ventas
+Varias" no puede: de dónde salió ese ingreso y qué tan rentable fue.
+
+**Solo aplica a estos dos orígenes.** Un movimiento manual, uno de transferencia, uno de ajuste o uno
+que viene de una Orden de Compra (egreso) no tiene utilidad que mostrar: el dato queda vacío. La
+utilidad tampoco existe para Facturación, que —como ya establece esta especificación— nunca genera
+movimientos en Tesorería.
+
+**Es la utilidad del documento completo, no la del pago.** Si una cotización se cobra en dos partes
+(anticipo y saldo), los dos movimientos muestran el mismo monto: la utilidad total de esa cotización,
+no una fracción proporcional al pago que generó cada uno. Se calcula sin importar si el documento ya
+está pagado al 100% o apenas tiene un anticipo — es una propiedad del documento vendido, no del corte
+de caja.
+
+**De dónde sale el número.** Requiere que cada línea del documento sepa cuánto costó el artículo en
+el momento en que se vendió (ver "Costo capturado por línea" en [008](008-cotizaciones.md) y
+[027](027-venta-mostrador-ticket.md)). Con eso:
+
+```
+utilidad(documento) = Σ ( importe_línea − costo_unitario_línea × cantidad_línea )
+```
+
+sumando solo las líneas que tienen `costo_unitario` (líneas con artículo del catálogo).
+`importe_línea` ya es el neto sin IVA de esa línea **después** de su propio descuento y de la
+porción que le tocó del descuento global (el prorrateo que 007/008 ya resuelven), así que la
+utilidad se mide contra lo que realmente se cobró, no contra el precio de lista — mismo criterio que
+[011](011-precio-proveedor-utilidad.md) usa para la utilidad de un artículo.
+
+**Dos casos en los que el número no es un total limpio:**
+
+- **Líneas libres (solo en Pedido, [027](027-venta-mostrador-ticket.md))**: una línea sin
+  `articulo_id` no tiene costo conocido y se excluye de la suma. Si el pedido mezcla líneas de
+  catálogo con líneas libres, la utilidad mostrada cubre solo las primeras y el documento queda
+  marcado como **parcial** (`utilidad_parcial = true`), en vez de dar a entender un total que no lo
+  es.
+- **Documentos de antes de este cambio**: una cotización o pedido creado antes de que existiera
+  `costo_unitario` no tiene ese dato en ninguna de sus líneas. Ahí no hay nada que sumar y el
+  movimiento expone `utilidad = null` (**"utilidad no disponible"**, distinto de $0.00): reconstruir
+  ese costo con el `costo_con_descuento` *actual* del artículo daría un número falso, porque el costo
+  del artículo pudo cambiar desde entonces.
+
+**Exposición.** `MovimientoResource::documentoOrigen()` agrega, solo para los tipos `cotizacion` y
+`pedido`:
+
+```php
+'utilidad' => float|null,       // null = no disponible (documento sin costo capturado)
+'utilidad_parcial' => bool,     // true = hay líneas sin costo excluidas de la suma
+```
+
+El cálculo vive en un método propio de `Cotizacion`/`Pedido` (`utilidadVenta()`, compartido por un
+trait ya que la fórmula es idéntica en ambos modelos), no en `MovimientoResource`, para que cualquier
+otra pantalla que en el futuro necesite este número no tenga que ir a buscarlo a Tesorería.
 
 ### Endpoints (bajo `auth:sanctum`, scopeados al usuario autenticado)
 
@@ -220,7 +317,9 @@ sistema, por los pagos de cotización.
 - `GET /api/v1/movimientos` — **UC-06**: listado paginado, ordenado por `fecha` descendente, con
   filtros **combinables entre sí**: `?fecha_desde=`/`?fecha_hasta=` (rango), `?cuenta_id=`,
   `?tipo=` (`ingreso`|`egreso`|`transferencia`|`ajuste`) y `?concepto=` (búsqueda de texto libre).
-  Cada movimiento expone su documento origen cuando lo tiene.
+  Cada movimiento expone su documento origen cuando lo tiene. Cuando ese documento origen es una
+  Cotización o un Pedido, además expone la utilidad de venta calculada (ver "Utilidad de venta en
+  movimientos automáticos").
 - `POST /api/v1/movimientos` — **UC-02/UC-03/UC-05**: registra un movimiento manual de una sola
   cuenta; body `{ tipo: ingreso|egreso|ajuste, cuenta_id, monto, fecha, concepto }`.
 - `GET /api/v1/movimientos/{id}` — detalle.
@@ -297,11 +396,17 @@ lugar de `forma_pago`.
   por tener movimientos, el mensaje se muestra dentro del propio diálogo (mismo patrón que 005/009)
   y se ofrece desactivar la cuenta como alternativa.
 - **`/tesoreria/movimientos`** (protegida) — **UC-06**: listado paginado de movimientos (fecha,
-  cuenta, tipo, concepto, monto, documento origen), con los 4 filtros combinables (rango de fecha,
-  cuenta, tipo, concepto). Los montos se muestran con signo y color según su efecto sobre el saldo.
-  Los movimientos automáticos se distinguen visualmente y muestran un enlace a su documento origen
-  (la cotización); sus acciones de editar/eliminar aparecen **deshabilitadas**, con la indicación
-  de que deben corregirse desde el documento origen.
+  cuenta, tipo, concepto, monto, **utilidad**, documento origen), con los 4 filtros combinables
+  (rango de fecha, cuenta, tipo, concepto). Los montos se muestran con signo y color según su efecto
+  sobre el saldo. Los movimientos automáticos se distinguen visualmente y muestran un enlace a su
+  documento origen (la cotización o el pedido); sus acciones de editar/eliminar aparecen
+  **deshabilitadas**, con la indicación de que deben corregirse desde el documento origen.
+  - **Columna Utilidad**: solo tiene contenido en los movimientos que vienen de una Cotización o de
+    un Pedido. Muestra el monto en verde cuando hay un número; un texto discreto **"Parcial"**, con
+    `title` explicando que el documento tiene líneas libres sin costo conocido, cuando
+    `utilidad_parcial` es verdadero; y un guion con **"No disponible"** cuando el documento es
+    anterior a este cambio y ninguna de sus líneas tiene costo capturado. El resto de los
+    movimientos (manuales, transferencias, ajustes, egresos de Orden de Compra) deja la celda vacía.
   - Botones de acción: **"Registrar ingreso"**, **"Registrar egreso"**, **"Registrar
     transferencia"** y **"Registrar ajuste"**, cada uno abriendo su propio modal.
   - Modal de ingreso/egreso (**UC-02/UC-03**): cuenta, monto, fecha y concepto.
@@ -337,11 +442,54 @@ lugar de `forma_pago`.
 - Conciliación bancaria, importación de estados de cuenta, o categorías/centros de costo sobre los
   movimientos.
 - Adjuntar comprobantes (archivos) a un movimiento.
+- **Utilidad en Facturación**: como Facturación no genera movimientos en Tesorería, tampoco expone
+  utilidad en ningún punto de esta historia.
+- **Reportes de rentabilidad agregados** (utilidad total del día/semana/mes, por cliente o por
+  catálogo): la utilidad aquí es un dato por movimiento individual, visible al leer el listado; no
+  hay pantalla ni endpoint que la sume ni la grafique. Sigue siendo una historia futura, tal como ya
+  lo anticipaba [011](011-precio-proveedor-utilidad.md).
+- **Recalcular el costo de documentos ya existentes**: ninguna cotización ni pedido creado antes de
+  este cambio recibe un `costo_unitario` retroactivo. Sus movimientos muestran "utilidad no
+  disponible" de forma permanente.
+- **Desglose de utilidad por línea en la pantalla de Movimientos**: se muestra el total del
+  documento, no un desglose línea por línea (ese detalle, si hace falta, se consulta en el propio
+  detalle de la cotización o del pedido).
 - Edición de un `CotizacionPago` ya registrado: solo se permite eliminar el más reciente y volver a
   capturarlo.
 - Eliminación de pagos de una cotización en estado `producto_entregado`.
 - Auditoría/bitácora de quién modificó o eliminó un movimiento manual.
 - Roles/permisos diferenciados y multiempresa (mismo patrón que 004/005/006/007/008/009).
+
+## Estado de implementación
+
+Esta spec no traía originalmente una sección de estado; el módulo base de Tesorería (cuentas,
+movimientos manuales, transferencias, ajustes y la integración con pagos de Cotización) ya estaba en
+producción antes de esta nota. Lo que sigue documenta específicamente la ampliación de **utilidad de
+venta en movimientos automáticos**, implementada el 2026-08-25:
+
+- **`CalculaUtilidadVenta`** (`backend/app/Models/Concerns/CalculaUtilidadVenta.php`): trait
+  compartido por `Cotizacion` y `Pedido` con el método `utilidadVenta()`. Suma
+  `importe − costo_unitario × cantidad` sobre las líneas con `articulo_id`; si alguna de esas líneas
+  no tiene `costo_unitario` capturado, devuelve `utilidad = null` en vez de sumar un total a medias.
+- **`MovimientoResource::documentoOrigen()`** gana el caso `PedidoPago` (antes ausente por completo)
+  y, para `CotizacionPago`/`PedidoPago`, agrega `utilidad` y `utilidad_parcial` llamando a
+  `utilidadVenta()` sobre el documento.
+- **`MovimientoController::index()`/`show()`** precargan `cotizacion.lineas`/`pedido.lineas` dentro
+  del `morphWith` del documento origen, para no disparar una consulta por fila al calcular la
+  utilidad de cada movimiento del listado.
+- **`CotizacionController`/`PedidoController::guardarLineas()`** llenan `costo_unitario` con una
+  sola consulta (`Articulo::whereIn('id', ...)->pluck('costo_con_descuento', 'id')`) en vez de una
+  por línea; `CotizacionController::duplicar()` copia el `costo_unitario` de la línea original.
+- Frontend: `DocumentoOrigen` (`frontend/src/stores/movimientos.ts`) gana `utilidad`/
+  `utilidad_parcial`, y `MovimientosListView.vue` agrega la columna Utilidad (monto en verde/rojo
+  según el signo, "Parcial" cuando hay líneas libres excluidas, "No disponible" cuando el documento
+  no tiene costo capturado, vacía en el resto de los movimientos).
+- Cubierto por 5 tests nuevos en `TesoreriaTest.php`; suite completa del backend en verde (668
+  tests, 825 371 aserciones), Pint limpio. Frontend: `npm run build` (incluye `vue-tsc`), ESLint y
+  Prettier limpios, Vitest en verde (96 tests).
+- **No se pudo verificar visualmente en un navegador real** — se recomienda registrar el pago de una
+  cotización y de un pedido con artículos de costo conocido y confirmar en pantalla que la columna
+  Utilidad muestra el monto esperado, y que un pedido con una línea libre lo marca como "Parcial".
 
 ## Criterios de aceptación
 
@@ -389,6 +537,20 @@ lugar de `forma_pago`.
 19. La navegación principal muestra la entrada "Contabilidad", desde la cual se accede a Cuentas,
     Movimientos y Saldos.
 20. Pint y ESLint/Prettier corren sin errores sobre el código nuevo.
+21. Un movimiento cuyo documento origen es un `CotizacionPago` o un `PedidoPago` expone la utilidad
+    de venta del documento completo; cualquier otro tipo de movimiento no expone utilidad.
+22. Un documento cobrado en varias partes muestra la misma utilidad en cada uno de sus movimientos
+    asociados, sin importar el monto de cada pago.
+23. La utilidad se calcula como la suma, por cada línea con artículo de catálogo, del importe de
+    venta (ya neto de descuentos) menos el costo capturado al momento de la venta; las líneas libres
+    de un pedido quedan fuera de la suma.
+24. Un pedido que mezcla líneas de catálogo con líneas libres muestra su utilidad marcada como
+    parcial.
+25. Una cotización o pedido creado antes de este cambio muestra "utilidad no disponible" en vez de
+    un monto, porque no tiene costo capturado en sus líneas.
+26. Un movimiento generado por el pago de un Pedido enlaza a su pedido en la columna Origen, igual
+    que ya hacía uno de Cotización.
+27. Pint y ESLint/Prettier corren sin errores sobre el código de esta ampliación.
 
 ## Supuestos asumidos (registro completo)
 
@@ -478,3 +640,29 @@ lugar de `forma_pago`.
 31. **(Adición técnica)** El nombre de negocio interno y el nombre visible se desacoplan: modelos,
     rutas (`/tesoreria/...`), controladores y clases usan "Tesorería"/`tesoreria`; solo la etiqueta
     del menú de navegación dice "Contabilidad".
+32. La utilidad en Movimientos solo aplica a los dos orígenes de ingreso que sí se pueden rastrear a
+    una venta: pagos de Cotización y pagos de Pedido. El resto de los movimientos (manuales,
+    transferencias, ajustes, egresos de Orden de Compra) no tiene una venta detrás de la cual
+    calcular utilidad.
+33. La utilidad mostrada es la del documento completo, no la del pago individual que generó ese
+    movimiento en particular: dos movimientos del mismo documento muestran el mismo número.
+34. La utilidad se calcula sin IVA y ya con los descuentos (de línea y global) aplicados — es lo que
+    realmente queda, no la utilidad de lista.
+35. **(Adición técnica)** Se agrega `costo_unitario` a `CotizacionLinea` y a `PedidoLinea` (ver 008 y
+    027): una fotografía del costo del artículo tomada al capturar la línea, no un valor recalculado
+    con el costo actual. Sin esto no hay manera de saber cuánto costaba el artículo el día que se
+    vendió si su costo cambió después.
+36. **(Adición técnica)** Las líneas libres de un Pedido no tienen `costo_unitario` por no tener
+    artículo; se excluyen de la suma y el documento queda marcado como utilidad parcial.
+37. **(Adición técnica)** Los documentos creados antes de esta historia no reciben `costo_unitario`
+    retroactivo: no hay migración de datos que lo intente, porque el costo histórico ya no es
+    reconstruible con exactitud. Sus movimientos muestran utilidad no disponible de forma
+    permanente.
+38. **(Adición técnica)** `MovimientoResource::documentoOrigen()` gana el caso `PedidoPago`, que
+    hasta ahora no reconocía: los movimientos generados por un Pedido aparecían con Origen "Manual"
+    y sin enlace en `/tesoreria/movimientos`, pese a ya ser movimientos automáticos de solo lectura.
+    Se corrige para que el pedido enlace igual que ya enlaza la cotización.
+39. **(Adición técnica)** La sección de integración con futuros módulos quedó desactualizada:
+    Órdenes de Compra (012) y Pedidos (027) ya existen y ya integran con Tesorería. Se reescribe
+    para reflejar el estado real en vez del supuesto original de que ninguno de los dos existía
+    todavía.

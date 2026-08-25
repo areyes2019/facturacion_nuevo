@@ -4,6 +4,7 @@ namespace App\Http\Resources;
 
 use App\Models\CotizacionPago;
 use App\Models\OrdenCompra;
+use App\Models\PedidoPago;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -37,10 +38,16 @@ class MovimientoResource extends JsonResource
 
     /**
      * Documento que originó el movimiento, en la forma mínima que el frontend necesita para
-     * enlazarlo: un `CotizacionPago` (ingreso, 010) o una `OrdenCompra` pagada (egreso, 012).
-     * Futuros módulos se agregan aquí sin tocar el modelo ni la migración.
+     * enlazarlo: un `CotizacionPago` o un `PedidoPago` (ingreso, 010) o una `OrdenCompra` pagada
+     * (egreso, 012). Futuros módulos se agregan aquí sin tocar el modelo ni la migración.
      *
-     * @return array{tipo: string, etiqueta: string, ruta: string, id: int}|null
+     * Para los dos orígenes de venta (Cotización y Pedido) se agrega además la utilidad de esa
+     * venta, calculada sobre el documento completo (ver 010-tesoreria.md, "Utilidad de venta en
+     * movimientos automáticos"): `null` cuando el documento no tiene costo capturado en sus líneas
+     * (creado antes de que existiera `costo_unitario`), y `utilidad_parcial` cuando alguna línea sin
+     * artículo (línea libre, solo en Pedido) quedó fuera de la suma.
+     *
+     * @return array{tipo: string, etiqueta: string, ruta: string, id: int, utilidad?: float|null, utilidad_parcial?: bool}|null
      */
     private function documentoOrigen(): ?array
     {
@@ -48,12 +55,29 @@ class MovimientoResource extends JsonResource
 
         if ($documento instanceof CotizacionPago) {
             $cotizacion = $documento->cotizacion;
+            $utilidad = $cotizacion->utilidadVenta();
 
             return [
                 'tipo' => 'cotizacion',
                 'etiqueta' => 'COT-'.str_pad((string) $cotizacion->folio, 5, '0', STR_PAD_LEFT),
                 'ruta' => 'cotizaciones-detalle',
                 'id' => $cotizacion->id,
+                'utilidad' => $utilidad['utilidad'],
+                'utilidad_parcial' => $utilidad['utilidad_parcial'],
+            ];
+        }
+
+        if ($documento instanceof PedidoPago) {
+            $pedido = $documento->pedido;
+            $utilidad = $pedido->utilidadVenta();
+
+            return [
+                'tipo' => 'pedido',
+                'etiqueta' => $pedido->folioFormateado(),
+                'ruta' => 'pedidos-detalle',
+                'id' => $pedido->id,
+                'utilidad' => $utilidad['utilidad'],
+                'utilidad_parcial' => $utilidad['utilidad_parcial'],
             ];
         }
 

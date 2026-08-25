@@ -16,6 +16,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'descripcion',
     'modelo',
     'precio_unitario',
+    'costo_unitario',
     'descuento_tipo',
     'descuento_valor',
     'tasa_iva',
@@ -69,6 +70,7 @@ class CotizacionLinea extends Model
         return [
             'cantidad' => 'integer',
             'precio_unitario' => 'decimal:2',
+            'costo_unitario' => 'decimal:2',
             'descuento_tipo' => TipoDescuento::class,
             'descuento_valor' => 'decimal:2',
             'tasa_iva' => TasaIva::class,

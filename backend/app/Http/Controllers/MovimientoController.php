@@ -7,6 +7,7 @@ use App\Http\Requests\Movimientos\UpdateMovimientoRequest;
 use App\Http\Resources\MovimientoResource;
 use App\Models\CotizacionPago;
 use App\Models\Movimiento;
+use App\Models\PedidoPago;
 use App\Services\TesoreriaService;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Http\Request;
@@ -26,11 +27,13 @@ class MovimientoController extends Controller
     {
         $movimientos = $request->user()->movimientos()
             // El documento origen es polimórfico: se precarga junto con lo que MovimientoResource
-            // necesita de él (el folio de la cotización), en vez de resolverlo fila por fila.
+            // necesita de él (el folio y las líneas, para la utilidad de venta), en vez de
+            // resolverlo fila por fila.
             ->with([
                 'cuenta',
                 'documentable' => fn (MorphTo $morphTo) => $morphTo->morphWith([
-                    CotizacionPago::class => ['cotizacion'],
+                    CotizacionPago::class => ['cotizacion.lineas'],
+                    PedidoPago::class => ['pedido.lineas'],
                 ]),
             ])
             ->when($request->string('fecha_desde')->trim()->isNotEmpty(), fn ($query) => $query->where('fecha', '>=', (string) $request->string('fecha_desde')))
@@ -60,7 +63,13 @@ class MovimientoController extends Controller
     {
         abort_unless($movimiento->user_id === $request->user()->id, 404);
 
-        return new MovimientoResource($movimiento->load(['cuenta', 'documentable']));
+        return new MovimientoResource($movimiento->load([
+            'cuenta',
+            'documentable' => fn (MorphTo $morphTo) => $morphTo->morphWith([
+                CotizacionPago::class => ['cotizacion.lineas'],
+                PedidoPago::class => ['pedido.lineas'],
+            ]),
+        ]));
     }
 
     /**

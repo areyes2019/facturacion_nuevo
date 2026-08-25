@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\EstadoPedido;
 use App\Enums\TipoDescuento;
+use App\Models\Concerns\CalculaUtilidadVenta;
 use Carbon\CarbonInterface;
 use Database\Factories\PedidoFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -48,6 +49,8 @@ use Illuminate\Support\Str;
 ])]
 class Pedido extends Model
 {
+    use CalculaUtilidadVenta;
+
     /** @use HasFactory<PedidoFactory> */
     use HasFactory;
 

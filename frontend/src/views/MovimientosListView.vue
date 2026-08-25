@@ -86,6 +86,10 @@ function colorMonto(movimiento: Movimiento) {
   return movimiento.efecto_en_saldo < 0 ? 'text-destructive' : 'text-emerald-600'
 }
 
+function colorUtilidad(valor: number) {
+  return valor < 0 ? 'text-destructive' : 'text-emerald-600'
+}
+
 function tipoVariant(tipo: TipoMovimiento) {
   return {
     ingreso: 'success',
@@ -327,13 +331,14 @@ async function confirmarEliminar() {
                 <TableHead>Tipo</TableHead>
                 <TableHead>Concepto</TableHead>
                 <TableHead>Origen</TableHead>
+                <TableHead class="text-right">Utilidad</TableHead>
                 <TableHead class="text-right">Monto</TableHead>
                 <TableHead class="text-right">Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               <TableRow v-if="!movimientos.loading && movimientos.items.length === 0">
-                <TableCell colspan="7" class="text-muted-foreground py-10 text-center">
+                <TableCell colspan="8" class="text-muted-foreground py-10 text-center">
                   No hay movimientos que coincidan con los filtros.
                 </TableCell>
               </TableRow>
@@ -362,6 +367,32 @@ async function confirmarEliminar() {
                     {{ movimiento.documento_origen.etiqueta }}
                   </RouterLink>
                   <span v-else class="text-muted-foreground">Manual</span>
+                </TableCell>
+                <TableCell class="text-right">
+                  <template v-if="movimiento.documento_origen?.utilidad !== undefined">
+                    <span
+                      v-if="movimiento.documento_origen.utilidad !== null"
+                      class="font-medium"
+                      :class="colorUtilidad(movimiento.documento_origen.utilidad)"
+                    >
+                      {{ moneda(movimiento.documento_origen.utilidad) }}
+                      <span
+                        v-if="movimiento.documento_origen.utilidad_parcial"
+                        class="text-muted-foreground ml-1 text-xs font-normal"
+                        title="El documento tiene líneas libres sin costo conocido; la utilidad no las incluye."
+                      >
+                        Parcial
+                      </span>
+                    </span>
+                    <span
+                      v-else
+                      class="text-muted-foreground text-xs"
+                      title="Este documento es anterior a que el sistema capturara el costo por línea."
+                    >
+                      No disponible
+                    </span>
+                  </template>
+                  <span v-else class="text-muted-foreground">—</span>
                 </TableCell>
                 <TableCell class="text-right font-medium" :class="colorMonto(movimiento)">
                   {{ moneda(movimiento.efecto_en_saldo) }}

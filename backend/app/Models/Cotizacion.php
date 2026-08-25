@@ -6,6 +6,7 @@ use App\Contracts\DocumentoEnviable;
 use App\Enums\EstadoCotizacion;
 use App\Enums\TipoDescuento;
 use App\Mail\CotizacionEnviadaMail;
+use App\Models\Concerns\CalculaUtilidadVenta;
 use Carbon\CarbonInterface;
 use Database\Factories\CotizacionFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -38,6 +39,8 @@ use Illuminate\Support\Facades\Log;
 ])]
 class Cotizacion extends Model implements DocumentoEnviable
 {
+    use CalculaUtilidadVenta;
+
     /** @use HasFactory<CotizacionFactory> */
     use HasFactory;
 

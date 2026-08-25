@@ -10,6 +10,7 @@ use App\Http\Requests\Pedidos\PedidoPagoRequest;
 use App\Http\Requests\Pedidos\StorePedidoRequest;
 use App\Http\Requests\Pedidos\UpdatePedidoRequest;
 use App\Http\Resources\PedidoResource;
+use App\Models\Articulo;
 use App\Models\Pedido;
 use App\Models\PedidoPago;
 use App\Models\User;
@@ -468,13 +469,20 @@ class PedidoController extends Controller
      */
     private function guardarLineas(Pedido $pedido, array $lineas, array $lineasCalculadas): void
     {
+        $costosPorArticulo = Articulo::query()
+            ->whereIn('id', array_filter(array_column($lineas, 'articulo_id')))
+            ->pluck('costo_con_descuento', 'id');
+
         foreach ($lineas as $i => $linea) {
+            $articuloId = $linea['articulo_id'] ?? null;
+
             $pedido->lineas()->create([
-                'articulo_id' => $linea['articulo_id'] ?? null,
+                'articulo_id' => $articuloId,
                 'cantidad' => $linea['cantidad'],
                 'descripcion' => $linea['descripcion'],
                 'modelo' => $linea['modelo'] ?? null,
                 'precio_unitario' => $linea['precio_unitario'],
+                'costo_unitario' => $articuloId !== null ? $costosPorArticulo[$articuloId] ?? null : null,
                 'descuento_tipo' => $linea['descuento_tipo'] ?? null,
                 'descuento_valor' => $linea['descuento_valor'] ?? null,
                 'tasa_iva' => $linea['tasa_iva'],

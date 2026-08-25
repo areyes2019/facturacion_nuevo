@@ -11,12 +11,19 @@ export const TIPOS_MOVIMIENTO: { id: TipoMovimiento; texto: string }[] = [
   { id: 'ajuste', texto: 'Ajuste' },
 ]
 
-/** Documento de otro módulo que originó el movimiento; hoy solo pagos de cotización. */
+/** Documento de otro módulo que originó el movimiento: pago de cotización, de pedido u orden de compra. */
 export interface DocumentoOrigen {
   tipo: string
   etiqueta: string
   ruta: string
   id: number
+  /**
+   * Utilidad de venta del documento completo (solo en `tipo: 'cotizacion'` y `tipo: 'pedido'`):
+   * `null` cuando el documento no tiene costo capturado en sus líneas (anterior a esta función).
+   */
+  utilidad?: number | null
+  /** `true` cuando el documento tiene líneas libres sin costo, excluidas de la suma de utilidad. */
+  utilidad_parcial?: boolean
 }
 
 export interface Movimiento {

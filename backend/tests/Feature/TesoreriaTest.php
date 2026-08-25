@@ -1,11 +1,14 @@
 <?php
 
 use App\Enums\EstadoCotizacion;
+use App\Models\Articulo;
+use App\Models\Catalogo;
 use App\Models\Cliente;
 use App\Models\Cotizacion;
 use App\Models\CotizacionPago;
 use App\Models\Cuenta;
 use App\Models\Movimiento;
+use App\Models\Proveedor;
 use App\Models\User;
 
 function datosCuentaValidos(array $overrides = []): array
@@ -679,4 +682,233 @@ test('un usuario no puede eliminar el pago de la cotizacion de otro usuario', fu
     $this->actingAs($user)
         ->deleteJson("/api/v1/cotizaciones/{$cotizacion->id}/pagos/{$pagoId}")
         ->assertNotFound();
+});
+
+// ---------------------------------------------------------------------------------------------
+// Utilidad de venta en movimientos automáticos (010, "Utilidad de venta en movimientos
+// automáticos")
+// ---------------------------------------------------------------------------------------------
+
+function clienteYArticuloConCosto(User $user, float $costo, float $precioVenta): array
+{
+    $cliente = Cliente::factory()->for($user)->create();
+    $proveedor = Proveedor::factory()->for($user)->create();
+    $catalogo = Catalogo::factory()->for($user)->for($proveedor)->create();
+
+    $articulo = Articulo::factory()->for($user)->for($catalogo)->create([
+        'costo_con_descuento' => $costo,
+        'precio_unitario_sin_iva' => $precioVenta,
+        'existencia' => 10,
+    ]);
+
+    return [$cliente, $articulo];
+}
+
+test('el movimiento de un pago de cotizacion expone la utilidad de venta del documento', function () {
+    $user = User::factory()->create();
+    [$cliente, $articulo] = clienteYArticuloConCosto($user, 60.00, 100.00);
+    $cuenta = Cuenta::factory()->for($user)->conSaldo(0)->create();
+
+    $cotizacionId = $this->actingAs($user)->postJson('/api/v1/cotizaciones', [
+        'cliente_id' => $cliente->id,
+        'lineas' => [[
+            'articulo_id' => $articulo->id,
+            'cantidad' => 2,
+            'descripcion' => $articulo->nombre,
+            'modelo' => $articulo->modelo,
+            'precio_unitario' => 100.00,
+            'tasa_iva' => '16',
+        ]],
+        'total' => 232.00,
+    ])->assertCreated()->json('data.id');
+
+    $this->assertDatabaseHas('cotizacion_lineas', [
+        'cotizacion_id' => $cotizacionId,
+        'costo_unitario' => 60.00,
+    ]);
+
+    $this->actingAs($user)->postJson("/api/v1/cotizaciones/{$cotizacionId}/pagos", [
+        'tipo' => 'pago_total',
+        'fecha_pago' => '2026-08-04',
+        'cuenta_id' => $cuenta->id,
+    ])->assertOk();
+
+    // Importe neto sin IVA (2 × $100.00) menos costo (2 × $60.00) = $80.00 de utilidad.
+    $this->actingAs($user)->getJson('/api/v1/movimientos')
+        ->assertJsonPath('data.0.documento_origen.tipo', 'cotizacion')
+        ->assertJsonPath('data.0.documento_origen.utilidad', 80)
+        ->assertJsonPath('data.0.documento_origen.utilidad_parcial', false);
+});
+
+test('dos movimientos de la misma cotizacion muestran la misma utilidad total', function () {
+    $user = User::factory()->create();
+    [$cliente, $articulo] = clienteYArticuloConCosto($user, 60.00, 100.00);
+    $cuenta = Cuenta::factory()->for($user)->conSaldo(0)->create();
+
+    $cotizacionId = $this->actingAs($user)->postJson('/api/v1/cotizaciones', [
+        'cliente_id' => $cliente->id,
+        'lineas' => [[
+            'articulo_id' => $articulo->id,
+            'cantidad' => 2,
+            'descripcion' => $articulo->nombre,
+            'modelo' => $articulo->modelo,
+            'precio_unitario' => 100.00,
+            'tasa_iva' => '16',
+        ]],
+        'total' => 232.00,
+    ])->assertCreated()->json('data.id');
+
+    $this->actingAs($user)->postJson("/api/v1/cotizaciones/{$cotizacionId}/pagos", [
+        'tipo' => 'anticipo',
+        'fecha_pago' => '2026-08-04',
+        'monto' => 100.00,
+        'cuenta_id' => $cuenta->id,
+    ])->assertOk();
+
+    $this->actingAs($user)->postJson("/api/v1/cotizaciones/{$cotizacionId}/pagos", [
+        'tipo' => 'saldo',
+        'fecha_pago' => '2026-08-05',
+        'cuenta_id' => $cuenta->id,
+    ])->assertOk();
+
+    $movimientos = $this->actingAs($user)->getJson('/api/v1/movimientos')->json('data');
+
+    expect($movimientos)->toHaveCount(2);
+    foreach ($movimientos as $movimiento) {
+        expect($movimiento['documento_origen']['utilidad'])->toBe(80);
+    }
+});
+
+test('el movimiento de un pago de pedido enlaza al pedido y expone su utilidad', function () {
+    $user = User::factory()->create();
+    $proveedor = Proveedor::factory()->for($user)->create();
+    $catalogo = Catalogo::factory()->for($user)->for($proveedor)->create();
+    $articulo = Articulo::factory()->for($user)->for($catalogo)->create([
+        'costo_con_descuento' => 60.00,
+        'precio_unitario_sin_iva' => 100.00,
+        'existencia' => 10,
+    ]);
+    $cuenta = Cuenta::factory()->for($user)->conSaldo(0)->create();
+
+    $pedidoId = $this->actingAs($user)->postJson('/api/v1/pedidos', [
+        'cliente_nombre' => 'María Pérez',
+        'cliente_telefono' => '5512345678',
+        'lineas' => [[
+            'articulo_id' => $articulo->id,
+            'cantidad' => 2,
+            'descripcion' => $articulo->nombre,
+            'modelo' => $articulo->modelo,
+            'precio_unitario' => 100.00,
+            'tasa_iva' => '16',
+        ]],
+        'total' => 232.00,
+    ])->assertCreated()->json('data.id');
+
+    $this->assertDatabaseHas('pedido_lineas', [
+        'pedido_id' => $pedidoId,
+        'costo_unitario' => 60.00,
+    ]);
+
+    $this->actingAs($user)->postJson("/api/v1/pedidos/{$pedidoId}/pagos", [
+        'fecha_pago' => '2026-08-04',
+        'monto' => 232.00,
+        'cuenta_id' => $cuenta->id,
+    ])->assertOk();
+
+    $this->actingAs($user)->getJson('/api/v1/movimientos')
+        ->assertJsonPath('data.0.es_automatico', true)
+        ->assertJsonPath('data.0.documento_origen.tipo', 'pedido')
+        ->assertJsonPath('data.0.documento_origen.etiqueta', 'PED-00001')
+        ->assertJsonPath('data.0.documento_origen.ruta', 'pedidos-detalle')
+        ->assertJsonPath('data.0.documento_origen.id', $pedidoId)
+        ->assertJsonPath('data.0.documento_origen.utilidad', 80)
+        ->assertJsonPath('data.0.documento_origen.utilidad_parcial', false);
+});
+
+test('un pedido con lineas libres mezcladas expone su utilidad marcada como parcial', function () {
+    $user = User::factory()->create();
+    $proveedor = Proveedor::factory()->for($user)->create();
+    $catalogo = Catalogo::factory()->for($user)->for($proveedor)->create();
+    $articulo = Articulo::factory()->for($user)->for($catalogo)->create([
+        'costo_con_descuento' => 60.00,
+        'precio_unitario_sin_iva' => 100.00,
+        'existencia' => 10,
+    ]);
+    $cuenta = Cuenta::factory()->for($user)->conSaldo(0)->create();
+
+    $pedidoId = $this->actingAs($user)->postJson('/api/v1/pedidos', [
+        'cliente_nombre' => 'María Pérez',
+        'cliente_telefono' => '5512345678',
+        'lineas' => [
+            [
+                'articulo_id' => $articulo->id,
+                'cantidad' => 2,
+                'descripcion' => $articulo->nombre,
+                'modelo' => $articulo->modelo,
+                'precio_unitario' => 100.00,
+                'tasa_iva' => '16',
+            ],
+            [
+                'articulo_id' => null,
+                'cantidad' => 1,
+                'descripcion' => 'Grabado especial a mano',
+                'precio_unitario' => 150.00,
+                'tasa_iva' => '16',
+            ],
+        ],
+        'total' => 406.00,
+    ])->assertCreated()->json('data.id');
+
+    $this->assertDatabaseHas('pedido_lineas', [
+        'pedido_id' => $pedidoId,
+        'articulo_id' => null,
+        'costo_unitario' => null,
+    ]);
+
+    $this->actingAs($user)->postJson("/api/v1/pedidos/{$pedidoId}/pagos", [
+        'fecha_pago' => '2026-08-04',
+        'monto' => 406.00,
+        'cuenta_id' => $cuenta->id,
+    ])->assertOk();
+
+    // La línea libre ($150.00) queda fuera de la suma: utilidad = $200.00 − $120.00 = $80.00.
+    $this->actingAs($user)->getJson('/api/v1/movimientos')
+        ->assertJsonPath('data.0.documento_origen.utilidad', 80)
+        ->assertJsonPath('data.0.documento_origen.utilidad_parcial', true);
+});
+
+test('una cotizacion sin costo capturado en sus lineas expone utilidad no disponible', function () {
+    $user = User::factory()->create();
+    [$cliente, $articulo] = clienteYArticuloConCosto($user, 60.00, 100.00);
+    $cuenta = Cuenta::factory()->for($user)->conSaldo(0)->create();
+
+    // Simula un documento creado antes de que existiera `costo_unitario`: la línea se crea
+    // directamente, sin pasar por el endpoint que hoy siempre lo captura.
+    $cotizacion = Cotizacion::factory()->for($user)->for($cliente)->create([
+        'estado' => EstadoCotizacion::Enviada->value,
+        'folio' => 20,
+        'total' => 232.00,
+    ]);
+
+    $cotizacion->lineas()->create([
+        'articulo_id' => $articulo->id,
+        'cantidad' => 2,
+        'descripcion' => $articulo->nombre,
+        'modelo' => $articulo->modelo,
+        'precio_unitario' => 100.00,
+        'costo_unitario' => null,
+        'tasa_iva' => '16',
+        'importe' => 200.00,
+        'iva_importe' => 32.00,
+    ]);
+
+    $this->actingAs($user)->postJson("/api/v1/cotizaciones/{$cotizacion->id}/pagos", [
+        'tipo' => 'pago_total',
+        'fecha_pago' => '2026-08-04',
+        'cuenta_id' => $cuenta->id,
+    ])->assertOk();
+
+    $this->actingAs($user)->getJson('/api/v1/movimientos')
+        ->assertJsonPath('data.0.documento_origen.utilidad', null)
+        ->assertJsonPath('data.0.documento_origen.utilidad_parcial', false);
 });

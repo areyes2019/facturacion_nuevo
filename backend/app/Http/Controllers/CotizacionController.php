@@ -12,6 +12,7 @@ use App\Http\Requests\Cotizaciones\EnviarCotizacionRequest;
 use App\Http\Requests\Cotizaciones\StoreCotizacionRequest;
 use App\Http\Requests\Cotizaciones\UpdateCotizacionRequest;
 use App\Http\Resources\CotizacionResource;
+use App\Models\Articulo;
 use App\Models\Cotizacion;
 use App\Models\CotizacionPago;
 use App\Models\DatoBancario;
@@ -503,6 +504,7 @@ class CotizacionController extends Controller
                     'descripcion' => $linea->descripcion,
                     'modelo' => $linea->modelo,
                     'precio_unitario' => $linea->precio_unitario,
+                    'costo_unitario' => $linea->costo_unitario,
                     'descuento_tipo' => $linea->descuento_tipo?->value,
                     'descuento_valor' => $linea->descuento_valor,
                     'tasa_iva' => $linea->tasa_iva->value,
@@ -595,6 +597,10 @@ class CotizacionController extends Controller
      */
     private function guardarLineas(Cotizacion $cotizacion, array $lineas, array $lineasCalculadas): void
     {
+        $costosPorArticulo = Articulo::query()
+            ->whereIn('id', array_filter(array_column($lineas, 'articulo_id')))
+            ->pluck('costo_con_descuento', 'id');
+
         foreach ($lineas as $i => $linea) {
             $cotizacion->lineas()->create([
                 'articulo_id' => $linea['articulo_id'],
@@ -602,6 +608,9 @@ class CotizacionController extends Controller
                 'descripcion' => $linea['descripcion'],
                 'modelo' => $linea['modelo'],
                 'precio_unitario' => $linea['precio_unitario'],
+                'costo_unitario' => $linea['articulo_id'] !== null
+                    ? $costosPorArticulo[$linea['articulo_id']] ?? null
+                    : null,
                 'descuento_tipo' => $linea['descuento_tipo'] ?? null,
                 'descuento_valor' => $linea['descuento_valor'] ?? null,
                 'tasa_iva' => $linea['tasa_iva'],

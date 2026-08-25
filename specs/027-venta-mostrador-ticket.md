@@ -134,6 +134,29 @@ descripción, cantidad y precio a mano, sin que el producto exista en el catálo
   `articulo_id` —el texto libre existe desde 012— así que esto funciona sin tocar el servicio.
 - **No se da de alta en el catálogo.** Es una venta suelta, no un producto nuevo.
 - **Sí se puede facturar**, con claves SAT genéricas (ver "Portal de autofacturación").
+- **No tiene costo conocido**, así que tampoco participa en el cálculo de utilidad de venta (ver
+  abajo, "Costo capturado por línea").
+
+#### Costo capturado por línea ([010](010-tesoreria.md))
+
+Cada línea con `articulo_id` gana `costo_unitario`: decimal(10,2) nullable, sin IVA, una copia del
+`costo_con_descuento` del artículo tomada en el momento en que la línea se guarda, no un valor
+recalculado después — mismo criterio que `precio_unitario`, que ya es una copia desacoplada del
+catálogo.
+
+- Se llena solo cuando hay `articulo_id`; una línea libre queda con `costo_unitario = null` siempre,
+  no solo mientras no se conoce el costo.
+- No se acepta desde el frontend: el backend lo toma directamente del artículo al crear o editar la
+  línea.
+- Al editar un pedido editable (`pendiente`/`anticipo`) se recalcula junto con el resto de la línea,
+  tomando el costo vigente del artículo en ese instante.
+- Es la base de la utilidad de venta que Tesorería expone en `/tesoreria/movimientos` (ver
+  [010](010-tesoreria.md), "Utilidad de venta en movimientos automáticos"). Un pedido con al menos
+  una línea libre queda marcado ahí como utilidad **parcial**, porque esa línea no aporta costo a la
+  suma.
+- Los pedidos ya existentes en base de datos antes de esta ampliación quedan con
+  `costo_unitario = null` en todas sus líneas: no hay migración que intente reconstruirlo con el
+  costo actual del artículo.
 
 Los precios de las líneas con artículo se precargan del catálogo con el `precio_unitario_sin_iva`
 del artículo —el que produce el **precio con IVA en peso cerrado** de
@@ -761,6 +784,13 @@ revisó como imagen, no solo por sus medidas.
   ya no existía; aquí cada pago lleva su propio monto capturado y ninguno depende de otro. Es además
   la vía por la que se corrige un cobro mal capturado al entregar.
 
+**Costo capturado por línea, implementado el 2026-08-25** (ver
+[010](010-tesoreria.md)). `costo_unitario` se agregó por migración a `pedido_lineas` (nullable) y
+`PedidoController::guardarLineas()` lo llena de una sola consulta por artículo, igual que en
+Cotización (008); una línea libre (`articulo_id = null`) siempre queda con `costo_unitario = null`.
+No hay migración de datos para los pedidos ya existentes. Cubierto por tests nuevos en
+`TesoreriaTest.php` (668 tests del backend, todos en verde); Pint limpio.
+
 ### Lo que no se pudo verificar en vivo
 
 - **El timbrado real de una autofactura**: no hay credenciales de Facturapi en este entorno (misma
@@ -813,6 +843,9 @@ revisó como imagen, no solo por sus medidas.
     número.
 19. Ninguna pantalla del sistema pide datos de producción, y `php artisan test`, `pint`,
     `npm run build`, `npm run lint` y `vitest` corren en verde.
+20. Un pedido cuyas líneas tienen todas artículo de catálogo expone en Tesorería ([010](010-tesoreria.md))
+    la utilidad de venta completa; un pedido con alguna línea libre la expone marcada como parcial,
+    porque esa línea no tiene costo conocido.
 
 ## Supuestos asumidos (registro completo)
 
@@ -977,6 +1010,15 @@ puedan corregirse antes de implementar)
     la caja.
 58. **El monto de la entrega no viaja en la petición**: lo calcula el backend como el saldo exacto,
     para que un frontend manipulado no pueda cerrar un pedido cobrando de menos.
+
+**La utilidad de venta ([010](010-tesoreria.md))**
+
+59. Cada línea con artículo guarda su `costo_unitario` (copia del costo con descuento del artículo al
+    momento de guardarse la línea); una línea libre nunca lo tiene, por no tener artículo del que
+    tomarlo.
+60. **(Adición técnica)** Los pedidos creados antes de esta ampliación quedan con `costo_unitario`
+    nulo en todas sus líneas: no hay migración que lo reconstruya con el costo actual del artículo,
+    porque ya no sería el mismo costo que tenía el día de la venta.
 59. **El nombre se recorta con puntos suspensivos en la etiqueta** antes que romper el renglón: un
     renglón partido empuja al saldo fuera de los 25 mm.
 60. **"Avisar que está listo" aparece a partir del primer pago**, igual que "Compartir ticket". No

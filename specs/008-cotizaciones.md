@@ -56,7 +56,9 @@ cancelación de cotizaciones, notas de crédito, ni multiempresa.
 
 ### Modelo `CotizacionLinea`
 
-Mismo esquema que `FacturaLinea` de 007: `cotizacion_id`, `articulo_id` (propio del usuario),
+Mismo esquema que `FacturaLinea` de 007: `cotizacion_id`, `articulo_id` (propio del usuario,
+nullable — línea libre, sin producto del catálogo, que no mueve inventario y no participa en el
+cálculo de utilidad),
 `cantidad` (entero, mínimo 1), `descripcion` y `modelo` (precargados del artículo, editables
 in-place, copias desacopladas del catálogo), `precio_unitario` (precargado, editable, mayor a 0 —
 precargado con el precio distribuidor del artículo en vez del directo cuando el cliente elegido es
@@ -64,6 +66,29 @@ distribuidor, ver [033](033-precio-distribuidor.md)),
 `descuento_tipo`/`descuento_valor` (opcional, `porcentaje`|`monto`), `tasa_iva`
 (`16`|`0`|`exento`), `importe` e `iva_importe` (calculados en backend, mismo criterio que en 007:
 `importe` es el neto de línea sin IVA, `iva_importe` se desglosa aparte).
+
+#### Costo capturado por línea ([010](010-tesoreria.md))
+
+Cada línea con `articulo_id` gana `costo_unitario`: decimal(10,2) nullable, sin IVA, **una copia del
+`costo_con_descuento` del artículo tomada en el momento en que la línea se guarda**, no un valor que
+se recalcule después. Es el mismo criterio ya aplicado a `precio_unitario` y a `descripcion`/`modelo`
+en esta misma tabla: una copia desacoplada del catálogo, para que el costo con el que se vendió algo
+no cambie por debajo del documento si el precio del proveedor o el catálogo cambian más tarde.
+
+- Se llena solo cuando hay `articulo_id`; una línea libre (si la línea de cotización llega a admitir
+  una) queda con `costo_unitario = null`.
+- No se acepta desde el frontend: el backend lo toma directamente del artículo al crear o editar la
+  línea, igual que ya hace con `importe`/`iva_importe`.
+- No se recalcula al editar una cotización que sigue siendo editable (`borrador`/`enviada`) salvo que
+  la línea misma se vuelva a guardar (se borra y se reemplaza en cada `PUT`, mismo patrón que hoy
+  usan las líneas): en ese caso toma el costo vigente del artículo en ese instante, igual que
+  `precio_unitario` toma el precio vigente al precargarse.
+- Es la base para la utilidad de venta que expone Tesorería en `/tesoreria/movimientos` (ver
+  [010](010-tesoreria.md), "Utilidad de venta en movimientos automáticos"): sin este dato ese cálculo
+  no tiene de dónde salir.
+- Las cotizaciones ya existentes en base de datos antes de esta ampliación quedan con
+  `costo_unitario = null` en todas sus líneas — no hay migración que intente reconstruirlo con el
+  costo actual del artículo, porque ya no es el mismo costo que tenía el día de la venta.
 
 ### Modelo `CotizacionPago`
 
@@ -429,6 +454,15 @@ Implementada el 2026-07-31.
   detalle y correr `php artisan cotizaciones:purgar-vencidas` a mano para confirmar el conteo antes
   de dar la caducidad por probada en vivo.
 
+**Costo capturado por línea, implementado el 2026-08-25** (ver
+[010](010-tesoreria.md)). `costo_unitario` se agregó por migración a `cotizacion_lineas`
+(nullable) y `CotizacionController::guardarLineas()` lo llena de una sola consulta
+(`Articulo::whereIn('id', ...)->pluck('costo_con_descuento', 'id')`) en vez de una por línea; queda
+`null` cuando no hay `articulo_id`. `duplicar()` copia el `costo_unitario` de la línea original,
+igual que ya hacía con `precio_unitario`. No hay migración de datos: las cotizaciones ya existentes
+quedan con `costo_unitario` nulo en todas sus líneas, tal como anticipaba la spec. Cubierto por 5
+tests nuevos en `TesoreriaTest.php` (668 tests del backend, todos en verde); Pint limpio.
+
 ## Criterios de aceptación
 
 1. Un usuario autenticado puede crear una cotización seleccionando un cliente y una o varias
@@ -483,6 +517,10 @@ Implementada el 2026-07-31.
     muestra el aviso con la fecha de eliminación y los días restantes. Editar o reenviar la
     cotización reinicia el plazo y el aviso desaparece.
 20. Pint y ESLint/Prettier corren sin errores sobre el código nuevo.
+21. Cada línea de cotización con `articulo_id` guarda, al crearse o al volver a guardarse en una
+    edición, el costo con descuento del artículo vigente en ese momento (`costo_unitario`); ese valor
+    no cambia después aunque el costo del artículo cambie. Las cotizaciones creadas antes de este
+    cambio quedan con `costo_unitario = null` en todas sus líneas.
 
 ## Supuestos asumidos (registro completo)
 
@@ -592,3 +630,11 @@ Implementada el 2026-07-31.
     una tarea programada de Windows que ejecute `php artisan schedule:run` cada minuto. Es
     configuración fuera del repositorio: se documenta en el README del backend, y mientras no
     exista, la caducidad solo ocurre al correr el comando a mano.
+38. **(Adición técnica, [010](010-tesoreria.md))** `CotizacionLinea` gana `costo_unitario`, una
+    copia del `costo_con_descuento` del artículo tomada al guardar la línea, igual que
+    `precio_unitario` ya es una copia desacoplada del catálogo. Es la base de la utilidad de venta
+    que Tesorería expone en sus movimientos automáticos; sin este dato ese cálculo no existiría.
+39. **(Adición técnica, [010](010-tesoreria.md))** No hay migración de datos que reconstruya
+    `costo_unitario` para cotizaciones ya existentes: el costo histórico del artículo ya no es el
+    mismo que el actual, así que inventar el valor con datos de hoy produciría una utilidad falsa
+    para ventas pasadas. Esas cotizaciones quedan sin utilidad calculable de forma permanente.
