@@ -168,9 +168,11 @@ Junto al botón "Eliminar" de la barra que aparece con al menos un artículo mar
   artículos entre catálogos es una acción de bajo riesgo y reversible con el mismo gesto (volver a
   moverlos).
 - Al confirmar, llama a `articulos.moverLoteCatalogo(ids, catalogoDestino)`, cierra el diálogo y
-  recarga la página actual del listado — mismo patrón que `confirmarEliminarLote`. La selección se
-  vacía sola: el `watch` sobre `articulos.items` ya cubre cualquier recarga
-  ([021](021-mantenimiento-articulos-catalogos.md)).
+  recarga la página actual del listado — mismo patrón que `confirmarEliminarLote`. Al terminar con
+  éxito, la selección completa se vacía a propósito (incluida la parte guardada en
+  `sessionStorage`), no como efecto colateral de recargar la tabla: la selección ahora sobrevive a
+  cualquier recarga salvo cuando la propia acción en lote termina bien
+  ([021](021-mantenimiento-articulos-catalogos.md), "Selección persistente entre páginas").
 - Un error del servidor (por ejemplo, un artículo que ya no existe porque otra pestaña lo borró)
   se muestra en el diálogo, igual que en el de eliminar en lote, y no cierra el diálogo ni vacía
   la selección.
@@ -186,8 +188,9 @@ Junto al botón "Eliminar" de la barra que aparece con al menos un artículo mar
   individual.
 - **Deshacer un movimiento en lote**, o cualquier historial de a qué catálogo pertenecía antes un
   artículo.
-- **Selección que sobreviva a la paginación, la búsqueda, el orden o el nuevo filtro de
-  catálogo.** Sigue siendo solo de la página visible ([021](021-mantenimiento-articulos-catalogos.md)).
+- **Un mecanismo de selección propio de esta pantalla.** Se reutiliza tal cual el de
+  [021](021-mantenimiento-articulos-catalogos.md): la selección sobrevive a la paginación, la
+  búsqueda, el orden y el filtro de catálogo, definido ahí, no aquí.
 - **Mover en lote a más de un catálogo a la vez**, o repartir la selección entre varios destinos.
   Un solo catálogo destino por operación.
 - **Restringir el catálogo destino al mismo proveedor** de los artículos movidos.

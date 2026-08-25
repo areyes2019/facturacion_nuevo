@@ -79,6 +79,11 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
     Route::get('articulos/exportar-csv', [ArticuloController::class, 'exportarCsv']);
 
+    // Selección persistente entre páginas (ver 021-mantenimiento-articulos-catalogos.md): respalda
+    // el botón "Seleccionar todo lo filtrado". Misma razón para ir antes del apiResource que
+    // exportar-csv, arriba.
+    Route::get('articulos/ids-filtrados', [ArticuloController::class, 'idsFiltrados']);
+
     // Borrado en lote (ver 021-mantenimiento-articulos-catalogos.md). Es `POST` y no `DELETE` con
     // cuerpo porque el cuerpo de un `DELETE` no está garantizado de punta a punta: proxies y
     // servidores intermedios pueden descartarlo, y perder los identificadores por el camino aquí

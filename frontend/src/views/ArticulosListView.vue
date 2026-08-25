@@ -12,11 +12,13 @@ import {
   FolderIcon,
   PhotoIcon,
   ShareIcon,
+  XMarkIcon,
 } from '@heroicons/vue/24/outline'
 import {
   useArticulosStore,
   type Articulo,
   type ArticuloFiltroTexto,
+  type ArticuloSeleccionable,
   type ArticuloSort,
   type ImportarCsvReporte,
   type ImagenesReporte,
@@ -75,12 +77,76 @@ const eliminando = ref(false)
 const errorEliminar = ref<string | null>(null)
 
 /**
- * Selección múltiple (ver 021-mantenimiento-articulos-catalogos.md). Abarca **solo la página
- * visible**: sostenerla a través de páginas y filtros obligaría a decidir qué pasa cuando un
- * artículo seleccionado deja de coincidir con la búsqueda, y a mostrar en algún lado qué hay marcado
- * que no se ve. El caso de uso —"estos de aquí sobran"— no lo pide.
+ * Selección múltiple, persistente entre páginas (ver 021-mantenimiento-articulos-catalogos.md,
+ * "Selección persistente entre páginas"). Guarda `id`, `nombre` y `modelo` de cada artículo
+ * marcado, no solo el id: así el panel de seleccionados puede mostrarlos por nombre sin volver a
+ * pedirlos al servidor, aunque el artículo ya no esté en la página visible.
  */
-const seleccionados = ref<number[]>([])
+const CLAVE_SELECCION = 'articulos-seleccion'
+
+function cargarSeleccionGuardada(): Map<number, ArticuloSeleccionable> {
+  const crudo = sessionStorage.getItem(CLAVE_SELECCION)
+  if (!crudo) return new Map()
+
+  const items = JSON.parse(crudo) as ArticuloSeleccionable[]
+  return new Map(items.map((item) => [item.id, item]))
+}
+
+const seleccionados = ref<Map<number, ArticuloSeleccionable>>(cargarSeleccionGuardada())
+const listaSeleccionados = computed(() => [...seleccionados.value.values()])
+
+/** Persistida en `sessionStorage`: sobrevive a un refresco de la pestaña (F5), no a cerrarla. */
+function guardarSeleccion() {
+  sessionStorage.setItem(CLAVE_SELECCION, JSON.stringify(listaSeleccionados.value))
+}
+
+function marcar(articulo: ArticuloSeleccionable) {
+  seleccionados.value.set(articulo.id, {
+    id: articulo.id,
+    nombre: articulo.nombre,
+    modelo: articulo.modelo,
+  })
+  guardarSeleccion()
+}
+
+function desmarcar(id: number) {
+  seleccionados.value.delete(id)
+  guardarSeleccion()
+}
+
+function limpiarSeleccion() {
+  seleccionados.value.clear()
+  guardarSeleccion()
+}
+
+function alternarSeleccionFila(articulo: Articulo, event: Event) {
+  const marcado = (event.target as HTMLInputElement).checked
+  if (marcado) marcar(articulo)
+  else desmarcar(articulo.id)
+}
+
+const seleccionandoFiltrado = ref(false)
+const errorSeleccionarFiltrado = ref<string | null>(null)
+
+/**
+ * "Seleccionar todo lo filtrado" (021, adición técnica): suma de una vez todos los artículos que
+ * coinciden con la búsqueda o el filtro de catálogo activos, sin importar cuántas páginas ocupen.
+ * Solo se ofrece con algún filtro puesto (junto al aviso de "N artículos con los filtros
+ * aplicados"); sin filtro, "todo" marcaría el catálogo entero de un clic por accidente.
+ */
+async function seleccionarTodoFiltrado() {
+  seleccionandoFiltrado.value = true
+  errorSeleccionarFiltrado.value = null
+  try {
+    const resultado = await articulos.idsFiltrados()
+    for (const articulo of resultado) marcar(articulo)
+  } catch (err) {
+    errorSeleccionarFiltrado.value = extractErrorMessage(err)
+  } finally {
+    seleccionandoFiltrado.value = false
+  }
+}
+
 const mostrarEliminarLote = ref(false)
 const eliminandoLote = ref(false)
 const errorEliminarLote = ref<string | null>(null)
@@ -110,29 +176,34 @@ const tipoListaPrecios = ref<TipoListaPrecios>('distribuidor')
 /** Cada vez que la barra de selección vuelve a aparecer (nueva selección), el selector arranca de
  * nuevo en "Distribuidor", en vez de conservar la última elección de una tanda ya compartida. */
 watch(
-  () => seleccionados.value.length,
+  () => seleccionados.value.size,
   (actual, anterior) => {
     if (anterior === 0 && actual > 0) tipoListaPrecios.value = 'distribuidor'
   },
 )
 
-// Cualquier cosa que cambie las filas en pantalla vacía la selección.
-watch(
-  () => articulos.items,
-  () => (seleccionados.value = []),
-)
-
+/**
+ * La casilla del encabezado sigue afectando solo la página visible (021): agrega o quita del
+ * conjunto acumulado los artículos de esta página, sin tocar lo marcado en otras.
+ */
 const todosSeleccionados = computed(
-  () => articulos.items.length > 0 && seleccionados.value.length === articulos.items.length,
+  () =>
+    articulos.items.length > 0 &&
+    articulos.items.every((articulo) => seleccionados.value.has(articulo.id)),
 )
 
 const algunoSeleccionado = computed(
-  () => seleccionados.value.length > 0 && !todosSeleccionados.value,
+  () =>
+    articulos.items.some((articulo) => seleccionados.value.has(articulo.id)) &&
+    !todosSeleccionados.value,
 )
 
 function alternarTodos(event: Event) {
   const marcado = (event.target as HTMLInputElement).checked
-  seleccionados.value = marcado ? articulos.items.map((articulo) => articulo.id) : []
+  for (const articulo of articulos.items) {
+    if (marcado) marcar(articulo)
+    else desmarcar(articulo.id)
+  }
 }
 
 const exportando = ref(false)
@@ -340,8 +411,9 @@ async function confirmarEliminarLote() {
   eliminandoLote.value = true
   errorEliminarLote.value = null
   try {
-    await articulos.removeLote([...seleccionados.value])
+    await articulos.removeLote([...seleccionados.value.keys()])
     mostrarEliminarLote.value = false
+    limpiarSeleccion()
     await articulos.fetchList(articulos.meta?.current_page ?? 1)
   } catch (err) {
     errorEliminarLote.value = extractErrorMessage(err)
@@ -362,8 +434,9 @@ async function confirmarMoverLote() {
   moviendoLote.value = true
   errorMoverLote.value = null
   try {
-    await articulos.moverLoteCatalogo([...seleccionados.value], catalogoDestino.value)
+    await articulos.moverLoteCatalogo([...seleccionados.value.keys()], catalogoDestino.value)
     mostrarMoverLote.value = false
+    limpiarSeleccion()
     await articulos.fetchList(articulos.meta?.current_page ?? 1)
   } catch (err) {
     errorMoverLote.value = extractErrorMessage(err)
@@ -380,7 +453,7 @@ function onCompartirLista() {
   errorCompartirLista.value = null
   avisoCompartirLista.value = null
 
-  if (seleccionados.value.length > UMBRAL_AVISO_LISTA_PRECIOS) {
+  if (seleccionados.value.size > UMBRAL_AVISO_LISTA_PRECIOS) {
     mostrarAvisoListaGrande.value = true
     return
   }
@@ -395,7 +468,10 @@ async function generarYCompartirLista() {
   avisoCompartirLista.value = null
 
   try {
-    const blob = await articulos.listaPreciosBlob([...seleccionados.value], tipoListaPrecios.value)
+    const blob = await articulos.listaPreciosBlob(
+      [...seleccionados.value.keys()],
+      tipoListaPrecios.value,
+    )
     const nombreArchivo = `lista-precios-${tipoListaPrecios.value}-${new Date().toISOString().slice(0, 10)}.pdf`
     // Sin texto acompañante: igual que el resto de los PDF de escritorio (cotización, factura),
     // sin texto no hay canal que elegir, así que el respaldo es dejar el archivo descargado, sin
@@ -656,22 +732,54 @@ async function confirmarImportar() {
         <span class="text-muted-foreground text-sm">
           {{ totalFiltrado }} artículo{{ totalFiltrado === 1 ? '' : 's' }} con los filtros aplicados
         </span>
-        <Button variant="outline" size="sm" @click="articulos.limpiarFiltros()">
-          Limpiar filtros
-        </Button>
+        <div class="flex gap-2">
+          <!-- Solo tiene sentido con un filtro puesto: sin él, "todo" sería marcar el catálogo
+               entero de un clic (ver 021-mantenimiento-articulos-catalogos.md, "Selección
+               persistente entre páginas"). -->
+          <Button
+            variant="outline"
+            size="sm"
+            :disabled="seleccionandoFiltrado"
+            @click="seleccionarTodoFiltrado"
+          >
+            {{ seleccionandoFiltrado ? 'Seleccionando...' : 'Seleccionar todo lo filtrado' }}
+          </Button>
+          <Button variant="outline" size="sm" @click="articulos.limpiarFiltros()">
+            Limpiar filtros
+          </Button>
+        </div>
       </div>
 
       <!-- Sin nada marcado no aparece, para no dejar en pantalla un botón permanentemente
-           deshabilitado (ver 021-mantenimiento-articulos-catalogos.md). -->
+           deshabilitado (ver 021-mantenimiento-articulos-catalogos.md). La selección es la
+           acumulada de todas las páginas visitadas, no solo la de esta. -->
       <div
-        v-if="seleccionados.length > 0"
+        v-if="seleccionados.size > 0"
         class="bg-muted flex flex-wrap items-center justify-between gap-2 rounded-md px-3 py-2"
       >
-        <span class="text-foreground text-sm font-medium">
-          {{ seleccionados.length }} seleccionado{{ seleccionados.length === 1 ? '' : 's' }}
-        </span>
+        <!-- El contador es un botón que abre el panel de seleccionados: con artículos repartidos
+             en varias páginas, es la única forma de ver de un vistazo cuáles llevas. -->
+        <DropdownMenu>
+          <DropdownMenuTrigger as-child>
+            <Button variant="ghost" size="sm" class="text-foreground gap-1 font-medium">
+              {{ seleccionados.size }} seleccionado{{ seleccionados.size === 1 ? '' : 's' }}
+              <ChevronDownIcon class="size-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" class="max-h-72 w-72 overflow-y-auto">
+            <DropdownMenuItem
+              v-for="item in listaSeleccionados"
+              :key="item.id"
+              class="justify-between gap-2"
+              @select.prevent="desmarcar(item.id)"
+            >
+              <span class="truncate">{{ item.nombre }}</span>
+              <XMarkIcon class="size-4 shrink-0" />
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <div class="flex gap-2">
-          <Button variant="outline" size="sm" @click="seleccionados = []">Quitar selección</Button>
+          <Button variant="outline" size="sm" @click="limpiarSeleccion">Quitar selección</Button>
           <Button variant="outline" size="sm" @click="abrirMoverLote">
             <ArrowsRightLeftIcon class="size-4" />
             Mover a catálogo
@@ -706,6 +814,9 @@ async function confirmarImportar() {
       </Alert>
       <Alert v-if="errorExportar" variant="destructive">
         <AlertDescription>{{ errorExportar }}</AlertDescription>
+      </Alert>
+      <Alert v-if="errorSeleccionarFiltrado" variant="destructive">
+        <AlertDescription>{{ errorSeleccionarFiltrado }}</AlertDescription>
       </Alert>
       <Alert v-if="errorCompartirLista" variant="destructive">
         <AlertDescription>{{ errorCompartirLista }}</AlertDescription>
@@ -796,11 +907,11 @@ async function confirmarImportar() {
               <TableRow v-for="articulo in articulos.items" :key="articulo.id">
                 <TableCell>
                   <input
-                    v-model="seleccionados"
                     type="checkbox"
                     class="border-input size-4 rounded"
-                    :value="articulo.id"
+                    :checked="seleccionados.has(articulo.id)"
                     :aria-label="`Seleccionar ${articulo.nombre}`"
+                    @change="alternarSeleccionFila(articulo, $event)"
                   />
                 </TableCell>
                 <TableCell class="whitespace-normal">
@@ -904,8 +1015,8 @@ async function confirmarImportar() {
           <DialogHeader>
             <DialogTitle>Eliminar artículos</DialogTitle>
             <DialogDescription>
-              ¿Seguro que quieres eliminar {{ seleccionados.length }} artículo{{
-                seleccionados.length === 1 ? '' : 's'
+              ¿Seguro que quieres eliminar {{ seleccionados.size }} artículo{{
+                seleccionados.size === 1 ? '' : 's'
               }}? Podrás recuperarlos solo por soporte técnico.
             </DialogDescription>
           </DialogHeader>
@@ -935,7 +1046,7 @@ async function confirmarImportar() {
           <DialogHeader>
             <DialogTitle>Mover artículos</DialogTitle>
             <DialogDescription>
-              Mover {{ seleccionados.length }} artículo{{ seleccionados.length === 1 ? '' : 's' }}
+              Mover {{ seleccionados.size }} artículo{{ seleccionados.size === 1 ? '' : 's' }}
               a:
             </DialogDescription>
           </DialogHeader>
@@ -964,7 +1075,7 @@ async function confirmarImportar() {
           <DialogHeader>
             <DialogTitle>Lista de precios grande</DialogTitle>
             <DialogDescription>
-              Vas a generar una lista con {{ seleccionados.length }} artículos. Puede tardar unos
+              Vas a generar una lista con {{ seleccionados.size }} artículos. Puede tardar unos
               segundos en generarse. ¿Continuar?
             </DialogDescription>
           </DialogHeader>

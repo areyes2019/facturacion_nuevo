@@ -167,6 +167,17 @@ export type ArticuloFiltroTexto = 'nombre' | 'modelo'
 /** El tipo de precio que lleva la lista en PDF (ver 028-lista-precios-pdf.md). */
 export type TipoListaPrecios = 'distribuidor' | 'publico'
 
+/**
+ * Lo mínimo de un artículo para tenerlo en la selección persistente y mostrarlo en el panel de
+ * seleccionados sin volver a pedirlo (ver 021-mantenimiento-articulos-catalogos.md, "Selección
+ * persistente entre páginas").
+ */
+export interface ArticuloSeleccionable {
+  id: number
+  nombre: string
+  modelo: string
+}
+
 export function filtrosVacios(): ArticuloFiltros {
   return {
     nombre: '',
@@ -242,6 +253,19 @@ export const useArticulosStore = defineStore('articulos', {
       } finally {
         this.loading = false
       }
+    },
+
+    /**
+     * Todos los `id`/`nombre`/`modelo` que coinciden con el filtro activo, sin paginar (ver
+     * 021-mantenimiento-articulos-catalogos.md, "Selección persistente entre páginas"). Respalda
+     * "Seleccionar todo lo filtrado": comparte `paramsListado()` con `fetchList` y `exportarCsv`
+     * para pedir exactamente lo que la tabla está mostrando.
+     */
+    async idsFiltrados(): Promise<ArticuloSeleccionable[]> {
+      const { data } = await http.get('/articulos/ids-filtrados', {
+        params: this.paramsListado(),
+      })
+      return data.articulos
     },
 
     async fetchOne(id: number): Promise<Articulo> {

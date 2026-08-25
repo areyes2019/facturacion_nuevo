@@ -301,9 +301,11 @@ Mismo patrón que `pedidos.ticketBlob()` (`stores/pedidos.ts:213-216`).
 
 ## Fuera de alcance
 
-- **Un mecanismo de "seleccionar catálogo completo" independiente de la paginación.** Se logra
-  filtrando por catálogo (034) y usando "seleccionar todos"; la selección sigue sin sobrevivir a
-  cambios de página, búsqueda u orden, igual que en 021 y 034.
+- **Un mecanismo de selección propio de esta pantalla.** Se reutiliza tal cual el de
+  [021](021-mantenimiento-articulos-catalogos.md): la selección sobrevive a cambios de página,
+  búsqueda, orden o filtro de catálogo, y existe un botón "Seleccionar todo lo filtrado" para no
+  recorrer página por página cuando lo que se busca comparte un filtro — ambos definidos en 021, no
+  aquí.
 - **Guardar o recordar listas de precios generadas.** Cada PDF es efímero y no deja rastro en base
   de datos.
 - **Elegir qué columnas mostrar, o un tercer tipo de precio.** Siempre Miniatura, Nombre, Modelo y
@@ -382,8 +384,9 @@ posterior; del 21 al 30, la extensión para incluir el precio público general.
    la tabla de artículos, sin crear un mecanismo de selección nuevo.
 2. "Seleccionar un catálogo" se logra filtrando la tabla por ese catálogo y usando "seleccionar
    todos" de la cabecera, no con una opción independiente de "catálogo completo".
-3. La selección solo cubre los artículos de la página actual visible, igual que las demás acciones
-   en lote.
+3. **(Revisado en 021, "Selección persistente entre páginas")** La selección sobrevive a cambiar de
+   página, buscar, ordenar o cambiar el filtro de catálogo, igual que las demás acciones en lote;
+   ya no queda limitada a la página visible.
 4. El botón "Compartir Lista" vive en la misma barra de acciones en lote que "Mover a catálogo" y
    "Eliminar", visible solo con al menos un artículo marcado.
 5. El precio impreso es el precio distribuidor con IVA incluido, no el precio directo ni un precio

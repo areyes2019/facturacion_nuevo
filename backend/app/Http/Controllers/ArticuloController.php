@@ -515,6 +515,23 @@ class ArticuloController extends Controller
     }
 
     /**
+     * Todos los `id`/`nombre`/`modelo` que coinciden con el filtro activo, sin paginar (ver
+     * 021-mantenimiento-articulos-catalogos.md, "Selección persistente entre páginas").
+     *
+     * Respalda el botón "Seleccionar todo lo filtrado": reutiliza `filtrarBusqueda()` y
+     * `ordenar()`, las mismas que ya usan `index()` y `exportarCsv()`, sin el `paginate()` final.
+     * Solo estos tres campos, no el recurso completo: es lo mínimo que el frontend necesita para
+     * sumarlos a la selección y mostrarlos por nombre en el panel de seleccionados.
+     */
+    public function idsFiltrados(Request $request): JsonResponse
+    {
+        $articulos = $this->ordenar($this->filtrarBusqueda($request->user()->articulos(), $request), $request)
+            ->get(['id', 'nombre', 'modelo']);
+
+        return response()->json(['articulos' => $articulos]);
+    }
+
+    /**
      * Abre el CSV subido con su contenido ya en UTF-8 y sin BOM (ver 006-gestion-articulos.md).
      *
      * Una hoja de cálculo escribe el archivo en la codificación que corresponda a la opción de

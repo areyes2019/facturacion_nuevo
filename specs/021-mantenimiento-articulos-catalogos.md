@@ -195,6 +195,26 @@ pantalla que le faltaba**, de modo que sirva a las dos cosas a la vez.
 - El cálculo de la vista previa usa **exactamente la misma función** que el aumento real. Una vista
   previa que no coincide con el resultado es peor que no tenerla.
 
+### Seleccionar todo lo que coincide con el filtro
+
+Para que "Seleccionar todo lo filtrado" pueda marcar de un clic todos los artículos que coinciden
+con la búsqueda o el filtro de catálogo activos, sin recorrer página por página, un endpoint nuevo
+devuelve identificador, nombre y modelo de **todos** los artículos que resultarían del filtro
+actual, sin paginar.
+
+- `GET /api/v1/articulos/ids-filtrados`, con los mismos parámetros de consulta que ya acepta
+  `index` (búsqueda, filtros de columna, catálogo). Reutiliza `filtrarBusqueda()` y `ordenar()`, las
+  mismas funciones privadas que ya usan `index` y `exportarCsv`, solo que sin el `paginate()` final.
+- Devuelve `{ "articulos": [{ "id": 1, "nombre": "...", "modelo": "..." }, ...] }`, no el recurso
+  completo del artículo: es lo mínimo que el frontend necesita para sumarlos a la selección y
+  mostrarlos por nombre en el panel de seleccionados, sin volver a pedir cada fila.
+- **Sin límite ni paginación**, igual que `exportarCsv`: si el filtro activo devuelve 3 000
+  artículos, se devuelven los 3 000. No hay un tope distinto al aviso ya existente de más de 100
+  artículos al compartir la lista de precios ([028](028-lista-precios-pdf.md)).
+- Se registra junto a `exportar-csv`, **antes** del `apiResource('articulos')`.
+- Sin `FormRequest` propio: los parámetros de filtro son los mismos, ya validados de forma implícita
+  por `filtrarBusqueda()` (que ignora lo que no reconoce), igual que hoy hace `index`.
+
 ### Endpoints
 
 Todos bajo `auth:sanctum` y scopeados al usuario autenticado, como el resto del sistema.
@@ -202,6 +222,7 @@ Todos bajo `auth:sanctum` y scopeados al usuario autenticado, como el resto del 
 | Método | Ruta | Qué hace |
 | --- | --- | --- |
 | `POST` | `/api/v1/articulos/eliminar-lote` | Borra en lote. `{ "ids": [...] }` → `{ "eliminados": N }` |
+| `GET` | `/api/v1/articulos/ids-filtrados` | Todos los `id`/`nombre`/`modelo` que coinciden con el filtro activo, sin paginar |
 | `DELETE` | `/api/v1/catalogos-proveedor/{catalogo}` | **Cambia de comportamiento**: ya no responde `409`; borra el catálogo y sus artículos |
 | `POST` | `/api/v1/catalogos-proveedor/{catalogo}/aumentar-costos` | `{ "aumento_porcentaje": N }` → `{ "actualizados": N }` |
 | `POST` | `/api/v1/catalogos-proveedor/{catalogo}/impacto-precios` | **Se extiende**: acepta `aumento_porcentaje`, y `descuento`/`utilidad_porcentaje` pasan a opcionales |
@@ -219,22 +240,49 @@ Todos bajo `auth:sanctum` y scopeados al usuario autenticado, como el resto del 
 
 ## Frontend (Vue 3)
 
-### `/articulos` — selección múltiple
+### `/articulos` — selección múltiple, persistente entre páginas
 
 - **Casilla por fila**, en una columna nueva al inicio de la tabla, más una **casilla en el
   encabezado** que marca y desmarca todas las de la página visible. La casilla del encabezado
   muestra estado indeterminado cuando hay algunas marcadas pero no todas.
-- **La selección abarca solo la página actual** (15 artículos). Al cambiar de página, buscar u
-  ordenar, se vacía. Sostener una selección a través de páginas y filtros obligaría a decidir qué
-  pasa cuando un artículo seleccionado deja de coincidir con la búsqueda, y a mostrar en algún lado
-  qué hay marcado que no se ve; el caso de uso —"estos de aquí sobran"— no lo pide.
-- **Barra de acciones**, visible solo cuando hay al menos un artículo marcado: el conteo
-  ("3 seleccionados") y el botón **Eliminar**. Sin nada marcado no aparece, para no dejar en pantalla
-  un botón permanentemente deshabilitado.
-- **Confirmación con el conteo**, sin listar los artículos uno por uno: "¿Eliminar 3 artículos?
-  Podrás recuperarlos solo por soporte técnico." El texto de recuperación es el mismo que ya usa el
-  borrado individual.
-- Al terminar, la tabla se recarga y la selección queda vacía.
+- **La selección sobrevive a cambiar de página, buscar, ordenar o cambiar el filtro de catálogo.**
+  Se guarda como un `Map<id, { id, nombre, modelo }>` local a la vista, no como un simple arreglo de
+  ids: guardar también el nombre y el modelo en el momento de marcar permite mostrarlos después en
+  el panel de seleccionados sin volver a pedirlos al servidor, aunque el artículo ya no esté en la
+  página visible. Un artículo marcado en la página 1 sigue marcado si se vuelve a esa página después
+  de recorrer la 2 y la 3, buscar algo distinto, u ordenar por otra columna.
+- **Persistida en `sessionStorage`** (clave `articulos-seleccion`), para que un refresco accidental
+  de la pestaña (F5) no la borre. `sessionStorage` es una caja de almacenamiento del navegador que
+  vive mientras la pestaña sigue abierta: sobrevive a recargar la página, pero se vacía sola al
+  cerrar la pestaña y no se comparte con otras pestañas ni con otra visita más adelante.
+- **El contador ("3 seleccionados") pasa a ser un botón** que abre un panel desplegable con el
+  nombre (y modelo) de cada artículo marcado, con una "×" para quitarlo uno por uno sin tener que
+  volver a la página donde se marcó. Con muchos artículos, el panel se desplaza dentro de su propio
+  contenedor en vez de crecer sin límite.
+- **Botón "Seleccionar todo lo filtrado"**, junto al aviso de "N artículos con los filtros
+  aplicados" que ya muestra la barra de filtros activos
+  ([025](025-filtros-columna-listado-articulos.md)): pide
+  `GET /articulos/ids-filtrados` con la búsqueda y los filtros activos, y suma de una vez **todos**
+  los artículos que coinciden, sin importar en cuántas páginas queden repartidos. Solo aparece
+  cuando hay al menos un filtro puesto —mismo criterio que ya decide si se muestra esa barra—; sin
+  ningún filtro activo, "seleccionar todo" marcaría el catálogo entero de un clic por accidente.
+- **"Seleccionar todos" del encabezado sigue afectando solo la página visible**: agrega o quita del
+  conjunto acumulado los artículos de esa página. No reemplaza al botón anterior, que cubre todas
+  las páginas del filtro activo de una vez.
+- **Barra de acciones**, visible solo cuando hay al menos un artículo marcado: el botón/panel de
+  seleccionados y el botón **Eliminar**, además de "Mover a catálogo"
+  ([034](034-filtro-catalogo-y-mover-lote-articulos.md)) y "Compartir Lista"
+  ([028](028-lista-precios-pdf.md)), que ya reutilizan este mismo mecanismo de selección. Sin nada
+  marcado no aparece, para no dejar en pantalla un botón permanentemente deshabilitado.
+- **Confirmación con el conteo**, sin listar los artículos uno por uno: "¿Eliminar 12 artículos?
+  Podrás recuperarlos solo por soporte técnico." (el detalle de cuáles son ya está a un clic, en el
+  panel de seleccionados). El texto de recuperación es el mismo que ya usa el borrado individual.
+- **"Quitar selección" vacía el conjunto completo**, sin importar en cuántas páginas estuviera
+  repartido, y limpia también la copia en `sessionStorage`.
+- **Al terminar Eliminar o Mover con éxito, la selección completa se vacía** (y `sessionStorage` con
+  ella): esos artículos ya fueron eliminados o cambiaron de catálogo, y si el filtro activo ya no
+  los incluye no tendría sentido dejarlos marcados. Compartir Lista (028) no vacía la selección,
+  porque no cambia nada en el servidor.
 
 ### `/catalogos` — borrado del catálogo completo
 
@@ -298,7 +346,15 @@ Va como una línea de texto en el diálogo de confirmación. No cambia ningún c
 - **Bajar costos por porcentaje.** El campo solo acepta aumentos.
 - **Aumentar el `costo_goma`** desde aquí: sube por el pizarrón de configuración
   ([014](014-costo-elaboracion-goma.md)).
-- **Selección que sobreviva al cambio de página, la búsqueda o el orden.**
+- **Selección compartida entre pestañas, o que sobreviva a cerrar la pestaña.**
+  `sessionStorage` es por pestaña: abrir `/articulos` en una pestaña nueva, o volver otro día,
+  empieza siempre con la selección vacía.
+- **Guardar la selección en el servidor**, o asociarla al usuario de forma permanente.
+- **Buscar dentro del panel de seleccionados.** Con una lista larga se hace scroll; no hay una caja
+  de texto para filtrar lo ya marcado.
+- **Deshacer selectivamente lo que agregó "Seleccionar todo lo filtrado".** Para quitar parte de lo
+  que ese botón sumó, se destilda a mano desde el panel o la tabla; no existe un "deshacer" que
+  distinga lo que vino de ese botón de lo marcado uno por uno.
 - **Borrado en lote de catálogos, proveedores o clientes.**
 - **Borrado definitivo (`forceDelete`) o papelera con restauración desde la interfaz.** Todo el
   borrado del sistema sigue siendo lógico y la recuperación sigue siendo por soporte técnico.
@@ -341,6 +397,11 @@ Implementada el 2026-08-12.
   **No se pudo verificar visualmente la UI en un navegador real** (misma limitación de entorno que
   el resto de las historias) — falta abrir `/articulos` para confirmar las casillas y la barra de
   selección, y `/catalogos/:id/editar` para la tabla de vista previa y el diálogo de confirmación.
+- **Selección persistente entre páginas** (supuestos 34-42): pendiente de implementar. Cambia el
+  `ref<number[]>` de `seleccionados` en `ArticulosListView.vue` por un `Map` persistido en
+  `sessionStorage`, agrega el panel de seleccionados, el botón "Seleccionar todo lo filtrado" y el
+  endpoint `GET /articulos/ids-filtrados` en `ArticuloController`. También ajusta 028 y 034, que
+  hasta ahora describían la selección como limitada a la página visible.
 
 ## Criterios de aceptación
 
@@ -393,6 +454,23 @@ Implementada el 2026-08-12.
     aumento; solo los documentos nuevos toman los precios nuevos.
 25. Pint y ESLint/Prettier corren sin errores sobre el código nuevo, y `npm run build` compila la
     SPA completa.
+26. Marcar un artículo, cambiar de página, buscar, ordenar o cambiar el filtro de catálogo, y volver
+    a la página original: el artículo sigue marcado.
+27. La casilla "seleccionar todos" del encabezado solo agrega o quita de la selección los artículos
+    de la página visible, sin tocar lo marcado en otras páginas.
+28. El botón/contador de seleccionados abre un panel con el nombre de cada artículo marcado y una
+    forma de quitarlo uno por uno sin salir de la página actual.
+29. Con al menos un filtro activo (búsqueda o catálogo), aparece "Seleccionar todo lo filtrado"; sin
+    ningún filtro, no aparece. Al hacer clic, se suman a la selección todos los artículos que
+    coinciden con el filtro activo, aunque ocupen más de una página.
+30. `GET /articulos/ids-filtrados` devuelve únicamente `id`, `nombre` y `modelo`, solo de artículos
+    del usuario autenticado, aplicando los mismos filtros que `index`, sin paginar.
+31. Recargar la pestaña (F5) con artículos seleccionados conserva la selección tal como estaba.
+32. "Quitar selección" vacía todo lo seleccionado, incluido lo marcado en páginas que ya no están
+    visibles, y limpia la copia guardada en `sessionStorage`.
+33. Al completar Eliminar o Mover a catálogo con éxito, la selección completa queda vacía. Al
+    generar una lista de precios (Compartir Lista), la selección se mantiene igual que antes de
+    generarla.
 
 ## Supuestos asumidos (registro completo)
 
@@ -400,8 +478,8 @@ Implementada el 2026-08-12.
 
 1. Los checkboxes aparecen en el listado de Artículos, una casilla por fila más una en el encabezado
    que marca y desmarca toda la página visible.
-2. La selección solo abarca los artículos de la página actual. Al cambiar de página, buscar u
-   ordenar, se pierde.
+2. **(Revisado, ver "Selección persistente entre páginas" más abajo)** La selección sobrevive a
+   cambiar de página, buscar, ordenar o cambiar el filtro de catálogo; ya no se pierde al hacerlo.
 3. Con al menos un artículo marcado aparece una barra con el conteo y el botón Eliminar; sin nada
    marcado, la barra no se muestra.
 4. La confirmación indica cuántos artículos se van a borrar, sin listarlos uno por uno.
@@ -482,3 +560,33 @@ Implementada el 2026-08-12.
     inventario**: como [017](017-inventario.md) valúa al costo de hoy, el dinero invertido y el
     beneficio potencial suben en la misma proporción de inmediato. Es solo texto; no cambia ningún
     cálculo.
+
+### Selección persistente entre páginas
+
+Agregado a partir de una petición de seguimiento: el usuario necesitaba armar una lista de precios
+con artículos repartidos por toda la tabla ("sellos esparcidos"), y el checkbox por página no lo
+permitía — al cambiar de página se perdía todo menos lo marcado en la última.
+
+34. La selección de artículos sobrevive a cambiar de página, buscar, ordenar o cambiar el filtro de
+    catálogo; deja de vaciarse en cualquiera de esos casos.
+35. Esta persistencia aplica a las tres acciones en lote que comparten el mecanismo de checkboxes
+    (Eliminar, Mover a catálogo, Compartir Lista), no solo a una de ellas.
+36. La casilla "seleccionar todos" del encabezado sigue actuando solo sobre la página visible; no
+    existe un "seleccionar todo lo que coincide con el filtro" a través de todas las páginas
+    **mediante esa misma casilla** (ver adición técnica 39, que sí lo cubre con un botón aparte).
+37. El contador de seleccionados cuenta el total acumulado en todas las páginas, no solo lo visible.
+38. "Quitar selección" vacía todo el conjunto acumulado, no solo lo visible.
+39. Un artículo que se vuelve inaccesible mientras está seleccionado (por ejemplo, otra pestaña lo
+    borra) no se limpia de la selección de forma especial: si al usarlo en una acción en lote su id
+    ya no existe, esa acción se rechaza completa, igual que ya ocurre hoy.
+40. **(Adición técnica)** Un panel con la lista de artículos ya seleccionados, con su nombre y una
+    forma de quitar cada uno sin volver a su página. Sin esto, marcar veinte artículos repartidos en
+    ocho páginas no deja forma de ver de un vistazo cuáles llevas — solo el número total.
+41. **(Adición técnica)** La selección se guarda en `sessionStorage` del navegador, para que un
+    refresco accidental de la pestaña no la borre. No sobrevive a cerrar la pestaña ni se comparte
+    entre pestañas: sigue siendo un estado de esa visita, no algo guardado en el servidor.
+42. **(Adición técnica)** Un botón "Seleccionar todo lo filtrado", visible solo con al menos un
+    filtro activo, que marca de un clic todos los artículos que coinciden con la búsqueda o el
+    catálogo activos, sin importar cuántas páginas ocupen — para cuando lo que se busca sí comparte
+    un filtro, en vez de tener que recorrer página por página. Se apoya en el endpoint nuevo
+    `GET /articulos/ids-filtrados`, que reutiliza el mismo filtrado y ordenado que ya usa `index`.

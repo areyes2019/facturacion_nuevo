@@ -1496,6 +1496,51 @@ test('exportar csv descarga exactamente lo que el listado filtrado muestra', fun
     expect($contenido)->not->toContain('Caro');
 });
 
+// ids-filtrados (ver 021-mantenimiento-articulos-catalogos.md, "Selección persistente entre
+// páginas"): respalda "Seleccionar todo lo filtrado". Reutiliza el mismo filtrado y ordenado que
+// index() y exportarCsv(), sin paginar.
+
+test('ids-filtrados devuelve solo id, nombre y modelo, sin paginar', function () {
+    $user = User::factory()->create();
+    $catalogo = Catalogo::factory()->for($user)->create();
+    // Más de los 15 por página del listado paginado: si esto viniera paginado, faltarían.
+    Articulo::factory()->count(20)->for($user)->for($catalogo)->create();
+
+    $response = $this->actingAs($user)->getJson('/api/v1/articulos/ids-filtrados');
+
+    $response->assertOk();
+    expect($response->json('articulos'))->toHaveCount(20);
+    expect(array_keys($response->json('articulos.0')))->toBe(['id', 'nombre', 'modelo']);
+});
+
+test('ids-filtrados aplica el mismo filtro de catalogo que el listado', function () {
+    $user = User::factory()->create();
+    $uno = Catalogo::factory()->for($user)->create();
+    $otro = Catalogo::factory()->for($user)->create();
+    Articulo::factory()->for($user)->for($uno)->create(['nombre' => 'Del catalogo uno']);
+    Articulo::factory()->for($user)->for($otro)->create(['nombre' => 'Del catalogo otro']);
+
+    $response = $this->actingAs($user)->getJson("/api/v1/articulos/ids-filtrados?filtro_catalogo_id={$uno->id}");
+
+    $response->assertOk();
+    expect(collect($response->json('articulos'))->pluck('nombre')->all())->toBe(['Del catalogo uno']);
+});
+
+test('ids-filtrados solo devuelve articulos del usuario autenticado', function () {
+    $user = User::factory()->create();
+    Articulo::factory()->for($user)->create(['nombre' => 'Propio']);
+    Articulo::factory()->create(['nombre' => 'Ajeno']);
+
+    $response = $this->actingAs($user)->getJson('/api/v1/articulos/ids-filtrados');
+
+    $response->assertOk();
+    expect(collect($response->json('articulos'))->pluck('nombre')->all())->toBe(['Propio']);
+});
+
+test('un invitado no puede pedir ids-filtrados', function () {
+    $this->getJson('/api/v1/articulos/ids-filtrados')->assertUnauthorized();
+});
+
 test('una peticion sin los filtros nuevos responde lo mismo y proveedor_id sigue acotando', function () {
     $user = User::factory()->create();
     $proveedor = Proveedor::factory()->for($user)->create();
