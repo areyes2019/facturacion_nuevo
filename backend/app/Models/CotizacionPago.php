@@ -61,6 +61,21 @@ class CotizacionPago extends Model
     }
 
     /**
+     * Saldo que quedaba pendiente justo después de este pago, no el saldo actual de la cotización
+     * (ver 040-recibo-anticipo-cotizacion.md): suma solo los pagos creados hasta este (inclusive,
+     * por `id`, que respeta el orden de creación), así que un recibo generado después de un pago
+     * posterior no cambia.
+     */
+    public function saldoPendienteTrasEste(): float
+    {
+        $acumuladoHastaEste = $this->cotizacion->pagos()
+            ->where('id', '<=', $this->id)
+            ->sum('monto');
+
+        return max(0, (float) $this->cotizacion->total - (float) $acumuladoHastaEste);
+    }
+
+    /**
      * @return array<string, string>
      */
     protected function casts(): array

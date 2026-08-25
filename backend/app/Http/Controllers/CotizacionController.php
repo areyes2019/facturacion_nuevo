@@ -317,6 +317,27 @@ class CotizacionController extends Controller
     }
 
     /**
+     * Recibo en PDF de un pago concreto (ver 040-recibo-anticipo-cotizacion.md). Se arma al vuelo y
+     * nunca se persiste, mismo criterio que el PDF de la propia cotización.
+     */
+    public function reciboPago(Request $request, Cotizacion $cotizacion, CotizacionPago $pago): Response
+    {
+        abort_unless($cotizacion->user_id === $request->user()->id, 404);
+        abort_unless($pago->cotizacion_id === $cotizacion->id, 404);
+
+        $cotizacion->loadMissing('cliente');
+        $pago->loadMissing('cuenta');
+
+        $pdf = app('dompdf.wrapper')->loadView('pdf.recibo-pago', [
+            'cotizacion' => $cotizacion,
+            'pago' => $pago,
+            'saldoPendienteTrasPago' => $pago->saldoPendienteTrasEste(),
+        ]);
+
+        return $pdf->stream("recibo-cotizacion-{$cotizacion->folio}-{$pago->tipo->value}.pdf");
+    }
+
+    /**
      * Destino del QR de la cotización (ver 038-produccion-ordenes-trabajo.md, que extiende a
      * Cotización el mismo mecanismo de `PedidoController::entregar`, 027).
      *

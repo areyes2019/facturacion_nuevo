@@ -303,5 +303,17 @@ export const useCotizacionesStore = defineStore('cotizaciones', {
 
       descargarBlob(blob, `cotizacion-${cotizacion.folio}.pdf`, 'application/pdf')
     },
+
+    /**
+     * El PDF del recibo de un pago concreto, dibujado por el servidor al vuelo (ver
+     * 040-recibo-anticipo-cotizacion.md), listo para compartir.
+     */
+    async reciboPagoBlob(cotizacionId: number, pagoId: number): Promise<Blob> {
+      const { data } = await http.get(`/cotizaciones/${cotizacionId}/pagos/${pagoId}/recibo`, {
+        responseType: 'blob',
+      })
+
+      return data
+    },
   },
 })

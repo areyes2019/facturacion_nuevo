@@ -176,6 +176,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('cotizaciones/{cotizacion}/marcar-enviada', [CotizacionController::class, 'marcarEnviada']);
     Route::post('cotizaciones/{cotizacion}/pagos', [CotizacionController::class, 'pagos']);
     Route::delete('cotizaciones/{cotizacion}/pagos/{pago}', [CotizacionController::class, 'eliminarPago']);
+    Route::get('cotizaciones/{cotizacion}/pagos/{pago}/recibo', [CotizacionController::class, 'reciboPago']);
     Route::post('cotizaciones/{cotizacion}/entregar', [CotizacionController::class, 'entregar']);
     Route::post('cotizaciones/{cotizacion}/deshacer-entrega', [CotizacionController::class, 'deshacerEntrega']);
     Route::post('cotizaciones/{cotizacion}/duplicar', [CotizacionController::class, 'duplicar']);

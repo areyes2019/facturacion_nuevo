@@ -6,6 +6,7 @@ use App\Models\Articulo;
 use App\Models\Catalogo;
 use App\Models\Cliente;
 use App\Models\Cotizacion;
+use App\Models\CotizacionPago;
 use App\Models\Cuenta;
 use App\Models\Factura;
 use App\Models\Proveedor;
@@ -650,4 +651,108 @@ test('el detalle expone la fecha de caducidad y si se puede eliminar', function 
     $respuestaPagada->assertOk();
     $respuestaPagada->assertJsonPath('data.puede_eliminarse', false);
     $respuestaPagada->assertJsonPath('data.caduca_el', null);
+});
+
+test('el recibo de un pago se genera en pdf con el nombre esperado', function () {
+    $user = User::factory()->create();
+    [$cliente] = crearClienteYArticuloParaCotizacion($user);
+    $cotizacion = Cotizacion::factory()->for($user)->for($cliente)->create(['estado' => EstadoCotizacion::Enviada->value, 'total' => 232.00, 'folio' => 7]);
+    $cuenta = Cuenta::factory()->for($user)->create();
+
+    $this->actingAs($user)->postJson("/api/v1/cotizaciones/{$cotizacion->id}/pagos", [
+        'tipo' => 'anticipo',
+        'fecha_pago' => now()->toDateString(),
+        'monto' => 100.00,
+        'cuenta_id' => $cuenta->id,
+    ])->assertOk();
+    $pago = CotizacionPago::where('cotizacion_id', $cotizacion->id)->latest('id')->first();
+
+    $respuesta = $this->actingAs($user)->get("/api/v1/cotizaciones/{$cotizacion->id}/pagos/{$pago->id}/recibo");
+
+    $respuesta->assertOk();
+    expect(substr($respuesta->getContent(), 0, 4))->toBe('%PDF');
+    expect($respuesta->headers->get('content-disposition'))->toContain('recibo-cotizacion-7-anticipo.pdf');
+});
+
+test('el recibo de un pago que no pertenece a esa cotizacion responde 404', function () {
+    $user = User::factory()->create();
+    [$cliente] = crearClienteYArticuloParaCotizacion($user);
+    $cotizacion = Cotizacion::factory()->for($user)->for($cliente)->create(['estado' => EstadoCotizacion::Enviada->value, 'total' => 232.00]);
+    $otraCotizacion = Cotizacion::factory()->for($user)->for($cliente)->create(['estado' => EstadoCotizacion::Enviada->value, 'total' => 232.00]);
+    $cuenta = Cuenta::factory()->for($user)->create();
+
+    $this->actingAs($user)->postJson("/api/v1/cotizaciones/{$otraCotizacion->id}/pagos", [
+        'tipo' => 'pago_total',
+        'fecha_pago' => now()->toDateString(),
+        'cuenta_id' => $cuenta->id,
+    ])->assertOk();
+    $pagoAjeno = CotizacionPago::where('cotizacion_id', $otraCotizacion->id)->latest('id')->first();
+
+    $this->actingAs($user)
+        ->get("/api/v1/cotizaciones/{$cotizacion->id}/pagos/{$pagoAjeno->id}/recibo")
+        ->assertNotFound();
+});
+
+test('el recibo de una cotizacion ajena responde 404', function () {
+    $user = User::factory()->create();
+    $otro = User::factory()->create();
+    [$clienteOtro] = crearClienteYArticuloParaCotizacion($otro);
+    $cotizacionAjena = Cotizacion::factory()->for($otro)->for($clienteOtro)->create(['estado' => EstadoCotizacion::Enviada->value, 'total' => 232.00]);
+    $cuenta = Cuenta::factory()->for($otro)->create();
+
+    $this->actingAs($otro)->postJson("/api/v1/cotizaciones/{$cotizacionAjena->id}/pagos", [
+        'tipo' => 'pago_total',
+        'fecha_pago' => now()->toDateString(),
+        'cuenta_id' => $cuenta->id,
+    ])->assertOk();
+    $pago = CotizacionPago::where('cotizacion_id', $cotizacionAjena->id)->latest('id')->first();
+
+    $this->actingAs($user)
+        ->get("/api/v1/cotizaciones/{$cotizacionAjena->id}/pagos/{$pago->id}/recibo")
+        ->assertNotFound();
+});
+
+test('el saldo pendiente del recibo refleja el momento de ese pago, no el saldo actual', function () {
+    $user = User::factory()->create();
+    [$cliente] = crearClienteYArticuloParaCotizacion($user);
+    $cotizacion = Cotizacion::factory()->for($user)->for($cliente)->create(['estado' => EstadoCotizacion::Enviada->value, 'total' => 232.00]);
+    $cuenta = Cuenta::factory()->for($user)->create();
+
+    $this->actingAs($user)->postJson("/api/v1/cotizaciones/{$cotizacion->id}/pagos", [
+        'tipo' => 'anticipo',
+        'fecha_pago' => now()->toDateString(),
+        'monto' => 100.00,
+        'cuenta_id' => $cuenta->id,
+    ])->assertOk();
+    $anticipo = CotizacionPago::where('cotizacion_id', $cotizacion->id)->latest('id')->first();
+
+    $this->actingAs($user)->postJson("/api/v1/cotizaciones/{$cotizacion->id}/pagos", [
+        'tipo' => 'saldo',
+        'fecha_pago' => now()->toDateString(),
+        'cuenta_id' => $cuenta->id,
+    ])->assertOk();
+    $saldo = CotizacionPago::where('cotizacion_id', $cotizacion->id)->where('id', '!=', $anticipo->id)->latest('id')->first();
+
+    expect($anticipo->fresh()->saldoPendienteTrasEste())->toBe(132.0);
+    expect($saldo->fresh()->saldoPendienteTrasEste())->toBe(0.0);
+});
+
+test('el pdf del recibo se genera igual sin logo del emisor cargado', function () {
+    $user = User::factory()->create();
+    [$cliente] = crearClienteYArticuloParaCotizacion($user);
+    $cotizacion = Cotizacion::factory()->for($user)->for($cliente)->create(['estado' => EstadoCotizacion::Enviada->value, 'total' => 232.00]);
+    $cuenta = Cuenta::factory()->for($user)->create();
+
+    $this->assertDatabaseCount('emisor', 0);
+
+    $this->actingAs($user)->postJson("/api/v1/cotizaciones/{$cotizacion->id}/pagos", [
+        'tipo' => 'pago_total',
+        'fecha_pago' => now()->toDateString(),
+        'cuenta_id' => $cuenta->id,
+    ])->assertOk();
+    $pago = CotizacionPago::where('cotizacion_id', $cotizacion->id)->latest('id')->first();
+
+    $this->actingAs($user)
+        ->get("/api/v1/cotizaciones/{$cotizacion->id}/pagos/{$pago->id}/recibo")
+        ->assertOk();
 });

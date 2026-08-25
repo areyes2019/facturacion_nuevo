@@ -9,6 +9,7 @@ import {
   DocumentDuplicateIcon,
   DocumentTextIcon,
   QrCodeIcon,
+  ReceiptPercentIcon,
   ShareIcon,
   TrashIcon,
   WrenchScrewdriverIcon,
@@ -273,6 +274,41 @@ async function confirmarPago() {
   }
 }
 
+/**
+ * Recibo de un pago concreto (ver 040-recibo-anticipo-cotizacion.md): igual que "Compartir QR",
+ * baja el PDF y lo entrega de inmediato al menú de compartir, con texto de respaldo para el
+ * escritorio. El estado de carga es por fila (el `id` del pago que se está generando), para no
+ * deshabilitar el resto de los recibos mientras uno se genera.
+ */
+const generandoReciboId = ref<number | null>(null)
+const errorRecibo = ref<string | null>(null)
+
+function etiquetaTipoPago(tipo: TipoPagoCotizacion): string {
+  return tipo === 'anticipo' ? 'Anticipo' : tipo === 'saldo' ? 'Saldo' : 'Pago total'
+}
+
+async function compartirRecibo(pago: CotizacionPago) {
+  if (!cotizacion.value) return
+
+  generandoReciboId.value = pago.id
+  errorRecibo.value = null
+
+  try {
+    const blob = await cotizacionesStore.reciboPagoBlob(cotizacion.value.id, pago.id)
+    const texto = `Recibo de ${etiquetaTipoPago(pago.tipo)} de la cotización ${cotizacion.value.folio} (${cotizacion.value.cliente_razon_social}): $${pago.monto.toFixed(2)}.`
+
+    await compartirArchivo(
+      blob,
+      `recibo-cotizacion-${cotizacion.value.folio}-${pago.tipo}.pdf`,
+      texto,
+    )
+  } catch {
+    errorRecibo.value = 'No se pudo generar el recibo.'
+  } finally {
+    generandoReciboId.value = null
+  }
+}
+
 // Eliminación de pagos: solo el más reciente (criterio LIFO), y no si el producto ya se entregó.
 const pagoAEliminar = ref<CotizacionPago | null>(null)
 const eliminandoPago = ref(false)
@@ -527,6 +563,10 @@ async function compartirQr() {
           <AlertDescription>{{ errorDescarga }}</AlertDescription>
         </Alert>
 
+        <Alert v-if="errorRecibo" variant="destructive">
+          <AlertDescription>{{ errorRecibo }}</AlertDescription>
+        </Alert>
+
         <Card>
           <CardHeader>
             <CardTitle class="text-base">Pagos</CardTitle>
@@ -554,7 +594,18 @@ async function compartirQr() {
                   <TableCell>{{ pago.fecha_pago }}</TableCell>
                   <TableCell class="text-right">${{ pago.monto.toFixed(2) }}</TableCell>
                   <TableCell>{{ pago.cuenta_nombre ?? '—' }}</TableCell>
-                  <TableCell class="text-right">
+                  <TableCell class="flex justify-end gap-2 text-right">
+                    <!-- Recibo (040): disponible para cualquier pago del historial, no solo el más
+                         reciente — a diferencia de "Eliminar", que sí depende de esa regla. -->
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      :disabled="generandoReciboId === pago.id"
+                      @click="compartirRecibo(pago)"
+                    >
+                      <ReceiptPercentIcon class="size-4" />
+                      {{ generandoReciboId === pago.id ? 'Generando...' : 'Recibo' }}
+                    </Button>
                     <!-- Solo el pago más reciente se puede eliminar (criterio LIFO): el monto de
                          saldo/pago total se autocalcula a partir de los previos. -->
                     <Button
