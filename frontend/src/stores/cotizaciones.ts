@@ -7,6 +7,7 @@ import {
 } from '../lib/compartir'
 import { extractErrorMessage } from '../lib/errors'
 import type { TipoDescuento, TasaIva } from './facturas'
+import type { Envio, EnvioPayload } from './ordenesTrabajo'
 
 export type EstadoCotizacion = 'borrador' | 'enviada' | 'pagada' | 'producto_entregado'
 export type TipoPagoCotizacion = 'anticipo' | 'saldo' | 'pago_total'
@@ -81,6 +82,11 @@ export interface Cotizacion {
   /** Orden de Trabajo de Producción, si esta cotización ya tiene una (ver 038). */
   orden_trabajo_id?: number | null
   orden_trabajo_estado?: string | null
+  /**
+   * Envío directo a domicilio, sin Orden de Trabajo — solo clientes distribuidores (ver
+   * 041-envio-domicilio-direccion-y-distribuidor.md).
+   */
+  envio?: Envio | null
   /** Solo en el detalle: QR ya dibujado en el servidor, mismo mecanismo que Pedido (027). */
   qr_entrega?: string | null
   url_entrega?: string
@@ -250,6 +256,20 @@ export const useCotizacionesStore = defineStore('cotizaciones', {
 
     async duplicar(id: number): Promise<Cotizacion> {
       const { data } = await http.post(`/cotizaciones/${id}/duplicar`)
+      return data.data
+    },
+
+    /**
+     * Envío directo a domicilio de una cotización de cliente distribuidor, sin Orden de Trabajo
+     * (ver 041-envio-domicilio-direccion-y-distribuidor.md).
+     */
+    async crearEnvio(id: number, payload: EnvioPayload): Promise<Cotizacion> {
+      const { data } = await http.post(`/cotizaciones/${id}/envio`, payload)
+      return data.data
+    },
+
+    async marcarEnvioEntregado(id: number): Promise<Cotizacion> {
+      const { data } = await http.post(`/cotizaciones/${id}/envio/entregar`)
       return data.data
     },
 

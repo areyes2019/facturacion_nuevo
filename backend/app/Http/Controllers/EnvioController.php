@@ -6,7 +6,7 @@ use App\Enums\EstadoOrdenTrabajo;
 use App\Enums\FormaPagoEnvio;
 use App\Enums\TarifaEnvio;
 use App\Enums\TipoMovimiento;
-use App\Http\Requests\Produccion\EnvioRequest;
+use App\Http\Requests\EnvioRequest;
 use App\Http\Resources\OrdenTrabajoResource;
 use App\Models\OrdenTrabajo;
 use App\Services\ConfiguracionService;
@@ -45,6 +45,7 @@ class EnvioController extends Controller
             $envio = $orden->envio()->create([
                 'nombre_receptor' => $datos['nombre_receptor'],
                 'telefono_receptor' => $datos['telefono_receptor'],
+                'direccion' => $datos['direccion'],
                 'fecha_recepcion' => $datos['fecha_recepcion'],
                 'hora_recepcion' => $datos['hora_recepcion'],
                 'tarifa' => $tarifa->value,
@@ -62,7 +63,7 @@ class EnvioController extends Controller
                     TipoMovimiento::Ingreso,
                     $monto,
                     now()->toDateString(),
-                    $envio->setRelation('ordenTrabajo', $orden)->conceptoMovimiento(),
+                    $envio->setRelation('documentable', $orden)->conceptoMovimiento(),
                 );
             }
         });

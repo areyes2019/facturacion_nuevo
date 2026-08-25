@@ -16,11 +16,13 @@ class EnvioResource extends JsonResource
             'id' => $this->id,
             'nombre_receptor' => $this->nombre_receptor,
             'telefono_receptor' => $this->telefono_receptor,
+            'direccion' => $this->direccion,
             'fecha_recepcion' => $this->fecha_recepcion,
             'hora_recepcion' => $this->hora_recepcion,
             'tarifa' => $this->tarifa->value,
             'monto' => (float) $this->monto,
             'forma_pago' => $this->forma_pago->value,
+            'entregado_en' => $this->entregado_en,
             'created_at' => $this->created_at,
         ];
     }

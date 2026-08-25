@@ -14,11 +14,15 @@ export interface Envio {
   id: number
   nombre_receptor: string
   telefono_receptor: string
+  /** `null` solo en envíos creados antes de 041: no se completa retroactivamente. */
+  direccion: string | null
   fecha_recepcion: string
   hora_recepcion: string
   tarifa: TarifaEnvio
   monto: number
   forma_pago: FormaPagoEnvio
+  /** Solo se usa en el envío directo de Cotización de distribuidor (ver 041). */
+  entregado_en: string | null
   created_at: string
 }
 
@@ -44,6 +48,7 @@ export interface OrdenTrabajo {
 export interface EnvioPayload {
   nombre_receptor: string
   telefono_receptor: string
+  direccion: string
   fecha_recepcion: string
   hora_recepcion: string
   tarifa: TarifaEnvio

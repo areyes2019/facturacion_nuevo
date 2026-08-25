@@ -8,25 +8,34 @@ use Database\Factories\EnvioFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphOne;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
 
 /**
- * Envío a domicilio de una Orden de Trabajo (ver 038-produccion-ordenes-trabajo.md).
+ * Envío a domicilio (ver 038-produccion-ordenes-trabajo.md y
+ * 041-envio-domicilio-direccion-y-distribuidor.md).
  *
- * 1 a 1 con `OrdenTrabajo`. No se edita ni se borra una vez creado. `monto` es la copia congelada
- * del valor configurado de la tarifa al momento de crearse — mismo criterio que `Articulo::costo_goma`
- * (014): un cambio posterior en Configuración no debe mover envíos ya hechos.
+ * Cuelga de un `OrdenTrabajo` (Producción) o directamente de una `Cotizacion` de cliente
+ * distribuidor (`documentable`, misma técnica que `OrdenTrabajo::documentable` y
+ * `Movimiento::documentable` de 010). No se edita ni se borra una vez creado — la única transición
+ * permitida es `entregado_en` (041), y solo cuando cuelga directo de una `Cotizacion`.
+ *
+ * `monto` es la copia congelada del valor configurado de la tarifa al momento de crearse — mismo
+ * criterio que `Articulo::costo_goma` (014): un cambio posterior en Configuración no debe mover
+ * envíos ya hechos.
  */
 #[Fillable([
-    'orden_trabajo_id',
+    'documentable_type',
+    'documentable_id',
     'nombre_receptor',
     'telefono_receptor',
+    'direccion',
     'fecha_recepcion',
     'hora_recepcion',
     'tarifa',
     'monto',
     'forma_pago',
+    'entregado_en',
 ])]
 class Envio extends Model
 {
@@ -35,9 +44,9 @@ class Envio extends Model
 
     protected $table = 'envios';
 
-    public function ordenTrabajo(): BelongsTo
+    public function documentable(): MorphTo
     {
-        return $this->belongsTo(OrdenTrabajo::class);
+        return $this->morphTo();
     }
 
     /**
@@ -51,7 +60,10 @@ class Envio extends Model
 
     public function conceptoMovimiento(): string
     {
-        return 'Envío de Orden '.$this->ordenTrabajo->folioFormateado();
+        return match (true) {
+            $this->documentable instanceof OrdenTrabajo => 'Envío de Orden '.$this->documentable->folioFormateado(),
+            $this->documentable instanceof Cotizacion => 'Envío de Cotización '.$this->documentable->folio,
+        };
     }
 
     /**
@@ -64,6 +76,7 @@ class Envio extends Model
             'tarifa' => TarifaEnvio::class,
             'monto' => 'decimal:2',
             'forma_pago' => FormaPagoEnvio::class,
+            'entregado_en' => 'datetime',
         ];
     }
 }

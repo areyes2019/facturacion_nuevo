@@ -10,6 +10,7 @@ use App\Http\Controllers\ConfiguracionController;
 use App\Http\Controllers\ConstanciaFiscalController;
 use App\Http\Controllers\ContactoLandingController;
 use App\Http\Controllers\CotizacionController;
+use App\Http\Controllers\CotizacionEnvioController;
 use App\Http\Controllers\CuentaController;
 use App\Http\Controllers\DatoBancarioController;
 use App\Http\Controllers\EmisorController;
@@ -181,6 +182,10 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('cotizaciones/{cotizacion}/deshacer-entrega', [CotizacionController::class, 'deshacerEntrega']);
     Route::post('cotizaciones/{cotizacion}/duplicar', [CotizacionController::class, 'duplicar']);
     Route::get('cotizaciones/{cotizacion}/pdf', [CotizacionController::class, 'pdf']);
+    // Envío directo a domicilio para distribuidores, sin Orden de Trabajo (ver
+    // 041-envio-domicilio-direccion-y-distribuidor.md).
+    Route::post('cotizaciones/{cotizacion}/envio', [CotizacionEnvioController::class, 'store']);
+    Route::post('cotizaciones/{cotizacion}/envio/entregar', [CotizacionEnvioController::class, 'entregar']);
 
     // Venta de mostrador (ver 027-venta-mostrador-ticket.md). La búsqueda por teléfono va antes
     // del apiResource para que `pedidos/por-telefono` no se lea como `pedidos/{pedido}`.

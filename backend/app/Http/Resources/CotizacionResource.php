@@ -53,6 +53,8 @@ class CotizacionResource extends JsonResource
             // Orden de Trabajo de Producción, si esta cotización ya tiene una (ver 038).
             'orden_trabajo_id' => $this->whenLoaded('ordenTrabajo', fn () => $this->ordenTrabajo?->id),
             'orden_trabajo_estado' => $this->whenLoaded('ordenTrabajo', fn () => $this->ordenTrabajo?->estado->value),
+            // Envío directo a domicilio (distribuidor, sin Orden de Trabajo — ver 041).
+            'envio' => $this->whenLoaded('envio', fn () => $this->envio !== null ? new EnvioResource($this->envio) : null),
             // QR de entrega, igual que Pedido (ver 038). Solo en el detalle, mismo criterio que
             // PedidoResource: dibujar el QR de un listado de quince cotizaciones es trabajo de más.
             $this->mergeWhen($this->relationLoaded('lineas'), fn () => [

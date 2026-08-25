@@ -88,6 +88,16 @@ class Cotizacion extends Model implements DocumentoEnviable
     }
 
     /**
+     * Envío directo a domicilio, sin pasar por una Orden de Trabajo — solo para clientes
+     * distribuidores que compran de existencia (ver 041-envio-domicilio-direccion-y-distribuidor.md).
+     * Independiente de `ordenTrabajo()`: ambos pueden coexistir en la misma cotización.
+     */
+    public function envio(): MorphOne
+    {
+        return $this->morphOne(Envio::class, 'documentable');
+    }
+
+    /**
      * Suma acumulada de los pagos registrados (anticipo + saldo + pago total, sin distinción de
      * tipo); en cuanto alcanza o supera `total` la cotización pasa a `pagada` (ver
      * 008-cotizaciones.md, supuesto #9).

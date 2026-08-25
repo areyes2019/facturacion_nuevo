@@ -70,6 +70,7 @@ function datosEnvioValidos(array $overrides = []): array
     return array_merge([
         'nombre_receptor' => 'Ana López',
         'telefono_receptor' => '5599998888',
+        'direccion' => 'Av. Reforma 123, Col. Centro',
         'fecha_recepcion' => now()->toDateString(),
         'hora_recepcion' => '15:30',
         'tarifa' => 'b',
@@ -126,7 +127,11 @@ test('un envio por cobrar no genera ningun movimiento de tesoreria y deja la ord
     $response->assertJsonPath('data.envio.forma_pago', 'por_cobrar');
     $response->assertJsonPath('data.envio.monto', 80);
 
-    $this->assertDatabaseHas('envios', ['orden_trabajo_id' => $orden->id, 'forma_pago' => 'por_cobrar']);
+    $this->assertDatabaseHas('envios', [
+        'documentable_type' => OrdenTrabajo::class,
+        'documentable_id' => $orden->id,
+        'forma_pago' => 'por_cobrar',
+    ]);
     // El pago del pedido ya generó su propio movimiento; el envío por cobrar no debe sumar otro.
     expect(Movimiento::count())->toBe($movimientosPrevios);
 });
@@ -181,6 +186,17 @@ test('cambiar el monto configurado de una tarifa no altera los envios ya creados
     $this->actingAs($user)->putJson('/api/v1/configuracion', ['envio_tarifa_a' => '999.00'])->assertOk();
 
     expect((float) $orden->fresh()->envio->monto)->toBe(50.0);
+});
+
+test('un envio sin direccion se rechaza', function () {
+    $user = User::factory()->create();
+    $orden = envioOrdenLista($user);
+
+    $datos = datosEnvioValidos();
+    unset($datos['direccion']);
+
+    $this->actingAs($user)->postJson("/api/v1/ordenes-trabajo/{$orden->id}/envio", $datos)
+        ->assertUnprocessable()->assertJsonValidationErrors('direccion');
 });
 
 test('marcar entregada una orden a domicilio', function () {

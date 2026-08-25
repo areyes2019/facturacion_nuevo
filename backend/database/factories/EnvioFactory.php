@@ -21,9 +21,11 @@ class EnvioFactory extends Factory
     public function definition(): array
     {
         return [
-            'orden_trabajo_id' => OrdenTrabajo::factory(),
+            'documentable_type' => OrdenTrabajo::class,
+            'documentable_id' => OrdenTrabajo::factory(),
             'nombre_receptor' => $this->faker->name(),
             'telefono_receptor' => $this->faker->numerify('55########'),
+            'direccion' => $this->faker->streetAddress(),
             'fecha_recepcion' => now()->toDateString(),
             'hora_recepcion' => '12:00',
             'tarifa' => TarifaEnvio::A->value,

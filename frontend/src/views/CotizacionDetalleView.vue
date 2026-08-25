@@ -22,8 +22,10 @@ import {
   type EstadoCotizacion,
   type TipoPagoCotizacion,
 } from '../stores/cotizaciones'
-import { useOrdenesTrabajoStore } from '../stores/ordenesTrabajo'
+import { useOrdenesTrabajoStore, type EnvioPayload } from '../stores/ordenesTrabajo'
 import { extractErrorMessage, mensajeDeFallaDeDescarga } from '../lib/errors'
+import FormularioEnvio from '../components/envio/FormularioEnvio.vue'
+import FichaEnvio from '../components/envio/FichaEnvio.vue'
 import { compartirArchivo, type ArchivoCompartible } from '../lib/compartir'
 import { caducaPronto, fechaLegible, textoCaducidad } from '../lib/caducidadCotizacion'
 import AppLayout from '../layouts/AppLayout.vue'
@@ -66,6 +68,39 @@ const cotizacionId = computed(() => Number(route.params.id))
 
 /** Solo con algún pago registrado: mismo requisito que valida el backend al crear la orden. */
 const tienePagos = computed(() => (cotizacion.value?.pagos.length ?? 0) > 0)
+
+// ---------------------------------------------------------------------------
+// Envío directo a domicilio (solo clientes distribuidores, sin Orden de Trabajo — ver
+// 041-envio-domicilio-direccion-y-distribuidor.md)
+// ---------------------------------------------------------------------------
+const puedeEnviarDirecto = computed(
+  () => (cotizacion.value?.cliente_es_distribuidor ?? false) && tienePagos.value,
+)
+
+const dialogoEnvioDirecto = ref(false)
+
+async function onGuardarEnvioDirecto(payload: EnvioPayload) {
+  if (!cotizacion.value) return
+  cotizacion.value = await cotizacionesStore.crearEnvio(cotizacion.value.id, payload)
+}
+
+async function onMarcarEnvioEntregado() {
+  if (!cotizacion.value) return
+  cotizacion.value = await cotizacionesStore.marcarEnvioEntregado(cotizacion.value.id)
+}
+
+const lineasFichaEnvioDirecto = computed(() => [
+  `Cliente: ${cotizacion.value?.cliente_razon_social ?? ''}`,
+  `Teléfono: ${cotizacion.value?.cliente_telefono ?? ''}`,
+  `Cotización: ${cotizacion.value?.folio ?? ''}`,
+])
+
+const importePendienteEnvioDirecto = computed(() => {
+  if (!cotizacion.value?.envio) return 0
+  return cotizacion.value.envio.forma_pago === 'por_cobrar'
+    ? cotizacion.value.saldo_pendiente + cotizacion.value.envio.monto
+    : cotizacion.value.saldo_pendiente
+})
 
 /**
  * Abre Producción para esta cotización: crea la Orden de Trabajo si todavía no existe y navega a
@@ -528,6 +563,16 @@ async function compartirQr() {
                   : 'Crear Orden de Trabajo'
             }}
           </Button>
+          <!-- Envío directo a domicilio: solo clientes distribuidores, sin pasar por Producción
+               (ver 041-envio-domicilio-direccion-y-distribuidor.md). -->
+          <Button
+            v-if="puedeEnviarDirecto && !cotizacion.envio"
+            variant="outline"
+            @click="dialogoEnvioDirecto = true"
+          >
+            <TruckIcon class="size-4" />
+            Enviar a domicilio
+          </Button>
           <Button variant="outline" :disabled="facturarEstado === 'bloqueado'" @click="onFacturar">
             <DocumentTextIcon class="size-4" />
             {{
@@ -622,6 +667,14 @@ async function compartirQr() {
             </Table>
           </CardContent>
         </Card>
+
+        <FichaEnvio
+          v-if="cotizacion.envio"
+          :envio="cotizacion.envio"
+          :lineas="lineasFichaEnvioDirecto"
+          :importe-pendiente="importePendienteEnvioDirecto"
+          :on-marcar-entregado="onMarcarEnvioEntregado"
+        />
 
         <Card>
           <CardHeader>
@@ -858,6 +911,8 @@ async function compartirQr() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <FormularioEnvio v-model:open="dialogoEnvioDirecto" :guardar="onGuardarEnvioDirecto" />
 
       <Dialog :open="mostrarEliminar" @update:open="(v) => (mostrarEliminar = v)">
         <DialogContent>

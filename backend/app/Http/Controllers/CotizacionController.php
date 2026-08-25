@@ -122,7 +122,7 @@ class CotizacionController extends Controller
     {
         abort_unless($cotizacion->user_id === $request->user()->id, 404);
 
-        return new CotizacionResource($cotizacion->load(['cliente', 'lineas.articulo', 'pagos.cuenta', 'factura', 'ordenTrabajo']));
+        return new CotizacionResource($cotizacion->load(['cliente', 'lineas.articulo', 'pagos.cuenta', 'factura', 'ordenTrabajo', 'envio']));
     }
 
     /**
