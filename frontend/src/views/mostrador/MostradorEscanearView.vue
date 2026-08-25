@@ -2,6 +2,8 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { documentoDeCodigoEtiqueta, vibrarLectura } from '../../lib/lectorQr'
+import { usePedidosStore } from '../../stores/pedidos'
+import { useCotizacionesStore } from '../../stores/cotizaciones'
 import AppLayout from '../../layouts/AppLayout.vue'
 import EscanerQr from '../../components/EscanerQr.vue'
 
@@ -11,14 +13,16 @@ import EscanerQr from '../../components/EscanerQr.vue'
  *
  * Para entregar sin este escáner hay que salir a la app de cámara del celular, que abre la dirección
  * de la etiqueta en el navegador. Esto elimina ese rodeo: la cámara se abre dentro de la aplicación
- * y, al reconocer una etiqueta del sistema, navega a la entrega sin recargar nada.
+ * y, al reconocer una etiqueta del sistema, navega directo al trabajo sin recargar nada.
  *
- * **Lo que hace el escaneo no cambia**: cobra el saldo, marca entregado y admite deshacerse durante
- * diez segundos, exactamente como manda 027 (y 038 para Cotización). Esta pantalla cambia cómo se
- * llega, no lo que pasa al llegar.
+ * **A dónde lleva el escaneo cambia según si el trabajo ya tiene ficha de Producción** (ver
+ * 039-qr-conductor-produccion.md): con Orden de Trabajo asociada, navega directo a esa ficha; sin
+ * ella, sigue llevando a la vista de entrega del documento, igual que hasta ahora.
  */
 
 const router = useRouter()
+const pedidos = usePedidosStore()
+const cotizaciones = useCotizacionesStore()
 
 const aviso = ref<string | null>(null)
 
@@ -34,6 +38,21 @@ async function onCodigo(codigo: string) {
 
   aviso.value = null
   vibrarLectura()
+
+  try {
+    const ordenTrabajoId =
+      documento.tipo === 'pedido'
+        ? (await pedidos.fetchOne(documento.id)).orden_trabajo_id
+        : (await cotizaciones.fetchOne(documento.id)).orden_trabajo_id
+
+    if (ordenTrabajoId) {
+      await router.push({ name: 'produccion-detalle', params: { id: ordenTrabajoId } })
+      return
+    }
+  } catch {
+    // Si la consulta falla, se sigue por el camino de siempre: la vista de entrega también
+    // carga el documento y muestra el error ahí.
+  }
 
   const nombreRuta = documento.tipo === 'pedido' ? 'pedidos-entregar' : 'cotizaciones-entregar'
   await router.push({ name: nombreRuta, params: { id: documento.id } })

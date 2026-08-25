@@ -62,6 +62,10 @@ const RUTAS_PERMITIDAS = new Set([
   // en 038: el mismo escáner ahora también reconoce sus etiquetas.
   'pedidos-entregar',
   'cotizaciones-entregar',
+  // La ficha de Producción de un solo trabajo, adonde el escaneo navega cuando ya existe una Orden
+  // de Trabajo (ver 039-qr-conductor-produccion.md) — mismo criterio que las dos rutas de arriba: un
+  // solo registro, no el tablero completo (`produccion` sigue fuera, como decidió 038).
+  'produccion-detalle',
   // La puerta de entrada.
   'login',
   'forgot-password',

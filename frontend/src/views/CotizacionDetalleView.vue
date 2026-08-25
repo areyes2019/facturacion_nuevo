@@ -8,6 +8,8 @@ import {
   TruckIcon,
   DocumentDuplicateIcon,
   DocumentTextIcon,
+  QrCodeIcon,
+  ShareIcon,
   TrashIcon,
   WrenchScrewdriverIcon,
   PrinterIcon,
@@ -21,7 +23,7 @@ import {
 } from '../stores/cotizaciones'
 import { useOrdenesTrabajoStore } from '../stores/ordenesTrabajo'
 import { extractErrorMessage, mensajeDeFallaDeDescarga } from '../lib/errors'
-import type { ArchivoCompartible } from '../lib/compartir'
+import { compartirArchivo, type ArchivoCompartible } from '../lib/compartir'
 import { caducaPronto, fechaLegible, textoCaducidad } from '../lib/caducidadCotizacion'
 import AppLayout from '../layouts/AppLayout.vue'
 import { Button } from '../components/ui/button'
@@ -350,6 +352,37 @@ async function onDuplicar() {
     duplicando.value = false
   }
 }
+
+/**
+ * "Compartir QR" (ver 039-qr-conductor-produccion.md): el mismo código que ya se dibuja en pantalla
+ * y en el PDF, solo que en grande y listo para el panel nativo de compartir, sin bajarlo a mano.
+ */
+const mostrarCompartirQr = ref(false)
+const compartiendoQr = ref(false)
+const errorCompartirQr = ref<string | null>(null)
+
+function abrirCompartirQr() {
+  errorCompartirQr.value = null
+  mostrarCompartirQr.value = true
+}
+
+async function compartirQr() {
+  if (!cotizacion.value?.qr_entrega) return
+
+  compartiendoQr.value = true
+  errorCompartirQr.value = null
+
+  try {
+    const blob = await (await fetch(cotizacion.value.qr_entrega)).blob()
+    const texto = `QR de seguimiento de la cotización ${cotizacion.value.folio} (${cotizacion.value.cliente_razon_social}).`
+
+    await compartirArchivo(blob, `QR-cotizacion-${cotizacion.value.folio}.png`, texto)
+  } catch {
+    errorCompartirQr.value = 'No se pudo compartir el QR.'
+  } finally {
+    compartiendoQr.value = false
+  }
+}
 </script>
 
 <template>
@@ -435,6 +468,12 @@ async function onDuplicar() {
               <PrinterIcon class="size-4" />
               Imprimir etiqueta
             </RouterLink>
+          </Button>
+          <!-- Compartir QR (ver 039-qr-conductor-produccion.md): mismo QR de entrega, en grande y
+               listo para compartir sin bajar la imagen a mano. -->
+          <Button variant="outline" @click="abrirCompartirQr">
+            <QrCodeIcon class="size-4" />
+            Compartir QR
           </Button>
           <!-- Producción (ver 038): solo si la cotización ya tiene algún pago, mismo requisito que
                el backend valida al crear la orden. -->
@@ -690,6 +729,56 @@ async function onDuplicar() {
             </Button>
             <Button :disabled="registrandoPago" @click="confirmarPago">
               {{ registrandoPago ? 'Registrando...' : 'Registrar' }}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog :open="mostrarCompartirQr" @update:open="(v) => (mostrarCompartirQr = v)">
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Compartir QR</DialogTitle>
+            <DialogDescription>
+              El cliente escanea este código para dar seguimiento a su trabajo.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div class="space-y-4 text-center">
+            <img
+              v-if="cotizacion?.qr_entrega"
+              :src="cotizacion.qr_entrega"
+              alt="QR de la cotización"
+              class="mx-auto size-56"
+            />
+            <div class="space-y-1 text-left text-sm">
+              <p>
+                <span class="text-muted-foreground">Cliente:</span>
+                {{ cotizacion?.cliente_razon_social }}
+              </p>
+              <p><span class="text-muted-foreground">Cotización:</span> {{ cotizacion?.folio }}</p>
+              <p>
+                <span class="text-muted-foreground">
+                  {{ (cotizacion?.saldo_pendiente ?? 0) > 0 ? 'Saldo pendiente' : 'Total' }}:
+                </span>
+                ${{
+                  ((cotizacion?.saldo_pendiente ?? 0) > 0
+                    ? cotizacion?.saldo_pendiente
+                    : cotizacion?.total
+                  )?.toFixed(2)
+                }}
+              </p>
+            </div>
+          </div>
+
+          <Alert v-if="errorCompartirQr" variant="destructive">
+            <AlertDescription>{{ errorCompartirQr }}</AlertDescription>
+          </Alert>
+
+          <DialogFooter>
+            <Button variant="outline" @click="mostrarCompartirQr = false">Cerrar</Button>
+            <Button :disabled="compartiendoQr" @click="compartirQr">
+              <ShareIcon class="size-4" />
+              {{ compartiendoQr ? 'Compartiendo...' : 'Compartir' }}
             </Button>
           </DialogFooter>
         </DialogContent>

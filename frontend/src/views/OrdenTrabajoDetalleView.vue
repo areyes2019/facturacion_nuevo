@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import {
   ArrowLeftIcon,
+  BanknotesIcon,
   PhotoIcon,
   ShareIcon,
   TrashIcon,
@@ -14,9 +15,12 @@ import {
   type TarifaEnvio,
   type FormaPagoEnvio,
 } from '../stores/ordenesTrabajo'
+import { usePedidosStore } from '../stores/pedidos'
+import { useCotizacionesStore } from '../stores/cotizaciones'
 import { useConfiguracionStore } from '../stores/configuracion'
 import { extractErrorMessage, extractFieldErrors } from '../lib/errors'
 import { compartirTexto } from '../lib/compartir'
+import { tipoDePago } from '../lib/pagoCotizacion'
 import AppLayout from '../layouts/AppLayout.vue'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
@@ -48,6 +52,8 @@ import CuentaSelect from '../components/CuentaSelect.vue'
 const route = useRoute()
 const router = useRouter()
 const ordenesTrabajo = useOrdenesTrabajoStore()
+const pedidos = usePedidosStore()
+const cotizaciones = useCotizacionesStore()
 const configuracion = useConfiguracionStore()
 
 const ordenId = computed(() => Number(route.params.id))
@@ -189,6 +195,88 @@ async function marcarEntregado() {
     errorGeneral.value = extractErrorMessage(err)
   } finally {
     accionando.value = false
+  }
+}
+
+/**
+ * Entrega en mostrador (ver 039-qr-conductor-produccion.md): quien la escanea llega directo a esta
+ * ficha, así que "entregado" se marca aquí, sobre el documento origen — sin `cuenta_id`, para que
+ * cierre sin cobrar solo. El saldo, si queda, se cobra aparte con el botón "Cobrar".
+ */
+async function marcarEntregadoMostrador() {
+  if (!orden.value) return
+  accionando.value = true
+  errorGeneral.value = null
+  try {
+    if (orden.value.documentable_type === 'pedido') {
+      await pedidos.entregar(orden.value.documentable_id)
+    } else {
+      await cotizaciones.entregar(orden.value.documentable_id)
+    }
+    orden.value = await ordenesTrabajo.fetchOne(orden.value.id)
+  } catch (err) {
+    errorGeneral.value = extractErrorMessage(err)
+  } finally {
+    accionando.value = false
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Cobro del saldo pendiente, aparte de la entrega (ver 039-qr-conductor-produccion.md)
+// ---------------------------------------------------------------------------
+const dialogoCobro = ref(false)
+const cobrando = ref(false)
+const errorCobro = ref<string | null>(null)
+const montoCobro = ref<number | null>(null)
+const cuentaCobro = ref<number | null>(null)
+const fechaCobro = ref(new Date().toISOString().slice(0, 10))
+
+function abrirCobro() {
+  if (!orden.value) return
+  montoCobro.value = orden.value.saldo_pendiente
+  cuentaCobro.value = null
+  fechaCobro.value = new Date().toISOString().slice(0, 10)
+  errorCobro.value = null
+  dialogoCobro.value = true
+}
+
+/**
+ * Reutiliza el mismo endpoint de pagos que ya usan las pantallas de Pedido/Cotización — no hay
+ * formulario de cobro nuevo, solo se captura aquí para no salir de la ficha. Para Cotización, el
+ * `tipo` se deduce igual que en el mostrador (ver `lib/pagoCotizacion.ts`), consultando sus pagos
+ * previos porque la ficha de Producción no los trae cargados.
+ */
+async function confirmarCobro() {
+  if (!orden.value || montoCobro.value === null || cuentaCobro.value === null) return
+
+  cobrando.value = true
+  errorCobro.value = null
+
+  try {
+    if (orden.value.documentable_type === 'pedido') {
+      await pedidos.registrarPago(orden.value.documentable_id, {
+        fecha_pago: fechaCobro.value,
+        monto: montoCobro.value,
+        cuenta_id: cuentaCobro.value,
+      })
+    } else {
+      const cotizacion = await cotizaciones.fetchOne(orden.value.documentable_id)
+      const tipo = tipoDePago(cotizacion.saldo_pendiente, montoCobro.value, cotizacion.pagos.length)
+
+      await cotizaciones.registrarPago(orden.value.documentable_id, {
+        tipo,
+        fecha_pago: fechaCobro.value,
+        monto: tipo === 'anticipo' ? montoCobro.value : null,
+        cuenta_id: cuentaCobro.value,
+      })
+    }
+
+    dialogoCobro.value = false
+    orden.value = await ordenesTrabajo.fetchOne(orden.value.id)
+  } catch (err) {
+    errorCobro.value = extractErrorMessage(err)
+  } finally {
+    cobrando.value = false
   }
 }
 
@@ -466,6 +554,14 @@ async function compartirFicha() {
                 <Button
                   v-if="orden.estado === 'listo_para_entregar'"
                   class="w-full"
+                  :disabled="accionando"
+                  @click="marcarEntregadoMostrador"
+                >
+                  Marcar como entregado
+                </Button>
+                <Button
+                  v-if="orden.estado === 'listo_para_entregar'"
+                  class="w-full"
                   variant="outline"
                   @click="abrirEnvio"
                 >
@@ -480,12 +576,14 @@ async function compartirFicha() {
                 >
                   Marcar como entregado
                 </Button>
-                <p
-                  v-if="orden.estado === 'listo_para_entregar'"
-                  class="text-muted-foreground text-xs"
+                <Button
+                  v-if="orden.estado === 'entregado' && orden.saldo_pendiente > 0"
+                  class="w-full"
+                  @click="abrirCobro"
                 >
-                  La entrega en mostrador se hace escaneando el QR del ticket, no desde aquí.
-                </p>
+                  <BanknotesIcon class="size-4" />
+                  Cobrar ${{ orden.saldo_pendiente.toFixed(2) }}
+                </Button>
                 <p v-if="orden.estado === 'entregado'" class="text-muted-foreground text-sm">
                   Este trabajo ya fue entregado.
                 </p>
@@ -581,6 +679,54 @@ async function compartirFicha() {
           <Button variant="outline" @click="dialogoEnvio = false">Cancelar</Button>
           <Button :disabled="guardandoEnvio" @click="guardarEnvio">
             {{ guardandoEnvio ? 'Guardando...' : 'Guardar envío' }}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    <Dialog v-model:open="dialogoCobro">
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Cobrar</DialogTitle>
+          <DialogDescription>
+            El monto entra a la cuenta elegida como un movimiento de ingreso en Tesorería.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div class="space-y-4">
+          <Alert v-if="errorCobro" variant="destructive">
+            <AlertDescription>{{ errorCobro }}</AlertDescription>
+          </Alert>
+
+          <div class="space-y-1.5">
+            <Label>Monto</Label>
+            <Input
+              :model-value="montoCobro ?? undefined"
+              type="number"
+              min="0.01"
+              step="0.01"
+              @update:model-value="(v) => (montoCobro = v === '' ? null : Number(v))"
+            />
+          </div>
+          <div class="space-y-1.5">
+            <Label>Fecha</Label>
+            <Input v-model="fechaCobro" type="date" />
+          </div>
+          <div class="space-y-1.5">
+            <Label>Cuenta</Label>
+            <CuentaSelect v-model="cuentaCobro" />
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" :disabled="cobrando" @click="dialogoCobro = false">
+            Cancelar
+          </Button>
+          <Button
+            :disabled="cobrando || montoCobro === null || cuentaCobro === null"
+            @click="confirmarCobro"
+          >
+            {{ cobrando ? 'Registrando...' : 'Registrar pago' }}
           </Button>
         </DialogFooter>
       </DialogContent>
