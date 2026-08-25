@@ -47,6 +47,9 @@ class PedidoResource extends JsonResource
             'autofactura_no_disponible' => $this->motivoAutofacturaNoDisponible(),
             'lineas' => PedidoLineaResource::collection($this->whenLoaded('lineas')),
             'pagos' => PedidoPagoResource::collection($this->whenLoaded('pagos')),
+            // Orden de Trabajo de Producción, si este pedido ya tiene una (ver 038).
+            'orden_trabajo_id' => $this->whenLoaded('ordenTrabajo', fn () => $this->ordenTrabajo?->id),
+            'orden_trabajo_estado' => $this->whenLoaded('ordenTrabajo', fn () => $this->ordenTrabajo?->estado->value),
             // Solo en el detalle: los mensajes ya resueltos y el QR dibujado son trabajo que no
             // tiene sentido repetir por cada fila de un listado de quince pedidos.
             $this->mergeWhen($this->relationLoaded('lineas'), fn () => [

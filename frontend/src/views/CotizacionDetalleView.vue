@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import {
   ArrowDownTrayIcon,
   EnvelopeIcon,
@@ -9,6 +9,8 @@ import {
   DocumentDuplicateIcon,
   DocumentTextIcon,
   TrashIcon,
+  WrenchScrewdriverIcon,
+  PrinterIcon,
 } from '@heroicons/vue/24/outline'
 import {
   useCotizacionesStore,
@@ -17,6 +19,7 @@ import {
   type EstadoCotizacion,
   type TipoPagoCotizacion,
 } from '../stores/cotizaciones'
+import { useOrdenesTrabajoStore } from '../stores/ordenesTrabajo'
 import { extractErrorMessage, mensajeDeFallaDeDescarga } from '../lib/errors'
 import type { ArchivoCompartible } from '../lib/compartir'
 import { caducaPronto, fechaLegible, textoCaducidad } from '../lib/caducidadCotizacion'
@@ -49,12 +52,41 @@ import AvisoEmisorIncompleto from '../components/AvisoEmisorIncompleto.vue'
 const route = useRoute()
 const router = useRouter()
 const cotizacionesStore = useCotizacionesStore()
+const ordenesTrabajo = useOrdenesTrabajoStore()
 
 const cotizacion = ref<Cotizacion | null>(null)
 const cargando = ref(true)
 const errorGeneral = ref<string | null>(null)
+const creandoOrden = ref(false)
 
 const cotizacionId = computed(() => Number(route.params.id))
+
+/** Solo con algún pago registrado: mismo requisito que valida el backend al crear la orden. */
+const tienePagos = computed(() => (cotizacion.value?.pagos.length ?? 0) > 0)
+
+/**
+ * Abre Producción para esta cotización: crea la Orden de Trabajo si todavía no existe y navega a
+ * su detalle (ver 038-produccion-ordenes-trabajo.md).
+ */
+async function irAProduccion() {
+  if (!cotizacion.value) return
+
+  if (cotizacion.value.orden_trabajo_id) {
+    router.push({ name: 'produccion-detalle', params: { id: cotizacion.value.orden_trabajo_id } })
+    return
+  }
+
+  creandoOrden.value = true
+  errorGeneral.value = null
+  try {
+    const orden = await ordenesTrabajo.create('cotizacion', cotizacion.value.id)
+    router.push({ name: 'produccion-detalle', params: { id: orden.id } })
+  } catch (err) {
+    errorGeneral.value = extractErrorMessage(err)
+  } finally {
+    creandoOrden.value = false
+  }
+}
 
 function estadoVariant(estado: EstadoCotizacion) {
   return {
@@ -275,7 +307,8 @@ async function onEntregar() {
   if (!cotizacion.value) return
   entregando.value = true
   try {
-    cotizacion.value = await cotizacionesStore.entregar(cotizacion.value.id)
+    const resultado = await cotizacionesStore.entregar(cotizacion.value.id)
+    cotizacion.value = resultado.cotizacion
   } catch (err) {
     errorGeneral.value = extractErrorMessage(err)
   } finally {
@@ -391,6 +424,34 @@ async function onDuplicar() {
           <Button variant="outline" :disabled="duplicando" @click="onDuplicar">
             <DocumentDuplicateIcon class="size-4" />
             Duplicar
+          </Button>
+          <!-- QR de entrega (ver 038): igual que la etiqueta de Pedido, se genera desde que la
+               cotización existe, sin esperar a que tenga pagos. -->
+          <Button as-child variant="outline">
+            <RouterLink
+              :to="{ name: 'cotizaciones-etiqueta', params: { id: cotizacionId } }"
+              target="_blank"
+            >
+              <PrinterIcon class="size-4" />
+              Imprimir etiqueta
+            </RouterLink>
+          </Button>
+          <!-- Producción (ver 038): solo si la cotización ya tiene algún pago, mismo requisito que
+               el backend valida al crear la orden. -->
+          <Button
+            v-if="tienePagos"
+            variant="outline"
+            :disabled="creandoOrden"
+            @click="irAProduccion"
+          >
+            <WrenchScrewdriverIcon class="size-4" />
+            {{
+              cotizacion?.orden_trabajo_id
+                ? 'Ver Orden de Trabajo'
+                : creandoOrden
+                  ? 'Creando...'
+                  : 'Crear Orden de Trabajo'
+            }}
           </Button>
           <Button variant="outline" :disabled="facturarEstado === 'bloqueado'" @click="onFacturar">
             <DocumentTextIcon class="size-4" />

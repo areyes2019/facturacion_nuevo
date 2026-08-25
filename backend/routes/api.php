@@ -13,10 +13,13 @@ use App\Http\Controllers\CotizacionController;
 use App\Http\Controllers\CuentaController;
 use App\Http\Controllers\DatoBancarioController;
 use App\Http\Controllers\EmisorController;
+use App\Http\Controllers\EnvioController;
 use App\Http\Controllers\FacturaController;
 use App\Http\Controllers\InventarioController;
 use App\Http\Controllers\MovimientoController;
 use App\Http\Controllers\OrdenCompraController;
+use App\Http\Controllers\OrdenTrabajoController;
+use App\Http\Controllers\OrdenTrabajoImagenController;
 use App\Http\Controllers\PedidoController;
 use App\Http\Controllers\ProveedorController;
 use App\Http\Controllers\TransferenciaController;
@@ -169,6 +172,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('cotizaciones/{cotizacion}/pagos', [CotizacionController::class, 'pagos']);
     Route::delete('cotizaciones/{cotizacion}/pagos/{pago}', [CotizacionController::class, 'eliminarPago']);
     Route::post('cotizaciones/{cotizacion}/entregar', [CotizacionController::class, 'entregar']);
+    Route::post('cotizaciones/{cotizacion}/deshacer-entrega', [CotizacionController::class, 'deshacerEntrega']);
     Route::post('cotizaciones/{cotizacion}/duplicar', [CotizacionController::class, 'duplicar']);
     Route::get('cotizaciones/{cotizacion}/pdf', [CotizacionController::class, 'pdf']);
 
@@ -181,6 +185,20 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::delete('pedidos/{pedido}/pagos/{pago}', [PedidoController::class, 'eliminarPago']);
     Route::post('pedidos/{pedido}/entregar', [PedidoController::class, 'entregar']);
     Route::post('pedidos/{pedido}/deshacer-entrega', [PedidoController::class, 'deshacerEntrega']);
+
+    // Producción (ver 038-produccion-ordenes-trabajo.md). Imágenes antes del apiResource, mismo
+    // criterio que articulos/{articulo}/imagen (020).
+    Route::get('ordenes-trabajo/{orden}/imagen', [OrdenTrabajoImagenController::class, 'show']);
+    Route::post('ordenes-trabajo/{orden}/imagen', [OrdenTrabajoImagenController::class, 'store']);
+    Route::delete('ordenes-trabajo/{orden}/imagen', [OrdenTrabajoImagenController::class, 'destroy']);
+    Route::get('ordenes-trabajo', [OrdenTrabajoController::class, 'index']);
+    Route::post('ordenes-trabajo', [OrdenTrabajoController::class, 'store']);
+    Route::get('ordenes-trabajo/{orden}', [OrdenTrabajoController::class, 'show']);
+    Route::put('ordenes-trabajo/{orden}', [OrdenTrabajoController::class, 'update']);
+    Route::post('ordenes-trabajo/{orden}/iniciar-produccion', [OrdenTrabajoController::class, 'iniciarProduccion']);
+    Route::post('ordenes-trabajo/{orden}/marcar-listo', [OrdenTrabajoController::class, 'marcarListo']);
+    Route::post('ordenes-trabajo/{orden}/entregar', [OrdenTrabajoController::class, 'entregar']);
+    Route::post('ordenes-trabajo/{orden}/envio', [EnvioController::class, 'store']);
 
     // Órdenes de compra (ver 012-ordenes-compra.md). El `->parameters()` es obligatorio: sin él,
     // Laravel singulariza "ordenes-compra" en inglés y genera un parámetro de ruta que rompe el

@@ -32,6 +32,9 @@ test('la configuracion devuelve todas las claves con sus valores de fabrica sin 
         'costo_goma_jumbo' => '40.00',
         'mensaje_ticket' => ClaveConfiguracion::MensajeTicket->valorPorDefecto(),
         'mensaje_listo' => ClaveConfiguracion::MensajeListo->valorPorDefecto(),
+        'envio_tarifa_a' => '50.00',
+        'envio_tarifa_b' => '80.00',
+        'envio_tarifa_c' => '120.00',
     ]);
 });
 

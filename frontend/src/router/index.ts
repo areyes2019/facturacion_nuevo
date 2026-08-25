@@ -166,6 +166,21 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      // Vista de impresión de la etiqueta adhesiva, sin layout de la aplicación (ver
+      // 038-produccion-ordenes-trabajo.md, mismo patrón que pedidos-etiqueta de 027).
+      path: '/cotizaciones/:id/etiqueta',
+      name: 'cotizaciones-etiqueta',
+      component: () => import('../views/CotizacionEtiquetaView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      // Destino del QR de la etiqueta (ver 038, mismo patrón que pedidos-entregar de 027).
+      path: '/cotizaciones/:id/entregar',
+      name: 'cotizaciones-entregar',
+      component: () => import('../views/CotizacionEntregaView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/cotizaciones/:id',
       name: 'cotizaciones-detalle',
       component: () => import('../views/CotizacionDetalleView.vue'),
@@ -210,6 +225,19 @@ const router = createRouter({
       path: '/pedidos/:id',
       name: 'pedidos-detalle',
       component: () => import('../views/PedidoDetalleView.vue'),
+      meta: { requiresAuth: true },
+    },
+    // Producción: tablero de Órdenes de Trabajo (ver 038-produccion-ordenes-trabajo.md).
+    {
+      path: '/produccion',
+      name: 'produccion',
+      component: () => import('../views/ProduccionListView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/produccion/:id',
+      name: 'produccion-detalle',
+      component: () => import('../views/OrdenTrabajoDetalleView.vue'),
       meta: { requiresAuth: true },
     },
     // Captura por pasos del modo mostrador (ver 029-pwa-mostrador.md). Van bajo un prefijo común

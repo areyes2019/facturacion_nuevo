@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Enums\ClaveConfiguracion;
 use App\Enums\TamanoGoma;
+use App\Enums\TarifaEnvio;
 use App\Models\User;
 
 /**
@@ -53,6 +54,12 @@ class ConfiguracionService
         }
 
         return (float) $this->obtener($user, $tamano->claveConfiguracion());
+    }
+
+    /** Monto vigente de una tarifa de envío (ver 038-produccion-ordenes-trabajo.md). */
+    public function montoTarifaEnvio(User $user, TarifaEnvio $tarifa): float
+    {
+        return (float) $this->obtener($user, $tarifa->claveConfiguracion());
     }
 
     /**

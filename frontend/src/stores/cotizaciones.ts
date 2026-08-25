@@ -76,8 +76,23 @@ export interface Cotizacion {
   caduca_el: string | null
   lineas: CotizacionLinea[]
   pagos: CotizacionPago[]
+  /** Momento en que el escaneo del QR cerró la cotización (ver 038-produccion-ordenes-trabajo.md). */
+  entregado_en: string | null
+  /** Orden de Trabajo de Producción, si esta cotización ya tiene una (ver 038). */
+  orden_trabajo_id?: number | null
+  orden_trabajo_estado?: string | null
+  /** Solo en el detalle: QR ya dibujado en el servidor, mismo mecanismo que Pedido (027). */
+  qr_entrega?: string | null
+  url_entrega?: string
   created_at: string
   updated_at: string
+}
+
+export interface ResultadoEntregaCotizacion {
+  ya_estaba_entregado: boolean
+  cobrado: number
+  cuenta_nombre: string | null
+  cotizacion: Cotizacion
 }
 
 export interface CotizacionLineaPayload {
@@ -216,9 +231,21 @@ export const useCotizacionesStore = defineStore('cotizaciones', {
       await http.delete(`/cotizaciones/${cotizacionId}/pagos/${pagoId}`)
     },
 
-    async entregar(id: number): Promise<Cotizacion> {
-      const { data } = await http.post(`/cotizaciones/${id}/entregar`)
-      return data.data
+    /**
+     * Destino del QR de la cotización (ver 038-produccion-ordenes-trabajo.md): con saldo pendiente
+     * hay que mandar la cuenta a la que entra el dinero; sin saldo, ninguna.
+     */
+    async entregar(id: number, cuentaId?: number): Promise<ResultadoEntregaCotizacion> {
+      const { data } = await http.post(
+        `/cotizaciones/${id}/entregar`,
+        cuentaId === undefined ? {} : { cuenta_id: cuentaId },
+      )
+      return data
+    },
+
+    async deshacerEntrega(id: number): Promise<Cotizacion> {
+      const { data } = await http.post(`/cotizaciones/${id}/deshacer-entrega`)
+      return data.cotizacion
     },
 
     async duplicar(id: number): Promise<Cotizacion> {

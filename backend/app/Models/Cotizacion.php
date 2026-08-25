@@ -15,6 +15,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphOne;
 use Illuminate\Mail\Mailable;
 use Illuminate\Support\Facades\Log;
 
@@ -32,6 +33,7 @@ use Illuminate\Support\Facades\Log;
     'total_exento',
     'ajuste_al_peso',
     'total',
+    'entregado_en',
     'factura_id',
 ])]
 class Cotizacion extends Model implements DocumentoEnviable
@@ -47,6 +49,9 @@ class Cotizacion extends Model implements DocumentoEnviable
      * la usan tanto el comando de purga como el `caduca_el` que alimenta el aviso del frontend.
      */
     public const DIAS_SIN_MOVIMIENTO = 30;
+
+    /** Ventana para deshacer una entrega, mismo valor y mismo criterio que Pedido::MINUTOS_PARA_DESHACER_ENTREGA (027, 038). */
+    public const MINUTOS_PARA_DESHACER_ENTREGA = 5;
 
     public function user(): BelongsTo
     {
@@ -73,6 +78,12 @@ class Cotizacion extends Model implements DocumentoEnviable
         return $this->belongsTo(Factura::class);
     }
 
+    /** Orden de Trabajo de Producción, si esta cotización requiere fabricación (ver 038). */
+    public function ordenTrabajo(): MorphOne
+    {
+        return $this->morphOne(OrdenTrabajo::class, 'documentable');
+    }
+
     /**
      * Suma acumulada de los pagos registrados (anticipo + saldo + pago total, sin distinción de
      * tipo); en cuanto alcanza o supera `total` la cotización pasa a `pagada` (ver
@@ -81,6 +92,31 @@ class Cotizacion extends Model implements DocumentoEnviable
     public function totalPagado(): float
     {
         return (float) $this->pagos()->sum('monto');
+    }
+
+    public function saldoPendiente(): float
+    {
+        return round(max(0, (float) $this->total - $this->totalPagado()), 2);
+    }
+
+    /**
+     * ¿La entrega de esta cotización registró un cobro? Mismo criterio que
+     * `Pedido::entregaRegistroCobro()` (027): distingue el pago que cerró la entrega del capturado
+     * a mano, para que "Deshacer" no revierta a ciegas un cobro ya confirmado por el usuario.
+     */
+    public function entregaRegistroCobro(): bool
+    {
+        return $this->pagos()->where('registrado_al_entregar', true)->exists();
+    }
+
+    /**
+     * Dirección que codifica el QR de la etiqueta: la pantalla de entrega, absoluta. Mismo criterio
+     * que `Pedido::urlEntrega()` (027): un solo QR por cotización, y absoluta para que tanto la
+     * cámara del celular como el escáner de 029 la abran solas.
+     */
+    public function urlEntrega(): string
+    {
+        return rtrim((string) config('app.frontend_url'), '/')."/cotizaciones/{$this->id}/entregar";
     }
 
     /** Usa lo que ya venga cargado (`with`/`withCount`) antes de gastar una consulta por fila. */
@@ -210,6 +246,7 @@ class Cotizacion extends Model implements DocumentoEnviable
             'total_exento' => 'decimal:2',
             'ajuste_al_peso' => 'decimal:2',
             'total' => 'decimal:2',
+            'entregado_en' => 'datetime',
             // Foto de los datos bancarios con los que salió esta cotización, tomada al crearla
             // (ver 026-datos-bancarios-cotizacion.md). Fuera de #[Fillable] a propósito: no es un
             // dato que el cliente mande en el POST, lo pone el controlador.

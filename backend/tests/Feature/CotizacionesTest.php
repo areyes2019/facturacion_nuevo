@@ -289,23 +289,103 @@ test('el monto enviado para saldo o pago total se ignora y se autocalcula el sal
     $this->assertDatabaseHas('cotizacion_pagos', ['cotizacion_id' => $cotizacion->id, 'monto' => 232.00, 'tipo' => 'pago_total']);
 });
 
-test('no se puede marcar como entregada una cotizacion que no esta pagada', function () {
+test('no se puede marcar como entregada una cotizacion en borrador', function () {
     $user = User::factory()->create();
     [$cliente] = crearClienteYArticuloParaCotizacion($user);
-    $cotizacion = Cotizacion::factory()->for($user)->for($cliente)->create(['estado' => EstadoCotizacion::Enviada->value]);
+    $cotizacion = Cotizacion::factory()->for($user)->for($cliente)->create(['estado' => EstadoCotizacion::Borrador->value]);
 
     $this->actingAs($user)->postJson("/api/v1/cotizaciones/{$cotizacion->id}/entregar")->assertStatus(422);
 });
 
-test('marcar como entregada una cotizacion pagada', function () {
+test('entregar una cotizacion enviada con saldo pendiente sin cuenta se rechaza sin tocar nada', function () {
     $user = User::factory()->create();
     [$cliente] = crearClienteYArticuloParaCotizacion($user);
-    $cotizacion = Cotizacion::factory()->for($user)->for($cliente)->create(['estado' => EstadoCotizacion::Pagada->value]);
+    $cotizacion = Cotizacion::factory()->for($user)->for($cliente)->create(['estado' => EstadoCotizacion::Enviada->value, 'total' => 232.00]);
+
+    $this->actingAs($user)->postJson("/api/v1/cotizaciones/{$cotizacion->id}/entregar")
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('cuenta_id');
+
+    expect(Cotizacion::find($cotizacion->id)->estado)->toBe(EstadoCotizacion::Enviada);
+});
+
+test('entregar una cotizacion enviada con saldo pendiente cobra el saldo exacto y la marca entregada', function () {
+    $user = User::factory()->create();
+    [$cliente] = crearClienteYArticuloParaCotizacion($user);
+    $cotizacion = Cotizacion::factory()->for($user)->for($cliente)->create(['estado' => EstadoCotizacion::Enviada->value, 'total' => 232.00]);
+    $cuenta = Cuenta::factory()->for($user)->create(['saldo_inicial' => 0, 'saldo_actual' => 0]);
+
+    $response = $this->actingAs($user)->postJson("/api/v1/cotizaciones/{$cotizacion->id}/entregar", [
+        'cuenta_id' => $cuenta->id,
+    ]);
+
+    $response->assertOk();
+    $response->assertJsonPath('ya_estaba_entregado', false);
+    $response->assertJsonPath('cobrado', 232);
+    $response->assertJsonPath('cotizacion.estado', 'producto_entregado');
+
+    expect((float) $cuenta->fresh()->saldo_actual)->toBe(232.0);
+    $this->assertDatabaseHas('cotizacion_pagos', [
+        'cotizacion_id' => $cotizacion->id,
+        'registrado_al_entregar' => true,
+        'monto' => 232.00,
+    ]);
+});
+
+test('marcar como entregada una cotizacion ya pagada por completo no cobra nada', function () {
+    $user = User::factory()->create();
+    [$cliente] = crearClienteYArticuloParaCotizacion($user);
+    $cotizacion = Cotizacion::factory()->for($user)->for($cliente)->create(['estado' => EstadoCotizacion::Enviada->value, 'total' => 232.00]);
+    $cuenta = Cuenta::factory()->for($user)->create(['saldo_inicial' => 0, 'saldo_actual' => 0]);
+
+    $this->actingAs($user)->postJson("/api/v1/cotizaciones/{$cotizacion->id}/pagos", [
+        'tipo' => 'pago_total',
+        'fecha_pago' => now()->toDateString(),
+        'monto' => 232.00,
+        'cuenta_id' => $cuenta->id,
+    ])->assertOk();
 
     $response = $this->actingAs($user)->postJson("/api/v1/cotizaciones/{$cotizacion->id}/entregar");
 
     $response->assertOk();
-    $response->assertJsonPath('data.estado', 'producto_entregado');
+    $response->assertJsonPath('cobrado', 0);
+    $response->assertJsonPath('cotizacion.estado', 'producto_entregado');
+    expect(Cotizacion::find($cotizacion->id)->pagos()->count())->toBe(1);
+});
+
+test('deshacer una entrega de cotizacion que no cobro nada la regresa a pagada', function () {
+    $user = User::factory()->create();
+    [$cliente] = crearClienteYArticuloParaCotizacion($user);
+    $cotizacion = Cotizacion::factory()->for($user)->for($cliente)->create(['estado' => EstadoCotizacion::Enviada->value, 'total' => 232.00]);
+    $cuenta = Cuenta::factory()->for($user)->create();
+
+    $this->actingAs($user)->postJson("/api/v1/cotizaciones/{$cotizacion->id}/pagos", [
+        'tipo' => 'pago_total',
+        'fecha_pago' => now()->toDateString(),
+        'monto' => 232.00,
+        'cuenta_id' => $cuenta->id,
+    ])->assertOk();
+
+    $this->actingAs($user)->postJson("/api/v1/cotizaciones/{$cotizacion->id}/entregar")->assertOk();
+    $response = $this->actingAs($user)->postJson("/api/v1/cotizaciones/{$cotizacion->id}/deshacer-entrega");
+
+    $response->assertOk();
+    $response->assertJsonPath('cotizacion.estado', 'pagada');
+    expect(Cotizacion::find($cotizacion->id)->entregado_en)->toBeNull();
+});
+
+test('no se puede deshacer una entrega de cotizacion que registro un cobro', function () {
+    $user = User::factory()->create();
+    [$cliente] = crearClienteYArticuloParaCotizacion($user);
+    $cotizacion = Cotizacion::factory()->for($user)->for($cliente)->create(['estado' => EstadoCotizacion::Enviada->value, 'total' => 232.00]);
+    $cuenta = Cuenta::factory()->for($user)->create();
+
+    $this->actingAs($user)->postJson("/api/v1/cotizaciones/{$cotizacion->id}/entregar", ['cuenta_id' => $cuenta->id])->assertOk();
+
+    $this->actingAs($user)->postJson("/api/v1/cotizaciones/{$cotizacion->id}/deshacer-entrega")
+        ->assertStatus(422);
+
+    expect(Cotizacion::find($cotizacion->id)->estado)->toBe(EstadoCotizacion::ProductoEntregado);
 });
 
 test('una cotizacion pagada no puede editarse ni eliminarse', function () {

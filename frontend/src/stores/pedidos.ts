@@ -66,6 +66,9 @@ export interface Pedido {
   autofactura_no_disponible: string | null
   lineas: PedidoLinea[]
   pagos: PedidoPago[]
+  /** Orden de Trabajo de Producción, si este pedido ya tiene una (ver 038). */
+  orden_trabajo_id?: number | null
+  orden_trabajo_estado?: string | null
   /** Solo en el detalle: mensajes con los huecos ya resueltos y QR ya dibujado en el servidor. */
   mensaje_compartible?: string
   /** Aviso de "ya está listo", que el usuario manda cuando el trabajo lo está. */

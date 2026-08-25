@@ -59,6 +59,11 @@ class User extends Authenticatable
         return $this->hasMany(OrdenCompra::class);
     }
 
+    public function ordenTrabajos(): HasMany
+    {
+        return $this->hasMany(OrdenTrabajo::class);
+    }
+
     public function cuentas(): HasMany
     {
         return $this->hasMany(Cuenta::class);

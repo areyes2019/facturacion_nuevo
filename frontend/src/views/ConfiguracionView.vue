@@ -20,6 +20,7 @@ import AppLayout from '../layouts/AppLayout.vue'
 import EmisorForm from '../components/EmisorForm.vue'
 import DatosBancariosForm from '../components/DatosBancariosForm.vue'
 import MensajePedidoForm from '../components/MensajePedidoForm.vue'
+import TarifasEnvioForm from '../components/TarifasEnvioForm.vue'
 
 /**
  * Ajustes globales del sistema (ver specs/014-costo-elaboracion-goma.md).
@@ -156,6 +157,9 @@ async function guardar() {
         descripcion="El aviso que se manda con el botón «Avisar que está listo» del pedido. Lo disparas tú cuando el trabajo lo está: el sello se hace fuera del sistema y el sistema no puede saberlo."
         :renglones="5"
       />
+
+      <!-- Producción (ver 038-produccion-ordenes-trabajo.md): mismo criterio de sección hermana. -->
+      <TarifasEnvioForm />
 
       <form v-if="!cargando" class="space-y-6" @submit.prevent="onSubmit">
         <Card>

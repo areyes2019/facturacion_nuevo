@@ -282,8 +282,11 @@ test('timbrar una factura con cotizacion vinculada no mueve el inventario', func
 test('marcar una cotizacion como entregada descuenta el inventario', function () {
     $user = User::factory()->create();
     $articulo = conExistencia(articuloParaInventario($user), 10);
+    // Total en 0 para que el saldo pendiente sea cero y la entrega cierre sola, sin pedir cuenta:
+    // esta prueba mide el descuento de inventario, no el cobro (ver 038).
     $cotizacion = Cotizacion::factory()->for($user)->for(clienteParaVenta($user))->create([
         'estado' => EstadoCotizacion::Pagada->value,
+        'total' => 0,
     ]);
     $cotizacion->lineas()->create([
         'articulo_id' => $articulo->id,
@@ -311,6 +314,7 @@ test('vender mas de lo disponible deja existencia en cero y acumula el faltante'
     $articulo = conExistencia(articuloParaInventario($user), 2);
     $cotizacion = Cotizacion::factory()->for($user)->for(clienteParaVenta($user))->create([
         'estado' => EstadoCotizacion::Pagada->value,
+        'total' => 0,
     ]);
     $cotizacion->lineas()->create([
         'articulo_id' => $articulo->id,

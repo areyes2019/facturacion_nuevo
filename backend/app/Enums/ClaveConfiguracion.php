@@ -20,6 +20,9 @@ enum ClaveConfiguracion: string
     case CostoGomaJumbo = 'costo_goma_jumbo';
     case MensajeTicket = 'mensaje_ticket';
     case MensajeListo = 'mensaje_listo';
+    case EnvioTarifaA = 'envio_tarifa_a';
+    case EnvioTarifaB = 'envio_tarifa_b';
+    case EnvioTarifaC = 'envio_tarifa_c';
 
     /**
      * Valor con el que arranca un usuario que nunca ha guardado la pantalla de Configuración.
@@ -36,6 +39,9 @@ enum ClaveConfiguracion: string
             self::CostoGomaJumbo => '40.00',
             self::MensajeTicket => self::MENSAJE_TICKET_DE_FABRICA,
             self::MensajeListo => self::MENSAJE_LISTO_DE_FABRICA,
+            self::EnvioTarifaA => '50.00',
+            self::EnvioTarifaB => '80.00',
+            self::EnvioTarifaC => '120.00',
         };
     }
 
@@ -62,6 +68,9 @@ enum ClaveConfiguracion: string
             // mandaste un texto" en vez de "no quiero mensaje".
             self::MensajeTicket,
             self::MensajeListo => ['present', 'nullable', 'string', 'max:2000'],
+            self::EnvioTarifaA,
+            self::EnvioTarifaB,
+            self::EnvioTarifaC => ['required', 'numeric', 'gte:0', 'decimal:0,2'],
         };
     }
 

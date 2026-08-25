@@ -101,7 +101,7 @@ class PedidoController extends Controller
     {
         abort_unless($pedido->user_id === $request->user()->id, 404);
 
-        return new PedidoResource($pedido->load(['lineas.articulo', 'pagos.cuenta', 'factura']));
+        return new PedidoResource($pedido->load(['lineas.articulo', 'pagos.cuenta', 'factura', 'ordenTrabajo']));
     }
 
     /**
@@ -298,6 +298,8 @@ class PedidoController extends Controller
             ]);
 
             $bloqueado->refresh()->asegurarTokenAutofactura();
+
+            OrdenTrabajoController::sincronizarEntrega($bloqueado);
 
             return [
                 'ya_estaba_entregado' => false,

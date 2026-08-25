@@ -17,6 +17,10 @@ export interface Configuracion {
   mensaje_ticket: string
   /** Aviso de que el pedido ya se puede recoger, que el usuario manda a mano (ver specs/027). */
   mensaje_listo: string
+  /** Tarifas fijas de envío a domicilio, elegidas a mano (ver specs/038-produccion-ordenes-trabajo.md). */
+  envio_tarifa_a: string
+  envio_tarifa_b: string
+  envio_tarifa_c: string
 }
 
 export type ConfiguracionPayload = Partial<Record<keyof Configuracion, string | number>>

@@ -19,6 +19,7 @@ import {
   UserCircleIcon,
   UsersIcon,
   WalletIcon,
+  WrenchScrewdriverIcon,
 } from '@heroicons/vue/24/outline'
 
 /**
@@ -90,6 +91,22 @@ export const gruposNavegacion: GrupoNavegacion[] = [
         etiqueta: 'Clientes',
         icono: UsersIcon,
         rutasRelacionadas: ['clientes-crear', 'clientes-editar'],
+      },
+    ],
+  },
+  {
+    // Grupo propio y no dentro de "Ventas": una Orden de Trabajo puede colgar tanto de un Pedido
+    // como de una Cotización, así que forzarla dentro de uno de los dos grupos existentes
+    // escondería la mitad de los casos (ver 038-produccion-ordenes-trabajo.md).
+    id: 'produccion',
+    etiqueta: 'Producción',
+    icono: WrenchScrewdriverIcon,
+    opciones: [
+      {
+        name: 'produccion',
+        etiqueta: 'Producción',
+        icono: WrenchScrewdriverIcon,
+        rutasRelacionadas: ['produccion-detalle'],
       },
     ],
   },

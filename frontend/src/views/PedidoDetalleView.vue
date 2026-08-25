@@ -9,8 +9,10 @@ import {
   ShareIcon,
   TrashIcon,
   DocumentTextIcon,
+  WrenchScrewdriverIcon,
 } from '@heroicons/vue/24/outline'
 import { usePedidosStore, type Pedido } from '../stores/pedidos'
+import { useOrdenesTrabajoStore } from '../stores/ordenesTrabajo'
 import { extractErrorMessage } from '../lib/errors'
 import { compartirArchivo, compartirTexto, copiarTexto } from '../lib/compartir'
 import AppLayout from '../layouts/AppLayout.vue'
@@ -41,6 +43,8 @@ import CuentaSelect from '../components/CuentaSelect.vue'
 const route = useRoute()
 const router = useRouter()
 const pedidos = usePedidosStore()
+const ordenesTrabajo = useOrdenesTrabajoStore()
+const creandoOrden = ref(false)
 
 const pedido = ref<Pedido | null>(null)
 const cargando = ref(true)
@@ -157,6 +161,30 @@ async function avisarListo() {
   }
 }
 
+/**
+ * Abre Producción para este pedido: crea la Orden de Trabajo si todavía no existe y navega a su
+ * detalle (ver 038-produccion-ordenes-trabajo.md).
+ */
+async function irAProduccion() {
+  if (!pedido.value) return
+
+  if (pedido.value.orden_trabajo_id) {
+    router.push({ name: 'produccion-detalle', params: { id: pedido.value.orden_trabajo_id } })
+    return
+  }
+
+  creandoOrden.value = true
+  errorGeneral.value = null
+  try {
+    const orden = await ordenesTrabajo.create('pedido', pedido.value.id)
+    router.push({ name: 'produccion-detalle', params: { id: orden.id } })
+  } catch (err) {
+    errorGeneral.value = extractErrorMessage(err)
+  } finally {
+    creandoOrden.value = false
+  }
+}
+
 async function compartirAutofactura() {
   if (!pedido.value?.autofactura_url) return
 
@@ -252,6 +280,24 @@ async function eliminarPago(pagoId: number) {
           <Button v-if="tienePagos" variant="outline" size="sm" @click="avisarListo">
             <BellAlertIcon class="size-4" />
             Avisar que está listo
+          </Button>
+          <!-- Producción (ver 038): solo si el pedido ya tiene algún pago, mismo requisito que el
+               backend valida al crear la orden. -->
+          <Button
+            v-if="tienePagos"
+            variant="outline"
+            size="sm"
+            :disabled="creandoOrden"
+            @click="irAProduccion"
+          >
+            <WrenchScrewdriverIcon class="size-4" />
+            {{
+              pedido?.orden_trabajo_id
+                ? 'Ver Orden de Trabajo'
+                : creandoOrden
+                  ? 'Creando...'
+                  : 'Crear Orden de Trabajo'
+            }}
           </Button>
           <Button
             v-if="tienePagos"

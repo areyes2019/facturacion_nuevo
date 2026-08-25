@@ -5,7 +5,9 @@ namespace App\Http\Controllers;
 use App\Enums\EstadoCotizacion;
 use App\Enums\MotivoMovimientoInventario;
 use App\Enums\TipoMovimiento;
+use App\Enums\TipoPagoCotizacion;
 use App\Http\Requests\Cotizaciones\CotizacionPagoRequest;
+use App\Http\Requests\Cotizaciones\EntregarCotizacionRequest;
 use App\Http\Requests\Cotizaciones\EnviarCotizacionRequest;
 use App\Http\Requests\Cotizaciones\StoreCotizacionRequest;
 use App\Http\Requests\Cotizaciones\UpdateCotizacionRequest;
@@ -13,6 +15,7 @@ use App\Http\Resources\CotizacionResource;
 use App\Models\Cotizacion;
 use App\Models\CotizacionPago;
 use App\Models\DatoBancario;
+use App\Models\User;
 use App\Services\EnvioDocumentoService;
 use App\Services\FacturaTotalesCalculator;
 use App\Services\InventarioService;
@@ -118,7 +121,7 @@ class CotizacionController extends Controller
     {
         abort_unless($cotizacion->user_id === $request->user()->id, 404);
 
-        return new CotizacionResource($cotizacion->load(['cliente', 'lineas.articulo', 'pagos.cuenta', 'factura']));
+        return new CotizacionResource($cotizacion->load(['cliente', 'lineas.articulo', 'pagos.cuenta', 'factura', 'ordenTrabajo']));
     }
 
     /**
@@ -314,35 +317,124 @@ class CotizacionController extends Controller
     }
 
     /**
-     * Marca la cotización como entregada; solo alcanzable desde `pagada`.
+     * Destino del QR de la cotización (ver 038-produccion-ordenes-trabajo.md, que extiende a
+     * Cotización el mismo mecanismo de `PedidoController::entregar`, 027).
+     *
+     * **Con saldo pendiente exige `cuenta_id` y cobra el saldo exacto**; sin saldo solo marca la
+     * entrega. Alcanzable desde `enviada` o `pagada` — ya no exige estar 100% pagada de antemano: el
+     * propio escaneo puede cobrar lo que falte en el mismo paso.
+     *
+     * El candado contra el doble escaneo es la relectura bloqueada dentro de la transacción, mismo
+     * criterio que Pedido: dos escaneos seguidos no cobran el saldo dos veces.
      */
-    public function entregar(Request $request, Cotizacion $cotizacion): CotizacionResource
+    public function entregar(EntregarCotizacionRequest $request, Cotizacion $cotizacion): JsonResponse
     {
         abort_unless($cotizacion->user_id === $request->user()->id, 404);
-        abort_unless($cotizacion->estado === EstadoCotizacion::Pagada, 422, 'Solo se puede marcar como entregada una cotización pagada.');
+        abort_unless(
+            in_array($cotizacion->estado, [EstadoCotizacion::Enviada, EstadoCotizacion::Pagada, EstadoCotizacion::ProductoEntregado], true),
+            422,
+            'Solo se puede entregar una cotización enviada o pagada.'
+        );
 
-        DB::transaction(function () use ($cotizacion) {
-            // El estado se relee bloqueado dentro de la transacción: un doble clic no descuenta la
-            // mercancía dos veces (ver 017-inventario.md).
+        $cuentaId = $request->integer('cuenta_id') ?: null;
+
+        $resultado = DB::transaction(function () use ($request, $cotizacion, $cuentaId) {
             $bloqueada = Cotizacion::lockForUpdate()->find($cotizacion->id);
 
-            if ($bloqueada === null || $bloqueada->estado !== EstadoCotizacion::Pagada) {
-                return;
+            if ($bloqueada === null || $bloqueada->estado === EstadoCotizacion::ProductoEntregado) {
+                return [
+                    'ya_estaba_entregado' => true,
+                    'cobrado' => 0.0,
+                    'cuenta_nombre' => null,
+                ];
             }
 
-            // La cotización entregada es el momento en que la mercancía sale físicamente, así que
-            // es aquí donde baja el inventario — y si hay una factura vinculada a esta cotización,
-            // esa factura no descuenta nada.
+            $saldo = $bloqueada->saldoPendiente();
+            $pago = null;
+
+            if ($saldo > 0 && $cuentaId !== null) {
+                $pago = $this->registrarPagoEntrega($request->user(), $bloqueada, $saldo, $cuentaId);
+            }
+
+            // La cotización entregada es el momento en que la mercancía sale físicamente, así que es
+            // aquí donde baja el inventario — igual que ya ocurría antes de este cambio.
             $this->inventario->salidaPorDocumento(
                 $bloqueada->lineas()->get(),
                 MotivoMovimientoInventario::VentaCotizacion,
                 $bloqueada,
             );
 
-            $bloqueada->update(['estado' => EstadoCotizacion::ProductoEntregado->value]);
+            $bloqueada->update([
+                'estado' => EstadoCotizacion::ProductoEntregado->value,
+                'entregado_en' => now(),
+            ]);
+
+            OrdenTrabajoController::sincronizarEntrega($bloqueada);
+
+            return [
+                'ya_estaba_entregado' => false,
+                'cobrado' => $pago !== null ? $saldo : 0.0,
+                'cuenta_nombre' => $pago?->cuenta?->nombre,
+            ];
         });
 
-        return new CotizacionResource($cotizacion->fresh(['cliente', 'lineas.articulo', 'pagos.cuenta']));
+        return response()->json([
+            ...$resultado,
+            'cotizacion' => new CotizacionResource($cotizacion->fresh(['cliente', 'lineas.articulo', 'pagos.cuenta'])),
+        ]);
+    }
+
+    /**
+     * Revierte una entrega que **no cobró nada**, mismo criterio y misma ventana que
+     * `Pedido::MINUTOS_PARA_DESHACER_ENTREGA` (027).
+     */
+    public function deshacerEntrega(Request $request, Cotizacion $cotizacion): JsonResponse
+    {
+        abort_unless($cotizacion->user_id === $request->user()->id, 404);
+        abort_unless($cotizacion->estado === EstadoCotizacion::ProductoEntregado, 422, 'Esta cotización no está entregada.');
+        abort_if(
+            $cotizacion->entregaRegistroCobro(),
+            422,
+            'Esta entrega registró un cobro que tú confirmaste. Si hay que corregirlo, borra el pago desde el detalle de la cotización.',
+        );
+        abort_if(
+            $cotizacion->entregado_en === null
+                || $cotizacion->entregado_en->lt(now()->subMinutes(Cotizacion::MINUTOS_PARA_DESHACER_ENTREGA)),
+            422,
+            'Ya pasó el plazo para deshacer esta entrega. Corrígela desde el detalle de la cotización.',
+        );
+
+        DB::transaction(function () use ($cotizacion) {
+            $cotizacion->update(['entregado_en' => null, 'estado' => EstadoCotizacion::Pagada->value]);
+        });
+
+        return response()->json([
+            'deshecho' => true,
+            'cotizacion' => new CotizacionResource($cotizacion->fresh(['cliente', 'lineas.articulo', 'pagos.cuenta'])),
+        ]);
+    }
+
+    private function registrarPagoEntrega(User $user, Cotizacion $cotizacion, float $monto, int $cuentaId): CotizacionPago
+    {
+        $pago = $cotizacion->pagos()->create([
+            'tipo' => TipoPagoCotizacion::Saldo->value,
+            'fecha_pago' => now()->toDateString(),
+            'monto' => $monto,
+            'cuenta_id' => $cuentaId,
+            'registrado_al_entregar' => true,
+        ]);
+
+        $this->tesoreria->registrarDesdeDocumento(
+            $user,
+            $pago,
+            $cuentaId,
+            TipoMovimiento::Ingreso,
+            $monto,
+            now()->toDateString(),
+            $pago->setRelation('cotizacion', $cotizacion)->conceptoMovimiento(),
+        );
+
+        return $pago;
     }
 
     /**

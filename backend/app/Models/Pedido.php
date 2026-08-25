@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphOne;
 use Illuminate\Support\Str;
 
 /**
@@ -79,6 +80,12 @@ class Pedido extends Model
     public function factura(): BelongsTo
     {
         return $this->belongsTo(Factura::class);
+    }
+
+    /** Orden de Trabajo de Producción, si este pedido requiere fabricación (ver 038). */
+    public function ordenTrabajo(): MorphOne
+    {
+        return $this->morphOne(OrdenTrabajo::class, 'documentable');
     }
 
     /** Folio con el formato en que se imprime: `PED-00042`. */

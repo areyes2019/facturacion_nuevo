@@ -20,6 +20,7 @@ use Illuminate\Database\Eloquent\Relations\MorphOne;
     'fecha_pago',
     'monto',
     'cuenta_id',
+    'registrado_al_entregar',
 ])]
 class CotizacionPago extends Model
 {
@@ -68,6 +69,7 @@ class CotizacionPago extends Model
             'tipo' => TipoPagoCotizacion::class,
             'fecha_pago' => 'date',
             'monto' => 'decimal:2',
+            'registrado_al_entregar' => 'boolean',
         ];
     }
 }
