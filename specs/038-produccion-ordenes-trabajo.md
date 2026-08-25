@@ -296,7 +296,27 @@ Mismo patrón que `pedidos.ts`/`cotizaciones.ts`: `fetchAll(filtroEstado)`, `fet
   componente que usan hoy cotizaciones y facturas) — sin lógica nueva de compartir.
 - **`CotizacionEntregaView.vue`** (`/cotizaciones/:id/entregar`) y **`CotizacionEtiquetaView.vue`**
   (`/cotizaciones/:id/etiqueta`): copias de `PedidoEntregaView.vue`/`PedidoEtiquetaView.vue`
-  apuntando al store de cotizaciones.
+  apuntando al store de cotizaciones. `CotizacionEntregaView.vue` también gana el mismo pie de
+  "Escanear otra"/"Inicio" que ya tenía la de Pedido cuando se abre en modo mostrador (ver punto
+  siguiente): el mostrador entrega varios trabajos seguidos, y sin ese pie habría que salir a mano
+  entre uno y otro.
+
+### El escáner de etiquetas del modo mostrador (029) reconoce también Cotización
+
+El escáner interno (`MostradorEscanearView.vue`) validaba el código leído contra una expresión
+regular exclusiva de Pedido (`/^\/pedidos\/(\d+)\/entregar\/?$/`). Se generaliza:
+
+- `lectorQr.ts`: `pedidoDeCodigoEtiqueta()` se reemplaza por
+  `documentoDeCodigoEtiqueta(codigo, origen): { tipo: 'pedido' | 'cotizacion'; id: number } | null`,
+  que prueba las dos rutas de entrega (`/pedidos/:id/entregar` y `/cotizaciones/:id/entregar`) y
+  devuelve a cuál pertenece el código. Sigue exigiendo el mismo origen que la aplicación — un QR
+  pegado en cualquier caja podría llevar a donde sea, y el escáner de un punto de venta no es un
+  navegador.
+- `MostradorEscanearView.vue` navega a `pedidos-entregar` o `cotizaciones-entregar` según el
+  `tipo` devuelto, en vez de siempre a `pedidos-entregar`.
+- `modoMostrador.ts`: `cotizaciones-entregar` se suma a `RUTAS_PERMITIDAS`, el candado que decide
+  qué pantallas son alcanzables en modo mostrador — sin este cambio el escáner habría calculado la
+  ruta correcta y el guard la habría bloqueado igual.
 
 ### Configuración
 
@@ -370,6 +390,8 @@ los casos:
 14. El listado de Producción excluye `entregado` por defecto y lo muestra al filtrar explícitamente.
 15. El botón "Compartir" de la ficha de envío usa el mismo mecanismo ya existente en el sistema.
 16. Pint y ESLint/Prettier corren sin errores sobre el código nuevo.
+17. El escáner de etiquetas del modo mostrador (029) reconoce tanto una etiqueta de `Pedido` como
+    una de `Cotizacion`, y navega a la pantalla de entrega que corresponde a cada una.
 
 ## Supuestos asumidos (registro completo)
 
@@ -407,3 +429,8 @@ los casos:
     restringido de 029), con su propio grupo en la navegación principal.
 17. El listado de Producción excluye `entregado` por defecto; un filtro aparte lo muestra.
 18. No se contempla cancelar ni eliminar una Orden de Trabajo ni un Envío una vez creados.
+19. El escáner de etiquetas del modo mostrador (029), pensado originalmente solo para Pedido, se
+    extiende para reconocer también las etiquetas de Cotización — decisión tomada después de
+    entregar la primera versión de esta spec, al notar que el escáner interno rechazaba una
+    etiqueta de Cotización aunque el escaneo con la cámara normal del celular sí funcionaba (la URL
+    del QR es absoluta y no depende de este escáner).
