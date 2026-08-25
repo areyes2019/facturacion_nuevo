@@ -1520,14 +1520,14 @@ test('una peticion sin los filtros nuevos responde lo mismo y proveedor_id sigue
 // endpoint real, que sí pasa por dompdf. Mismo criterio que 019-formato-pdf-documentos.md.
 
 /**
- * Replica exactamente lo que hace `ArticuloController::listaPrecios`, incluida la miniatura (ver
- * 028-lista-precios-pdf.md), para poder renderizar `pdf.lista-precios` directamente en los tests
- * de contenido. El tamaño (120) es el mismo que
+ * Replica exactamente lo que hace `ArticuloController::listaPrecios`, incluida la miniatura y el
+ * precio ya resuelto según `tipo` (ver 028-lista-precios-pdf.md), para poder renderizar
+ * `pdf.lista-precios` directamente en los tests de contenido. El tamaño (120) es el mismo que
  * `ArticuloController::LADO_MINIATURA_LISTA_PRECIOS`.
  *
  * @return Collection<string, Collection<int, Articulo>>
  */
-function seccionesListaPrecios(array $ids): Collection
+function seccionesListaPrecios(array $ids, string $tipo = 'distribuidor'): Collection
 {
     $imagenes = app(ImagenArticuloService::class);
 
@@ -1539,11 +1539,20 @@ function seccionesListaPrecios(array $ids): Collection
 
     foreach ($articulos as $articulo) {
         $articulo->miniatura_base64 = $imagenes->miniaturaBase64($articulo, 120);
+        $articulo->precio_lista = $tipo === 'distribuidor'
+            ? $articulo->precio_distribuidor_con_iva
+            : $articulo->precio_unitario_con_iva;
     }
 
     return $articulos
         ->groupBy(fn (Articulo $articulo): string => $articulo->catalogo?->nombre ?? 'Sin catálogo')
         ->sortKeys();
+}
+
+/** Mismo mapa que `ArticuloController::TITULOS_PRECIO`. */
+function tituloColumnaPrecioTest(string $tipo): string
+{
+    return $tipo === 'distribuidor' ? 'Precio Distribuidor' : 'Precio Público';
 }
 
 test('la lista de precios agrupa por catalogo cuando hay mas de uno y ordena alfabeticamente', function () {
@@ -1559,6 +1568,7 @@ test('la lista de precios agrupa por catalogo cuando hay mas de uno y ordena alf
     $html = view('pdf.lista-precios', [
         'secciones' => $secciones,
         'mostrarSecciones' => $secciones->count() > 1,
+        'tituloColumnaPrecio' => tituloColumnaPrecioTest('distribuidor'),
         'fecha' => now(),
     ])->render();
 
@@ -1578,6 +1588,7 @@ test('un solo catalogo en la seleccion no muestra subtitulo de seccion', functio
     $html = view('pdf.lista-precios', [
         'secciones' => $secciones,
         'mostrarSecciones' => $secciones->count() > 1,
+        'tituloColumnaPrecio' => tituloColumnaPrecioTest('distribuidor'),
         'fecha' => now(),
     ])->render();
 
@@ -1585,7 +1596,7 @@ test('un solo catalogo en la seleccion no muestra subtitulo de seccion', functio
     expect($html)->not->toContain('<p class="seccion-titulo">');
 });
 
-test('el precio impreso es el precio distribuidor con iva, no el directo', function () {
+test('con tipo distribuidor, el precio impreso es el precio distribuidor con iva, no el directo', function () {
     $user = User::factory()->create();
     $catalogo = Catalogo::factory()->for($user)->create();
     $articulo = Articulo::factory()->for($user)->for($catalogo, 'catalogo')->create([
@@ -1595,10 +1606,11 @@ test('el precio impreso es el precio distribuidor con iva, no el directo', funct
         'precio_distribuidor_sin_iva' => 100,
     ]);
 
-    $secciones = seccionesListaPrecios([$articulo->id]);
+    $secciones = seccionesListaPrecios([$articulo->id], 'distribuidor');
     $html = view('pdf.lista-precios', [
         'secciones' => $secciones,
         'mostrarSecciones' => false,
+        'tituloColumnaPrecio' => tituloColumnaPrecioTest('distribuidor'),
         'fecha' => now(),
     ])->render();
 
@@ -1606,7 +1618,54 @@ test('el precio impreso es el precio distribuidor con iva, no el directo', funct
     expect($html)->not->toContain('$580.00');
 });
 
-test('un articulo sin precio distribuidor aparece en la lista con precio en cero', function () {
+test('con tipo publico, el precio impreso es el precio general con iva, no el distribuidor', function () {
+    $user = User::factory()->create();
+    $catalogo = Catalogo::factory()->for($user)->create();
+    $articulo = Articulo::factory()->for($user)->for($catalogo, 'catalogo')->create([
+        'nombre' => 'Artículo con precios distintos',
+        'objeto_imp' => ObjetoImpuesto::SiObjeto,
+        'precio_unitario_sin_iva' => 500,
+        'precio_distribuidor_sin_iva' => 100,
+    ]);
+
+    $secciones = seccionesListaPrecios([$articulo->id], 'publico');
+    $html = view('pdf.lista-precios', [
+        'secciones' => $secciones,
+        'mostrarSecciones' => false,
+        'tituloColumnaPrecio' => tituloColumnaPrecioTest('publico'),
+        'fecha' => now(),
+    ])->render();
+
+    expect($html)->toContain('$580.00');
+    expect($html)->not->toContain('$116.00');
+});
+
+test('la cabecera de la columna de precio cambia segun el tipo', function () {
+    $user = User::factory()->create();
+    $catalogo = Catalogo::factory()->for($user)->create();
+    $articulo = Articulo::factory()->for($user)->for($catalogo, 'catalogo')->create();
+
+    $secciones = seccionesListaPrecios([$articulo->id], 'distribuidor');
+    $htmlDistribuidor = view('pdf.lista-precios', [
+        'secciones' => $secciones,
+        'mostrarSecciones' => false,
+        'tituloColumnaPrecio' => tituloColumnaPrecioTest('distribuidor'),
+        'fecha' => now(),
+    ])->render();
+
+    $secciones = seccionesListaPrecios([$articulo->id], 'publico');
+    $htmlPublico = view('pdf.lista-precios', [
+        'secciones' => $secciones,
+        'mostrarSecciones' => false,
+        'tituloColumnaPrecio' => tituloColumnaPrecioTest('publico'),
+        'fecha' => now(),
+    ])->render();
+
+    expect($htmlDistribuidor)->toContain('Precio Distribuidor')->not->toContain('Precio Público');
+    expect($htmlPublico)->toContain('Precio Público')->not->toContain('Precio Distribuidor');
+});
+
+test('un articulo sin el precio del tipo pedido aparece en la lista con precio en cero', function () {
     $user = User::factory()->create();
     $catalogo = Catalogo::factory()->for($user)->create();
     $articulo = Articulo::factory()->for($user)->for($catalogo, 'catalogo')->create([
@@ -1618,13 +1677,14 @@ test('un articulo sin precio distribuidor aparece en la lista con precio en cero
     $html = view('pdf.lista-precios', [
         'secciones' => $secciones,
         'mostrarSecciones' => false,
+        'tituloColumnaPrecio' => tituloColumnaPrecioTest('distribuidor'),
         'fecha' => now(),
     ])->render();
 
     expect($html)->toContain('Sin precio distribuidor')->toContain('$0.00');
 });
 
-test('un articulo que no causa iva imprime su precio distribuidor sin el 16 por ciento', function () {
+test('un articulo que no causa iva imprime su precio sin el 16 por ciento', function () {
     $user = User::factory()->create();
     $catalogo = Catalogo::factory()->for($user)->create();
     $articulo = Articulo::factory()->for($user)->for($catalogo, 'catalogo')->create([
@@ -1637,6 +1697,7 @@ test('un articulo que no causa iva imprime su precio distribuidor sin el 16 por 
     $html = view('pdf.lista-precios', [
         'secciones' => $secciones,
         'mostrarSecciones' => false,
+        'tituloColumnaPrecio' => tituloColumnaPrecioTest('distribuidor'),
         'fecha' => now(),
     ])->render();
 
@@ -1657,6 +1718,7 @@ test('un articulo con imagen muestra su miniatura en la primera columna', functi
     $html = view('pdf.lista-precios', [
         'secciones' => $secciones,
         'mostrarSecciones' => false,
+        'tituloColumnaPrecio' => tituloColumnaPrecioTest('distribuidor'),
         'fecha' => now(),
     ])->render();
 
@@ -1672,6 +1734,7 @@ test('un articulo sin imagen no imprime ninguna miniatura', function () {
     $html = view('pdf.lista-precios', [
         'secciones' => $secciones,
         'mostrarSecciones' => false,
+        'tituloColumnaPrecio' => tituloColumnaPrecioTest('distribuidor'),
         'fecha' => now(),
     ])->render();
 
@@ -1684,12 +1747,26 @@ test('el endpoint de lista de precios genera un pdf real', function () {
 
     $response = $this->actingAs($user)->postJson('/api/v1/articulos/lista-precios', [
         'ids' => $articulos->pluck('id')->all(),
+        'tipo' => 'distribuidor',
     ]);
 
     $response->assertOk();
     $response->assertHeader('content-type', 'application/pdf');
     expect(substr($response->getContent(), 0, 4))->toBe('%PDF');
 });
+
+test('el nombre del pdf servido incluye el tipo de precio pedido', function (string $tipo) {
+    $user = User::factory()->create();
+    $articulo = Articulo::factory()->for($user)->create();
+
+    $response = $this->actingAs($user)->postJson('/api/v1/articulos/lista-precios', [
+        'ids' => [$articulo->id],
+        'tipo' => $tipo,
+    ]);
+
+    $response->assertOk();
+    expect($response->headers->get('content-disposition'))->toContain("lista-precios-{$tipo}-");
+})->with(['distribuidor', 'publico']);
 
 test('la lista de precios se genera igual con el emisor vacio', function () {
     $user = User::factory()->create();
@@ -1698,6 +1775,7 @@ test('la lista de precios se genera igual con el emisor vacio', function () {
 
     $this->actingAs($user)->postJson('/api/v1/articulos/lista-precios', [
         'ids' => [$articulo->id],
+        'tipo' => 'distribuidor',
     ])->assertOk();
 });
 
@@ -1708,6 +1786,7 @@ test('un lote de lista de precios con un id ajeno se rechaza completo', function
 
     $this->actingAs($user)->postJson('/api/v1/articulos/lista-precios', [
         'ids' => [$propio->id, $ajeno->id],
+        'tipo' => 'distribuidor',
     ])->assertUnprocessable();
 });
 
@@ -1717,19 +1796,35 @@ test('un lote de lista de precios con un id inexistente se rechaza completo', fu
 
     $this->actingAs($user)->postJson('/api/v1/articulos/lista-precios', [
         'ids' => [$articulo->id, 999999],
+        'tipo' => 'distribuidor',
     ])->assertUnprocessable();
 });
 
 test('la lista de precios exige al menos un id', function (mixed $ids) {
     $user = User::factory()->create();
 
-    $this->actingAs($user)->postJson('/api/v1/articulos/lista-precios', ['ids' => $ids])
+    $this->actingAs($user)->postJson('/api/v1/articulos/lista-precios', ['ids' => $ids, 'tipo' => 'distribuidor'])
         ->assertUnprocessable()
         ->assertJsonValidationErrors('ids');
 })->with([[[]], [null]]);
 
+test('la lista de precios exige un tipo valido', function (mixed $tipo) {
+    $user = User::factory()->create();
+    $articulo = Articulo::factory()->for($user)->create();
+
+    $this->actingAs($user)->postJson('/api/v1/articulos/lista-precios', [
+        'ids' => [$articulo->id],
+        'tipo' => $tipo,
+    ])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('tipo');
+})->with([['fabricante'], [''], [null]]);
+
 test('un invitado no puede generar una lista de precios', function () {
     $articulo = Articulo::factory()->create();
 
-    $this->postJson('/api/v1/articulos/lista-precios', ['ids' => [$articulo->id]])->assertUnauthorized();
+    $this->postJson('/api/v1/articulos/lista-precios', [
+        'ids' => [$articulo->id],
+        'tipo' => 'distribuidor',
+    ])->assertUnauthorized();
 });

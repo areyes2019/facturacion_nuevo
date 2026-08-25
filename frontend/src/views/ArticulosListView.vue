@@ -20,6 +20,7 @@ import {
   type ArticuloSort,
   type ImportarCsvReporte,
   type ImagenesReporte,
+  type TipoListaPrecios,
 } from '../stores/articulos'
 import { useCatalogosStore, type Catalogo } from '../stores/catalogos'
 import { extractErrorMessage, mensajeDeFallaDeDescarga } from '../lib/errors'
@@ -56,6 +57,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '../components/ui/dropdown-menu'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select'
 
 const articulos = useArticulosStore()
 const catalogos = useCatalogosStore()
@@ -95,6 +103,18 @@ const mostrarAvisoListaGrande = ref(false)
 const compartiendoLista = ref(false)
 const errorCompartirLista = ref<string | null>(null)
 const avisoCompartirLista = ref<string | null>(null)
+
+/** Distribuidor por defecto, para no cambiar el comportamiento previo a esta extensión. */
+const tipoListaPrecios = ref<TipoListaPrecios>('distribuidor')
+
+/** Cada vez que la barra de selección vuelve a aparecer (nueva selección), el selector arranca de
+ * nuevo en "Distribuidor", en vez de conservar la última elección de una tanda ya compartida. */
+watch(
+  () => seleccionados.value.length,
+  (actual, anterior) => {
+    if (anterior === 0 && actual > 0) tipoListaPrecios.value = 'distribuidor'
+  },
+)
 
 // Cualquier cosa que cambie las filas en pantalla vacía la selección.
 watch(
@@ -375,8 +395,8 @@ async function generarYCompartirLista() {
   avisoCompartirLista.value = null
 
   try {
-    const blob = await articulos.listaPreciosBlob([...seleccionados.value])
-    const nombreArchivo = `lista-precios-${new Date().toISOString().slice(0, 10)}.pdf`
+    const blob = await articulos.listaPreciosBlob([...seleccionados.value], tipoListaPrecios.value)
+    const nombreArchivo = `lista-precios-${tipoListaPrecios.value}-${new Date().toISOString().slice(0, 10)}.pdf`
     // Sin texto acompañante: igual que el resto de los PDF de escritorio (cotización, factura),
     // sin texto no hay canal que elegir, así que el respaldo es dejar el archivo descargado, sin
     // abrir WhatsApp por su cuenta.
@@ -656,6 +676,15 @@ async function confirmarImportar() {
             <ArrowsRightLeftIcon class="size-4" />
             Mover a catálogo
           </Button>
+          <Select v-model="tipoListaPrecios" :disabled="compartiendoLista">
+            <SelectTrigger class="h-8 w-36" aria-label="Tipo de precio de la lista">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="distribuidor">Distribuidor</SelectItem>
+              <SelectItem value="publico">Público</SelectItem>
+            </SelectContent>
+          </Select>
           <Button
             variant="outline"
             size="sm"

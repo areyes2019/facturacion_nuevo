@@ -164,6 +164,9 @@ export interface ArticuloFiltros {
 /** Los filtros que se teclean con rebote. El de catálogo no entra: se dispara sin rebote. */
 export type ArticuloFiltroTexto = 'nombre' | 'modelo'
 
+/** El tipo de precio que lleva la lista en PDF (ver 028-lista-precios-pdf.md). */
+export type TipoListaPrecios = 'distribuidor' | 'publico'
+
 export function filtrosVacios(): ArticuloFiltros {
   return {
     nombre: '',
@@ -287,12 +290,14 @@ export const useArticulosStore = defineStore('articulos', {
 
     /**
      * El PDF de la lista de precios, dibujado por el servidor, como Blob listo para compartir
-     * (ver 028-lista-precios-pdf.md). Mismo patrón que `pedidos.ticketBlob()`.
+     * (ver 028-lista-precios-pdf.md). `tipo` decide qué precio lleva la lista —distribuidor o
+     * público general—; las dos nunca se mezclan en un mismo PDF. Mismo patrón que
+     * `pedidos.ticketBlob()`.
      */
-    async listaPreciosBlob(ids: number[]): Promise<Blob> {
+    async listaPreciosBlob(ids: number[], tipo: TipoListaPrecios): Promise<Blob> {
       const { data } = await http.post(
         '/articulos/lista-precios',
-        { ids },
+        { ids, tipo },
         { responseType: 'blob' },
       )
       return new Blob([data], { type: 'application/pdf' })

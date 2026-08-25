@@ -30,6 +30,10 @@ class ListaPreciosArticulosRequest extends FormRequest
                     ->where('user_id', $this->user()->id)
                     ->whereNull('deleted_at'),
             ],
+            // Sin valor por defecto en el servidor: lo decide siempre el frontend (preseleccionado
+            // a "distribuidor" en el selector), para no tener un default silencioso en dos capas
+            // distintas que se puedan desincronizar.
+            'tipo' => ['required', 'string', Rule::in(['distribuidor', 'publico'])],
         ];
     }
 
@@ -42,6 +46,8 @@ class ListaPreciosArticulosRequest extends FormRequest
             'ids.required' => 'Selecciona al menos un artículo.',
             'ids.min' => 'Selecciona al menos un artículo.',
             'ids.*.exists' => 'Alguno de los artículos seleccionados ya no existe. Recarga la lista e inténtalo de nuevo.',
+            'tipo.required' => 'Indica qué tipo de precio lleva la lista.',
+            'tipo.in' => 'El tipo de precio debe ser "distribuidor" o "publico".',
         ];
     }
 }

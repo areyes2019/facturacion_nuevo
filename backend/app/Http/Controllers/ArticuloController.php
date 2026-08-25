@@ -101,6 +101,18 @@ class ArticuloController extends Controller
     private const LADO_MINIATURA_LISTA_PRECIOS = 120;
 
     /**
+     * Título de la columna de precio en el PDF, según el `tipo` pedido (ver
+     * 028-lista-precios-pdf.md). El controlador resuelve cuál corresponde antes de renderizar; la
+     * plantilla no sabe que existen dos tipos, solo imprime el título que le llega.
+     *
+     * @var array<string, string>
+     */
+    private const TITULOS_PRECIO = [
+        'distribuidor' => 'Precio Distribuidor',
+        'publico' => 'Precio Público',
+    ];
+
+    /**
      * Display a listing of the resource.
      */
     public function index(Request $request): AnonymousResourceCollection
@@ -274,7 +286,9 @@ class ArticuloController extends Controller
 
     /**
      * Genera en el servidor el PDF de una lista de precios con los artículos seleccionados en el
-     * listado (ver 028-lista-precios-pdf.md), con su precio distribuidor con IVA incluido.
+     * listado (ver 028-lista-precios-pdf.md), con el precio distribuidor o el precio público
+     * general, con IVA incluido, según el `tipo` pedido. Las dos listas nunca se mezclan: cada PDF
+     * lleva un único tipo de precio.
      *
      * Es un documento efímero: no se guarda ningún registro ni se asocia a ningún cliente, se
      * genera al vuelo y se entrega en la propia respuesta, igual de espíritu que el ticket de
@@ -283,6 +297,7 @@ class ArticuloController extends Controller
     public function listaPrecios(ListaPreciosArticulosRequest $request, ImagenArticuloService $imagenes): Response
     {
         $ids = $request->validated()['ids'];
+        $tipo = $request->validated()['tipo'];
 
         $articulos = $request->user()->articulos()
             ->whereIn('id', $ids)
@@ -290,11 +305,15 @@ class ArticuloController extends Controller
             ->get()
             ->sortBy('nombre', SORT_NATURAL | SORT_FLAG_CASE);
 
-        // Miniatura como atributo transitorio (no persistido): la vista la lee como cualquier otro
-        // campo del artículo, sin que el controlador tenga que pasar un mapa aparte ni la vista
-        // sepa nada de `ImagenArticuloService`.
+        // Miniatura y precio a mostrar, como atributos transitorios (no persistidos): la vista los
+        // lee como cualquier otro campo del artículo, sin que el controlador tenga que pasar un
+        // mapa aparte ni la vista sepa nada de `ImagenArticuloService` ni decida qué precio
+        // corresponde a cada tipo.
         foreach ($articulos as $articulo) {
             $articulo->miniatura_base64 = $imagenes->miniaturaBase64($articulo, self::LADO_MINIATURA_LISTA_PRECIOS);
+            $articulo->precio_lista = $tipo === 'distribuidor'
+                ? $articulo->precio_distribuidor_con_iva
+                : $articulo->precio_unitario_con_iva;
         }
 
         // Agrupar y ordenar en el mismo paso: `groupBy` conserva el orden relativo de la colección
@@ -308,10 +327,11 @@ class ArticuloController extends Controller
             // catálogo: con uno solo, un único encabezado de sección sería ruido.
             'secciones' => $secciones,
             'mostrarSecciones' => $secciones->count() > 1,
+            'tituloColumnaPrecio' => self::TITULOS_PRECIO[$tipo],
             'fecha' => now(),
         ]);
 
-        return $pdf->stream('lista-precios-'.now()->format('Y-m-d').'.pdf');
+        return $pdf->stream("lista-precios-{$tipo}-".now()->format('Y-m-d').'.pdf');
     }
 
     /**

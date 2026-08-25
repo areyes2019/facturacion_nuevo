@@ -11,7 +11,9 @@
     AppServiceProvider) ya cubre todo el namespace `pdf.*`, no solo `pdf.documento`.
 
     Recibe por `loadView`: $secciones (una colección de artículos agrupada por nombre de catálogo,
-    ya ordenada), $mostrarSecciones (si hay más de un catálogo en la selección) y $fecha.
+    ya ordenada, cada uno con su `precio_lista` ya resuelto por el controlador según el tipo
+    pedido), $mostrarSecciones (si hay más de un catálogo en la selección), $tituloColumnaPrecio
+    ("Precio Distribuidor" o "Precio Público") y $fecha.
 --}}
 <!DOCTYPE html>
 <html lang="es">
@@ -88,7 +90,7 @@
                 <th width="15%"></th>
                 <th width="42%">Nombre</th>
                 <th width="23%">Modelo</th>
-                <th width="20%" class="num">Precio</th>
+                <th width="20%" class="num">{{ $tituloColumnaPrecio }}</th>
             </tr>
         </thead>
         <tbody>
@@ -101,7 +103,7 @@
                     </td>
                     <td>{{ $articulo->nombre }}</td>
                     <td>{{ $articulo->modelo }}</td>
-                    <td class="num">${{ number_format($articulo->precio_distribuidor_con_iva, 2) }}</td>
+                    <td class="num">${{ number_format($articulo->precio_lista, 2) }}</td>
                 </tr>
             @endforeach
         </tbody>
