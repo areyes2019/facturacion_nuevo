@@ -58,8 +58,10 @@ const RUTAS_PERMITIDAS = new Set([
   'mostrador-factura-ver',
   'mostrador-catalogo',
   'mostrador-articulo-ver',
-  // El destino del QR de la etiqueta, sin el cual el cuarto acceso no serviría.
+  // El destino del QR de la etiqueta, sin el cual el cuarto acceso no serviría. Cotización se suma
+  // en 038: el mismo escáner ahora también reconoce sus etiquetas.
   'pedidos-entregar',
+  'cotizaciones-entregar',
   // La puerta de entrada.
   'login',
   'forgot-password',

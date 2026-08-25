@@ -83,17 +83,30 @@ export async function leerQr(imagen: Blob): Promise<string | null> {
   }
 }
 
-/** La forma que escribe `Pedido::urlEntrega()` en el QR de la etiqueta y del ticket. */
-const RUTA_ENTREGA = /^\/pedidos\/(\d+)\/entregar\/?$/
+export type TipoDocumentoEtiqueta = 'pedido' | 'cotizacion'
 
 /**
- * Número de pedido que codifica una etiqueta del sistema, o `null` si el código es ajeno.
+ * Las dos formas que escriben `Pedido::urlEntrega()` (027) y `Cotizacion::urlEntrega()` (038) en el
+ * QR de su etiqueta. Un documento nunca calza con la ruta del otro, así que basta con probar las dos
+ * en orden.
+ */
+const RUTAS_ENTREGA: Array<{ tipo: TipoDocumentoEtiqueta; patron: RegExp }> = [
+  { tipo: 'pedido', patron: /^\/pedidos\/(\d+)\/entregar\/?$/ },
+  { tipo: 'cotizacion', patron: /^\/cotizaciones\/(\d+)\/entregar\/?$/ },
+]
+
+/**
+ * Documento (Pedido o Cotización) que codifica una etiqueta del sistema, o `null` si el código es
+ * ajeno (ver 038-produccion-ordenes-trabajo.md).
  *
  * Se exige **el mismo origen que la aplicación**: un QR pegado en cualquier caja podría llevar a
- * donde sea, y el escáner de un punto de venta no es un navegador. Con el id en la mano, el escáner
- * navega dentro de la aplicación y nunca abre una dirección de afuera.
+ * donde sea, y el escáner de un punto de venta no es un navegador. Con el tipo y el id en la mano,
+ * el escáner navega dentro de la aplicación y nunca abre una dirección de afuera.
  */
-export function pedidoDeCodigoEtiqueta(codigo: string, origen: string): number | null {
+export function documentoDeCodigoEtiqueta(
+  codigo: string,
+  origen: string,
+): { tipo: TipoDocumentoEtiqueta; id: number } | null {
   let url: URL
 
   try {
@@ -106,9 +119,14 @@ export function pedidoDeCodigoEtiqueta(codigo: string, origen: string): number |
     return null
   }
 
-  const id = RUTA_ENTREGA.exec(url.pathname)?.[1]
+  for (const { tipo, patron } of RUTAS_ENTREGA) {
+    const id = patron.exec(url.pathname)?.[1]
+    if (id !== undefined) {
+      return { tipo, id: Number(id) }
+    }
+  }
 
-  return id === undefined ? null : Number(id)
+  return null
 }
 
 /**

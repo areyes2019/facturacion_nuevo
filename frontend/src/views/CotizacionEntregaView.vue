@@ -8,6 +8,7 @@ import {
   type ResultadoEntregaCotizacion,
 } from '../stores/cotizaciones'
 import { extractErrorMessage } from '../lib/errors'
+import { enModoMostrador } from '../lib/modoMostrador'
 import AppLayout from '../layouts/AppLayout.vue'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
@@ -25,6 +26,12 @@ const SEGUNDOS_PARA_DESHACER = 10
 
 const route = useRoute()
 const cotizaciones = useCotizacionesStore()
+
+/**
+ * Mismo criterio que `PedidoEntregaView` (027): en el mostrador se entregan varios trabajos
+ * seguidos, así que el pie cambia a "Escanear otra" e "Inicio".
+ */
+const mostrador = enModoMostrador()
 
 const cargando = ref(true)
 const confirmando = ref(false)
@@ -115,7 +122,7 @@ async function deshacer() {
 </script>
 
 <template>
-  <AppLayout>
+  <AppLayout :mostrador="mostrador">
     <div class="mx-auto max-w-md space-y-4">
       <p v-if="cargando" class="text-muted-foreground text-center">Buscando la cotización...</p>
 
@@ -235,7 +242,16 @@ async function deshacer() {
             </div>
           </div>
 
-          <Button as-child variant="ghost" class="w-full">
+          <div v-if="mostrador" class="flex gap-2">
+            <Button as-child variant="outline" class="h-12 flex-1">
+              <RouterLink :to="{ name: 'mostrador-escanear' }">Escanear otra</RouterLink>
+            </Button>
+            <Button as-child variant="ghost" class="h-12 flex-1">
+              <RouterLink :to="{ name: 'dashboard' }">Inicio</RouterLink>
+            </Button>
+          </div>
+
+          <Button v-else as-child variant="ghost" class="w-full">
             <RouterLink :to="{ name: 'cotizaciones-detalle', params: { id: cotizacion.id } }">
               Ver la cotización completa
             </RouterLink>
