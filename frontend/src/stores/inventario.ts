@@ -32,6 +32,8 @@ export interface TotalesInventario {
   unidades: number
   dinero_invertido: number
   beneficio_potencial: number
+  /** Dinero invertido + beneficio potencial: el valor de venta total de la bodega, sin IVA. */
+  total_general: number
   articulos_por_pedir: number
 }
 
@@ -99,8 +101,6 @@ export const useInventarioStore = defineStore('inventario', {
     q: '',
     proveedorId: null as number | null,
     soloPorPedir: false,
-    /** Apagado por defecto, para no mostrar el catálogo entero en ceros. */
-    verTodos: false,
     orden: null as OrdenInventario | null,
     direccion: 'asc' as DireccionOrden,
     loading: false,
@@ -119,7 +119,6 @@ export const useInventarioStore = defineStore('inventario', {
             q: this.q || undefined,
             proveedor: this.proveedorId ?? undefined,
             por_pedir: this.soloPorPedir ? 1 : undefined,
-            ver_todos: this.verTodos ? 1 : undefined,
             orden: this.orden ?? undefined,
             dir: this.orden ? this.direccion : undefined,
           },
@@ -163,6 +162,11 @@ export const useInventarioStore = defineStore('inventario', {
     async guardarParametros(articuloId: number, minimo: number, maximo: number | null) {
       const { data } = await http.put(`/inventario/${articuloId}/parametros`, { minimo, maximo })
       return data.data as RenglonInventario
+    },
+
+    /** Quita el artículo de existencias (borrado lógico). Su historial y sus números se conservan. */
+    async quitar(articuloId: number) {
+      await http.delete(`/inventario/${articuloId}`)
     },
 
     async fetchMovimientos(articuloId: number, page = 1) {

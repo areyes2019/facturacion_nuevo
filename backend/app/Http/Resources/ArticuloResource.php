@@ -57,6 +57,9 @@ class ArticuloResource extends JsonResource
             'precio_distribuidor_con_iva' => $this->precio_distribuidor_con_iva,
             'utilidad' => $this->utilidad,
             'utilidad_distribuidor' => $this->utilidad_distribuidor,
+            // Ver 017-inventario.md: si el artículo tiene fila en `existencias`, está "en
+            // existencias" — la acción rápida de la lista general de Artículos se apoya en esto.
+            'en_existencias' => $this->when($this->relationLoaded('existencia'), fn () => $this->existencia !== null),
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
         ];

@@ -7,6 +7,7 @@ use App\Models\Cliente;
 use App\Models\Cotizacion;
 use App\Models\CotizacionPago;
 use App\Models\Cuenta;
+use App\Models\Existencia;
 use App\Models\Movimiento;
 use App\Models\Proveedor;
 use App\Models\User;
@@ -698,8 +699,9 @@ function clienteYArticuloConCosto(User $user, float $costo, float $precioVenta):
     $articulo = Articulo::factory()->for($user)->for($catalogo)->create([
         'costo_con_descuento' => $costo,
         'precio_unitario_sin_iva' => $precioVenta,
-        'existencia' => 10,
     ]);
+
+    Existencia::factory()->create(['articulo_id' => $articulo->id, 'existencia' => 10]);
 
     return [$cliente, $articulo];
 }
@@ -786,8 +788,8 @@ test('el movimiento de un pago de pedido enlaza al pedido y expone su utilidad',
     $articulo = Articulo::factory()->for($user)->for($catalogo)->create([
         'costo_con_descuento' => 60.00,
         'precio_unitario_sin_iva' => 100.00,
-        'existencia' => 10,
     ]);
+    Existencia::factory()->create(['articulo_id' => $articulo->id, 'existencia' => 10]);
     $cuenta = Cuenta::factory()->for($user)->conSaldo(0)->create();
 
     $pedidoId = $this->actingAs($user)->postJson('/api/v1/pedidos', [
@@ -832,8 +834,8 @@ test('un pedido con lineas libres mezcladas expone su utilidad marcada como parc
     $articulo = Articulo::factory()->for($user)->for($catalogo)->create([
         'costo_con_descuento' => 60.00,
         'precio_unitario_sin_iva' => 100.00,
-        'existencia' => 10,
     ]);
+    Existencia::factory()->create(['articulo_id' => $articulo->id, 'existencia' => 10]);
     $cuenta = Cuenta::factory()->for($user)->conSaldo(0)->create();
 
     $pedidoId = $this->actingAs($user)->postJson('/api/v1/pedidos', [

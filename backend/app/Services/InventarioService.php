@@ -5,24 +5,32 @@ namespace App\Services;
 use App\Enums\MotivoMovimientoInventario;
 use App\Enums\TipoMovimientoInventario;
 use App\Models\Articulo;
+use App\Models\Existencia;
 use App\Models\MovimientoInventario;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 /**
- * Único punto del sistema que escribe `existencia` y `faltante_pendiente` (ver 017-inventario.md).
+ * Único punto del sistema que escribe la fila de `existencias` de un artículo (ver
+ * 017-inventario.md). Un artículo sin fila no es inventario: esa ausencia es la marca de "nunca se
+ * pasó a existencias", no un cero implícito.
  *
- * Todo el módulo se reduce a tres operaciones sobre ese par de números:
+ * Todo el módulo se reduce a tres operaciones sobre el par (`existencia`, `faltante_pendiente`):
  *
- * - **Entrada** de N piezas (recepción de orden, devolución por cancelación): salda primero el
- *   faltante y solo el resto sube la existencia.
- * - **Salida** de N piezas (factura timbrada, cotización entregada): baja la existencia hasta 0 y
- *   el excedente se acumula como faltante. Nunca bloquea la venta ni produce un negativo.
- * - **Ajuste** manual: *fija* la cantidad final capturada y pone el faltante en 0.
+ * - **Entrada** de N piezas (recepción de orden, devolución por cancelación, alta/ajuste manual):
+ *   salda primero el faltante y solo el resto sube la existencia. **Siempre crea la fila si no
+ *   existe** — comprar o dar de alta algo es, de por sí, decidir que se almacena.
+ * - **Salida** de N piezas (factura timbrada, cotización entregada, pedido creado): baja la
+ *   existencia hasta 0 y el excedente se acumula como faltante. Nunca bloquea ni produce un
+ *   negativo. Solo crea la fila si no existe cuando se le pide explícitamente (Cotización); de lo
+ *   contrario, sin fila, no hace nada.
+ * - **Ajuste** manual: *fija* la cantidad final capturada y pone el faltante en 0. Siempre crea (o
+ *   restaura) la fila.
  *
- * En las tres, el artículo se bloquea antes de leer sus contadores y el movimiento se escribe en la
+ * En las tres, la fila se bloquea antes de leer sus contadores y el movimiento se escribe en la
  * misma transacción: nunca puede quedar una existencia que el historial no explique, ni dos
  * operaciones simultáneas pisándose el resultado.
  */
@@ -51,7 +59,8 @@ class InventarioService
             $motivo,
             $documento,
             $nota,
-            function (int $existencia, int $faltante) use ($cantidad): array {
+            crearSiNoExiste: true,
+            calcular: function (int $existencia, int $faltante) use ($cantidad): array {
                 $saldado = min($cantidad, $faltante);
 
                 return [$existencia + ($cantidad - $saldado), $faltante - $saldado];
@@ -62,8 +71,10 @@ class InventarioService
     /**
      * Salida de N piezas. Baja la existencia hasta 0 y acumula el excedente como faltante.
      *
-     * Nunca lanza ni bloquea: el inventario arranca en cero y detener los timbrados hasta terminar
-     * de cargar existencias haría el sistema inusable (ver 017, supuesto 17).
+     * Nunca lanza ni bloquea: una salida sin fila de existencias, y sin `$crearSiNoExiste`, no hace
+     * nada — igual que una línea sin `articulo_id`. Solo Cotización pasa `crearSiNoExiste: true`
+     * (ver 017, "El vínculo factura → cotización"). Pedido de mostrador es la única excepción a
+     * "nunca bloquea": esa validación vive antes, en `verificarDisponibilidadPedido()`.
      */
     public function salida(
         Articulo $articulo,
@@ -71,6 +82,7 @@ class InventarioService
         MotivoMovimientoInventario $motivo,
         ?Model $documento = null,
         ?string $nota = null,
+        bool $crearSiNoExiste = false,
     ): ?MovimientoInventario {
         if ($cantidad <= 0) {
             return null;
@@ -83,7 +95,8 @@ class InventarioService
             $motivo,
             $documento,
             $nota,
-            function (int $existencia, int $faltante) use ($cantidad): array {
+            crearSiNoExiste: $crearSiNoExiste,
+            calcular: function (int $existencia, int $faltante) use ($cantidad): array {
                 $descontado = min($cantidad, $existencia);
 
                 return [$existencia - $descontado, $faltante + ($cantidad - $descontado)];
@@ -98,8 +111,8 @@ class InventarioService
      * faltante porque un faltante es un descuadre de registro y el usuario acaba de medir la
      * realidad con sus manos; arrastrarlo después de contar sería conservar un error ya corregido.
      *
-     * Meter un artículo al inventario por primera vez usa esta misma operación, con punto de
-     * partida en cero.
+     * Pasar un artículo a existencias por primera vez usa esta misma operación, con punto de
+     * partida en cero: crea (o restaura) la fila si no existe.
      */
     public function ajuste(
         Articulo $articulo,
@@ -114,12 +127,23 @@ class InventarioService
             $motivo,
             null,
             $nota,
-            fn (): array => [$cantidadFinal, 0],
+            crearSiNoExiste: true,
+            calcular: fn (): array => [$cantidadFinal, 0],
         );
     }
 
     /**
-     * Aplica una salida por cada artículo de un documento de venta (factura o cotización).
+     * Quita un artículo de existencias (borrado lógico de su fila). No bloquea aunque tenga
+     * existencia o faltante distintos de cero: el historial sigue ligado al artículo, no a esta
+     * fila, así que nunca se pierde. Sin fila que borrar, no hace nada.
+     */
+    public function quitar(Articulo $articulo): void
+    {
+        Existencia::where('articulo_id', $articulo->id)->first()?->delete();
+    }
+
+    /**
+     * Aplica una salida por cada artículo de un documento de venta (factura, cotización o pedido).
      *
      * @param  iterable<int, object>  $lineas
      * @return array<int, MovimientoInventario>
@@ -128,12 +152,14 @@ class InventarioService
         iterable $lineas,
         MotivoMovimientoInventario $motivo,
         Model $documento,
+        bool $crearSiNoExiste = false,
     ): array {
-        return $this->porDocumento($lineas, $motivo, $documento, 'salida');
+        return $this->porDocumento($lineas, $motivo, $documento, 'salida', $crearSiNoExiste);
     }
 
     /**
-     * Aplica una entrada por cada artículo de un documento (recepción de orden, cancelación).
+     * Aplica una entrada por cada artículo de un documento (recepción de orden, cancelación,
+     * corrección de pedido). Siempre crea la fila si no existe.
      *
      * @param  iterable<int, object>  $lineas
      * @return array<int, MovimientoInventario>
@@ -144,6 +170,48 @@ class InventarioService
         Model $documento,
     ): array {
         return $this->porDocumento($lineas, $motivo, $documento, 'entrada');
+    }
+
+    /**
+     * Revisa, sin mover nada, que cada artículo de un Pedido tenga existencia antes de guardarlo.
+     * Es la única excepción del sistema a "una salida nunca bloquea la venta" (ver 017,
+     * "Bloqueo de venta sin existencia en Pedido").
+     *
+     * Vender por arriba de lo disponible (existencia 3, piden 5) no se rechaza aquí: solo se
+     * rechaza un artículo sin fila en `existencias`, o con existencia exactamente en 0.
+     *
+     * @param  iterable<int, array<string, mixed>|object>  $lineas
+     *
+     * @throws ValidationException
+     */
+    public function verificarDisponibilidadPedido(iterable $lineas): void
+    {
+        $cantidades = $this->cantidadesPorArticulo($lineas);
+
+        if ($cantidades === []) {
+            return;
+        }
+
+        $existencias = Existencia::whereIn('articulo_id', array_keys($cantidades))
+            ->pluck('existencia', 'articulo_id');
+
+        $sinExistencia = array_filter(
+            array_keys($cantidades),
+            fn (int $articuloId) => (int) ($existencias[$articuloId] ?? 0) <= 0,
+        );
+
+        if ($sinExistencia === []) {
+            return;
+        }
+
+        $nombres = Articulo::withTrashed()->whereIn('id', $sinExistencia)->pluck('nombre', 'id');
+
+        throw ValidationException::withMessages([
+            'lineas' => array_values(array_map(
+                fn (int $articuloId) => 'No hay existencia de "'.($nombres[$articuloId] ?? "artículo #{$articuloId}").'".',
+                $sinExistencia,
+            )),
+        ]);
     }
 
     /**
@@ -165,6 +233,7 @@ class InventarioService
         MotivoMovimientoInventario $motivo,
         Model $documento,
         string $direccion,
+        bool $crearSiNoExiste = false,
     ): array {
         $cantidades = $this->cantidadesPorArticulo($lineas);
         $movimientos = [];
@@ -178,7 +247,7 @@ class InventarioService
 
             $movimiento = $direccion === 'entrada'
                 ? $this->entrada($articulo, $cantidad, $motivo, $documento)
-                : $this->salida($articulo, $cantidad, $motivo, $documento);
+                : $this->salida($articulo, $cantidad, $motivo, $documento, crearSiNoExiste: $crearSiNoExiste);
 
             if ($movimiento !== null) {
                 $movimientos[] = $movimiento;
@@ -189,7 +258,7 @@ class InventarioService
     }
 
     /**
-     * @param  iterable<int, object>  $lineas
+     * @param  iterable<int, array<string, mixed>|object>  $lineas
      * @return array<int, int> articulo_id => cantidad total
      */
     public function cantidadesPorArticulo(iterable $lineas): array
@@ -197,20 +266,24 @@ class InventarioService
         $cantidades = [];
 
         foreach ($lineas as $linea) {
-            if ($linea->articulo_id === null) {
+            $articuloId = is_array($linea) ? ($linea['articulo_id'] ?? null) : $linea->articulo_id;
+
+            if ($articuloId === null) {
                 continue;
             }
 
-            $articuloId = (int) $linea->articulo_id;
-            $cantidades[$articuloId] = ($cantidades[$articuloId] ?? 0) + (int) $linea->cantidad;
+            $cantidad = is_array($linea) ? $linea['cantidad'] : $linea->cantidad;
+
+            $articuloId = (int) $articuloId;
+            $cantidades[$articuloId] = ($cantidades[$articuloId] ?? 0) + (int) $cantidad;
         }
 
         return $cantidades;
     }
 
     /**
-     * Bloquea el artículo, calcula el nuevo par de contadores, y guarda columnas y movimiento en la
-     * misma transacción.
+     * Bloquea la fila de existencias (creándola o restaurándola primero si hace falta), calcula el
+     * nuevo par de contadores, y guarda fila y movimiento en la misma transacción.
      *
      * El bloqueo es lo que impide que dos salidas simultáneas del mismo artículo lean ambas la
      * misma existencia y la segunda pise a la primera (nueve piezas fuera, cuatro registradas).
@@ -224,32 +297,48 @@ class InventarioService
         MotivoMovimientoInventario $motivo,
         ?Model $documento,
         ?string $nota,
+        bool $crearSiNoExiste,
         callable $calcular,
-    ): MovimientoInventario {
-        return DB::transaction(function () use ($articulo, $tipo, $cantidad, $motivo, $documento, $nota, $calcular): MovimientoInventario {
-            $bloqueado = Articulo::withTrashed()->lockForUpdate()->findOrFail($articulo->id);
+    ): ?MovimientoInventario {
+        return DB::transaction(function () use ($articulo, $tipo, $cantidad, $motivo, $documento, $nota, $crearSiNoExiste, $calcular): ?MovimientoInventario {
+            $existencia = Existencia::withTrashed()
+                ->where('articulo_id', $articulo->id)
+                ->lockForUpdate()
+                ->first();
 
-            [$existencia, $faltante] = $calcular(
-                (int) $bloqueado->existencia,
-                (int) $bloqueado->faltante_pendiente,
-            );
+            if ($existencia === null) {
+                if (! $crearSiNoExiste) {
+                    return null;
+                }
 
-            $bloqueado->forceFill([
-                'existencia' => $existencia,
-                'faltante_pendiente' => $faltante,
+                $existencia = Existencia::create(['articulo_id' => $articulo->id]);
+                $existencia = Existencia::where('id', $existencia->id)->lockForUpdate()->first();
+            } elseif ($existencia->trashed()) {
+                if (! $crearSiNoExiste) {
+                    return null;
+                }
+
+                $existencia->restore();
+            }
+
+            [$exist, $falt] = $calcular((int) $existencia->existencia, (int) $existencia->faltante_pendiente);
+
+            $existencia->forceFill([
+                'existencia' => $exist,
+                'faltante_pendiente' => $falt,
             ])->save();
 
             $movimiento = new MovimientoInventario([
-                'articulo_id' => $bloqueado->id,
+                'articulo_id' => $articulo->id,
                 'tipo' => $tipo->value,
                 'motivo' => $motivo->value,
                 'cantidad' => $cantidad,
-                'existencia_resultante' => $existencia,
-                'faltante_resultante' => $faltante,
+                'existencia_resultante' => $exist,
+                'faltante_resultante' => $falt,
                 'nota' => $nota,
             ]);
 
-            $movimiento->user_id = $bloqueado->user_id;
+            $movimiento->user_id = $articulo->user_id;
 
             if ($documento !== null) {
                 $movimiento->documentable()->associate($documento);
@@ -257,19 +346,13 @@ class InventarioService
 
             $movimiento->save();
 
-            // El modelo que recibió el llamador debe reflejar el resultado, no el estado previo.
-            $articulo->forceFill([
-                'existencia' => $existencia,
-                'faltante_pendiente' => $faltante,
-            ])->syncOriginalAttributes(['existencia', 'faltante_pendiente']);
-
             return $movimiento;
         });
     }
 
     /**
      * Reaplica el historial completo de cada artículo desde cero y reporta dónde no coincide con
-     * las columnas guardadas.
+     * la fila de existencias guardada.
      *
      * **Solo reporta; no corrige nada.** Un descuadre se corrige con un ajuste manual, que queda
      * registrado como tal: una reparación silenciosa borraría la evidencia de que algo estuvo mal.
@@ -278,26 +361,31 @@ class InventarioService
      */
     public function auditar(User $user): Collection
     {
+        $existencias = Existencia::withTrashed()
+            ->whereHas('articulo', fn ($q) => $q->where('user_id', $user->id))
+            ->with('articulo')
+            ->get();
+
         $movimientos = MovimientoInventario::where('user_id', $user->id)
             ->orderBy('articulo_id')
             ->orderBy('id')
             ->get()
             ->groupBy('articulo_id');
 
-        return $user->articulos()->withTrashed()->get()
-            ->map(function (Articulo $articulo) use ($movimientos): ?array {
-                [$existencia, $faltante] = $this->reconstruir($movimientos->get($articulo->id) ?? collect());
+        return $existencias
+            ->map(function (Existencia $existencia) use ($movimientos): ?array {
+                [$exist, $falt] = $this->reconstruir($movimientos->get($existencia->articulo_id) ?? collect());
 
-                if ($existencia === (int) $articulo->existencia && $faltante === (int) $articulo->faltante_pendiente) {
+                if ($exist === (int) $existencia->existencia && $falt === (int) $existencia->faltante_pendiente) {
                     return null;
                 }
 
                 return [
-                    'articulo' => $articulo,
-                    'existencia_guardada' => (int) $articulo->existencia,
-                    'existencia_calculada' => $existencia,
-                    'faltante_guardado' => (int) $articulo->faltante_pendiente,
-                    'faltante_calculado' => $faltante,
+                    'articulo' => $existencia->articulo,
+                    'existencia_guardada' => (int) $existencia->existencia,
+                    'existencia_calculada' => $exist,
+                    'faltante_guardado' => (int) $existencia->faltante_pendiente,
+                    'faltante_calculado' => $falt,
                 ];
             })
             ->filter()

@@ -5,6 +5,8 @@ import {
   PlusIcon,
   PencilIcon,
   TrashIcon,
+  ArchiveBoxArrowDownIcon,
+  ArchiveBoxIcon,
   ArrowDownTrayIcon,
   ArrowsRightLeftIcon,
   ChevronDownIcon,
@@ -25,6 +27,7 @@ import {
   type TipoListaPrecios,
 } from '../stores/articulos'
 import { useCatalogosStore, type Catalogo } from '../stores/catalogos'
+import { useInventarioStore } from '../stores/inventario'
 import { extractErrorMessage, mensajeDeFallaDeDescarga } from '../lib/errors'
 import { compartirArchivo } from '../lib/compartir'
 import AppLayout from '../layouts/AppLayout.vue'
@@ -69,12 +72,34 @@ import {
 
 const articulos = useArticulosStore()
 const catalogos = useCatalogosStore()
+const inventario = useInventarioStore()
 const route = useRoute()
 const router = useRouter()
 
 const articuloAEliminar = ref<Articulo | null>(null)
 const eliminando = ref(false)
 const errorEliminar = ref<string | null>(null)
+
+/**
+ * Acceso rápido a "pasar a existencias" desde el catálogo general (ver 017-inventario.md): marca
+ * el artículo en 0 con el mismo endpoint de ajuste que usa la pantalla de Existencias. Para
+ * capturar una cantidad inicial, o para consultar el detalle, se va a Existencias.
+ */
+const marcandoExistencias = ref<number | null>(null)
+const errorExistencias = ref<string | null>(null)
+
+async function pasarAExistencias(articulo: Articulo) {
+  marcandoExistencias.value = articulo.id
+  errorExistencias.value = null
+  try {
+    await inventario.ajustar(articulo.id, 0, 'entrada_inicial', null)
+    articulo.en_existencias = true
+  } catch (err) {
+    errorExistencias.value = extractErrorMessage(err)
+  } finally {
+    marcandoExistencias.value = null
+  }
+}
 
 /**
  * Selección múltiple, persistente entre páginas (ver 021-mantenimiento-articulos-catalogos.md,
@@ -812,6 +837,9 @@ async function confirmarImportar() {
       <Alert v-if="articulos.error" variant="destructive">
         <AlertDescription>{{ articulos.error }}</AlertDescription>
       </Alert>
+      <Alert v-if="errorExistencias" variant="destructive">
+        <AlertDescription>{{ errorExistencias }}</AlertDescription>
+      </Alert>
       <Alert v-if="errorExportar" variant="destructive">
         <AlertDescription>{{ errorExportar }}</AlertDescription>
       </Alert>
@@ -857,7 +885,7 @@ async function confirmarImportar() {
                     @ordenar="articulos.toggleSort(columna.clave)"
                   />
                 </TableHead>
-                <TableHead class="w-24 text-right">Acciones</TableHead>
+                <TableHead class="w-32 text-right">Acciones</TableHead>
               </TableRow>
 
               <!-- Fila de filtros. Siempre visibles y no detrás de un menú por columna: escondidos
@@ -947,6 +975,27 @@ async function confirmarImportar() {
                      columna, que es justo lo que los desbordaba. -->
                 <TableCell class="text-right">
                   <div class="flex justify-end gap-2">
+                    <Button
+                      v-if="articulo.en_existencias"
+                      as-child
+                      variant="outline"
+                      size="icon-sm"
+                    >
+                      <RouterLink :to="{ name: 'existencias-movimientos', params: { id: articulo.id } }">
+                        <ArchiveBoxIcon class="size-4" />
+                        <span class="sr-only">Ver en existencias</span>
+                      </RouterLink>
+                    </Button>
+                    <Button
+                      v-else
+                      variant="outline"
+                      size="icon-sm"
+                      :disabled="marcandoExistencias === articulo.id"
+                      @click="pasarAExistencias(articulo)"
+                    >
+                      <ArchiveBoxArrowDownIcon class="size-4" />
+                      <span class="sr-only">Pasar a existencias</span>
+                    </Button>
                     <Button as-child variant="outline" size="icon-sm">
                       <RouterLink :to="{ name: 'articulos-editar', params: { id: articulo.id } }">
                         <PencilIcon class="size-4" />

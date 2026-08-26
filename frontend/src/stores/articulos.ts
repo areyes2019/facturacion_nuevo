@@ -30,6 +30,8 @@ export interface Articulo {
   precio_distribuidor_con_iva: number
   utilidad: number
   utilidad_distribuidor: number
+  /** Si tiene fila en Existencias (ver 017-inventario.md). `undefined` si no se cargó la relación. */
+  en_existencias?: boolean
   created_at: string
   updated_at: string
 }

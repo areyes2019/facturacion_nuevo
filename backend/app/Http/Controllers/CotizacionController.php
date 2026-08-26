@@ -379,11 +379,14 @@ class CotizacionController extends Controller
             }
 
             // La cotización entregada es el momento en que la mercancía sale físicamente, así que es
-            // aquí donde baja el inventario — igual que ya ocurría antes de este cambio.
+            // aquí donde baja el inventario — igual que ya ocurría antes de este cambio. Cotización
+            // es la única salida que da de alta un artículo por su cuenta si no tiene fila en
+            // existencias (ver 017-inventario.md, "El vínculo factura → cotización").
             $this->inventario->salidaPorDocumento(
                 $bloqueada->lineas()->get(),
                 MotivoMovimientoInventario::VentaCotizacion,
                 $bloqueada,
+                crearSiNoExiste: true,
             );
 
             $bloqueada->update([

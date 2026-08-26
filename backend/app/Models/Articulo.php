@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
@@ -55,10 +56,9 @@ class Articulo extends Model
     }
 
     /**
-     * Historial de inventario del artículo (ver 017-inventario.md). Las columnas `existencia`,
-     * `faltante_pendiente`, `minimo` y `maximo` viven en esta misma tabla, pero deliberadamente
-     * **fuera** de `#[Fillable]`: solo `InventarioService` las escribe, y siempre junto con su
-     * movimiento en la misma transacción.
+     * Historial de inventario del artículo (ver 017-inventario.md). Se relaciona con `articulo_id`
+     * y no con `Existencia` a propósito: si el usuario quita y vuelve a marcar el artículo en
+     * existencias, el historial completo se sigue viendo igual.
      */
     public function movimientosInventario(): HasMany
     {
@@ -66,44 +66,13 @@ class Articulo extends Model
     }
 
     /**
-     * Dinero invertido en las piezas que hay hoy, sin IVA. Se valúa al costo **actual** del
-     * artículo, no al costo al que entró cada pieza (ver 017, "Valuación al costo de hoy").
+     * La fila de la bodega curada (ver 017-inventario.md, revisión del 2026-08-26). `null` cuando
+     * el artículo nunca se marcó "en existencias" — esa ausencia **es** la marca, no una fila en
+     * ceros. Solo `InventarioService` escribe sus columnas.
      */
-    protected function dineroInvertido(): Attribute
+    public function existencia(): HasOne
     {
-        return Attribute::get(fn (): float => round((int) $this->existencia * $this->costo_total, 2));
-    }
-
-    /**
-     * Lo que se ganaría vendiendo hoy todas las piezas a precio de lista, sin IVA y sin descuentos
-     * de cliente (015).
-     */
-    protected function beneficioPotencial(): Attribute
-    {
-        return Attribute::get(fn (): float => round((int) $this->existencia * $this->utilidad, 2));
-    }
-
-    /**
-     * Un mínimo en 0 significa "no me avises de este artículo"; un faltante pendiente, en cambio,
-     * siempre pide reposición, porque es mercancía que ya se vendió sin respaldo en existencia.
-     */
-    protected function porPedir(): Attribute
-    {
-        return Attribute::get(fn (): bool => ((int) $this->minimo > 0 && (int) $this->existencia <= (int) $this->minimo)
-            || (int) $this->faltante_pendiente > 0);
-    }
-
-    /**
-     * Cuánto conviene pedir: lo que falta para llegar al techo, más lo que se debe. Si no se
-     * capturó un máximo, el techo es el propio mínimo.
-     */
-    protected function cantidadSugerida(): Attribute
-    {
-        return Attribute::get(function (): int {
-            $techo = $this->maximo !== null ? (int) $this->maximo : (int) $this->minimo;
-
-            return max($techo - (int) $this->existencia, 0) + (int) $this->faltante_pendiente;
-        });
+        return $this->hasOne(Existencia::class);
     }
 
     /**
@@ -217,10 +186,6 @@ class Articulo extends Model
             'costo_con_descuento' => 'decimal:2',
             'precio_unitario_sin_iva' => 'decimal:2',
             'precio_distribuidor_sin_iva' => 'decimal:2',
-            'existencia' => 'integer',
-            'faltante_pendiente' => 'integer',
-            'minimo' => 'integer',
-            'maximo' => 'integer',
         ];
     }
 }

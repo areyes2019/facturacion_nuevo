@@ -202,9 +202,14 @@ queda congelado: el ticket ya salió hacia el cliente y las líneas ya no deben 
 
 Al **crear** el pedido —no al entregarlo— se descuentan existencias con
 `InventarioService::salidaPorDocumento`, con un motivo nuevo
-`MotivoMovimientoInventario::VentaPedido` (`venta_pedido`). Es la misma regla que factura y
-cotización en [017](017-inventario.md): la salida nunca bloquea la operación; si no alcanza, se
-genera faltante.
+`MotivoMovimientoInventario::VentaPedido` (`venta_pedido`).
+
+**Revisión del 2026-08-26 ([017](017-inventario.md)):** Pedido es la **única** excepción a "la salida
+nunca bloquea la operación". Antes de descontar, por cada línea con `articulo_id` se valida que el
+artículo tenga fila en la tabla `existencias` de 017 y que su existencia sea mayor a `0`; si no, el
+pedido completo se rechaza con `422` señalando la línea. Vender por arriba de lo disponible (existe
+`3`, se piden `5`) sigue sin bloquear: se descuentan las `3` y las otras `2` quedan como faltante
+pendiente, igual que factura y cotización. Las líneas libres (sin `articulo_id`) nunca bloquean.
 
 Al **editar** un pedido editable se revierte el movimiento anterior y se aplica el nuevo, igual que
 hace hoy `CotizacionController` con sus líneas. Al **borrar** un pedido (solo posible en
@@ -589,6 +594,9 @@ Feature, con Facturapi mockeado (Mockery), en el estilo del resto del proyecto:
 2. Alta con `total` manipulado desde el frontend → `422`.
 3. El folio es consecutivo por usuario e independiente de facturas y cotizaciones.
 4. Crear un pedido descuenta existencias solo de las líneas con `articulo_id`.
+4bis. Crear un pedido con una línea de un artículo sin existencia (o sin fila en `existencias`) se
+   rechaza con `422` y no crea el pedido; con existencia insuficiente pero mayor a cero, sí se crea y
+   deja faltante pendiente.
 5. Registrar un anticipo deja el pedido en `anticipo`; completar el saldo lo deja en `pagado` y
    genera el `autofactura_token`.
 6. Cada pago genera su movimiento de ingreso y mueve el saldo de la cuenta.
@@ -724,6 +732,9 @@ verde.
 `pint` sin cambios, `npm run build`, `npm run lint` y `vitest` en verde. El ticket con su QR se
 revisó como imagen, no solo por sus medidas.
 
+**El bloqueo de venta sin existencia (revisión del 2026-08-26, sección "Inventario" de arriba) está
+implementado**, junto con la tabla `existencias` de [017](017-inventario.md).
+
 ### Decisiones tomadas durante la implementación de la revisión
 
 - **`pedido_pagos.automatico` se renombró en vez de eliminarse.** La spec decía borrarla, y al
@@ -807,7 +818,9 @@ No hay migración de datos para los pedidos ya existentes. Cubierto por tests nu
 2. Al pedido se le agregan artículos del catálogo y líneas libres escritas a mano, con cantidad y
    precio editables.
 3. Al guardarlo se descuentan existencias solo de las líneas con artículo, y el folio es consecutivo
-   e independiente de facturas y cotizaciones.
+   e independiente de facturas y cotizaciones. Si algún artículo no tiene existencia (o nunca se marcó
+   "en existencias" en [017](017-inventario.md)), el pedido no se guarda y se señala la línea; vender
+   por arriba de lo disponible sigue permitido y deja faltante pendiente.
 4. Se registra un anticipo con su cuenta y el pedido pasa a `anticipo`; el movimiento aparece en
    Tesorería y mueve el saldo de la cuenta.
 5. El detalle muestra el ticket dibujado por el servidor, con el saldo pendiente correcto y **el QR
@@ -876,6 +889,9 @@ se movió y por qué.
 8. Cantidad y precio son editables línea por línea.
 9. Aplica el descuento global; no aplica el descuento permanente de cliente.
 10. La venta descuenta existencias al crear el pedido, no al entregarlo.
+11. Un artículo sin existencia (existencia `0` o sin fila en `existencias`) no se puede vender en un
+    Pedido: el sistema lo rechaza al guardar, a diferencia de Factura y Cotización, que nunca
+    bloquean.
 
 **El pago**
 

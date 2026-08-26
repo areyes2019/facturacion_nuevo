@@ -6,6 +6,7 @@ use App\Models\Catalogo;
 use App\Models\Cliente;
 use App\Models\Cotizacion;
 use App\Models\Cuenta;
+use App\Models\Existencia;
 use App\Models\OrdenTrabajo;
 use App\Models\Pedido;
 use App\Models\Proveedor;
@@ -21,11 +22,14 @@ function articuloParaOrdenTrabajo(User $user): Articulo
     $proveedor = Proveedor::factory()->for($user)->create();
     $catalogo = Catalogo::factory()->for($user)->for($proveedor)->create();
 
-    return Articulo::factory()->for($user)->for($catalogo)->create([
+    $articulo = Articulo::factory()->for($user)->for($catalogo)->create([
         'nombre' => 'Sello personalizado',
         'precio_unitario_sin_iva' => 100.00,
-        'existencia' => 10,
     ]);
+
+    Existencia::factory()->create(['articulo_id' => $articulo->id, 'existencia' => 10]);
+
+    return $articulo;
 }
 
 /** Un pedido con folio, líneas y un pago registrado (no necesita estar pagado por completo). */

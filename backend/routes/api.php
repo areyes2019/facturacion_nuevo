@@ -118,6 +118,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('inventario', [InventarioController::class, 'index']);
     Route::put('inventario/{articulo}/parametros', [InventarioController::class, 'parametros']);
     Route::post('inventario/{articulo}/ajuste', [InventarioController::class, 'ajuste']);
+    Route::delete('inventario/{articulo}', [InventarioController::class, 'destroy']);
     Route::get('inventario/{articulo}/movimientos', [InventarioController::class, 'movimientos']);
 
     // Pizarrón de ajustes globales del usuario (ver 014-costo-elaboracion-goma.md). La ruta de

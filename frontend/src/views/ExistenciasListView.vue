@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { RouterLink, useRouter } from 'vue-router'
+import { useRouter } from 'vue-router'
 import {
   AdjustmentsHorizontalIcon,
   ChevronDownIcon,
@@ -8,7 +8,9 @@ import {
   ClipboardDocumentCheckIcon,
   ClipboardDocumentListIcon,
   ClockIcon,
+  EllipsisVerticalIcon,
   PlusIcon,
+  TrashIcon,
 } from '@heroicons/vue/24/outline'
 import {
   MOTIVOS_MANUALES,
@@ -51,6 +53,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../components/ui/dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '../components/ui/dropdown-menu'
 
 const inventario = useInventarioStore()
 const router = useRouter()
@@ -124,6 +133,35 @@ async function confirmarAjuste() {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Quitar de existencias
+// ---------------------------------------------------------------------------------------------
+
+const articuloAQuitar = ref<RenglonInventario | null>(null)
+const quitando = ref(false)
+const errorQuitar = ref<string | null>(null)
+
+function abrirQuitar(renglon: RenglonInventario) {
+  articuloAQuitar.value = renglon
+  errorQuitar.value = null
+}
+
+async function confirmarQuitar() {
+  if (!articuloAQuitar.value) return
+
+  quitando.value = true
+  errorQuitar.value = null
+  try {
+    await inventario.quitar(articuloAQuitar.value.id)
+    articuloAQuitar.value = null
+    await inventario.fetchList(inventario.meta?.current_page ?? 1)
+  } catch (err) {
+    errorQuitar.value = extractErrorMessage(err)
+  } finally {
+    quitando.value = false
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
 // Umbrales de reposición
 // ---------------------------------------------------------------------------------------------
 
@@ -191,7 +229,14 @@ async function confirmarGenerar() {
 
     if (resultado.omitidos.length === 0) {
       mostrarGenerar.value = false
-      router.push({ name: 'ordenes-compra' })
+      // Con una sola orden (un solo proveedor), se abre directo su detalle para revisarla y
+      // corregirla antes de enviarla; con varias, no hay "la orden" a la que ir, así que se va a
+      // la lista para elegir cuál abrir primero.
+      if (resultado.ordenes.length === 1) {
+        router.push({ name: 'ordenes-compra-detalle', params: { id: resultado.ordenes[0].id } })
+      } else {
+        router.push({ name: 'ordenes-compra' })
+      }
     }
   } catch (err) {
     errorGenerar.value = extractErrorMessage(err)
@@ -274,9 +319,9 @@ async function abrirAuditoria() {
         </Card>
         <Card>
           <CardContent class="p-4">
-            <p class="text-muted-foreground text-sm">Por pedir</p>
+            <p class="text-muted-foreground text-sm">Total general</p>
             <p class="text-foreground text-2xl font-semibold tabular-nums">
-              {{ inventario.totales?.articulos_por_pedir ?? 0 }}
+              ${{ pesos(inventario.totales?.total_general ?? 0) }}
             </p>
           </CardContent>
         </Card>
@@ -314,15 +359,9 @@ async function abrirAuditoria() {
             @change="inventario.fetchList(1)"
           />
           Solo por pedir
-        </label>
-        <label class="text-foreground flex items-center gap-2 text-sm">
-          <input
-            v-model="inventario.verTodos"
-            type="checkbox"
-            class="border-input size-4 rounded"
-            @change="inventario.fetchList(1)"
-          />
-          Ver todos
+          <Badge v-if="(inventario.totales?.articulos_por_pedir ?? 0) > 0" variant="secondary">
+            {{ inventario.totales?.articulos_por_pedir }}
+          </Badge>
         </label>
       </div>
 
@@ -335,7 +374,6 @@ async function abrirAuditoria() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Artículo</TableHead>
                 <TableHead>Modelo</TableHead>
                 <TableHead>Catálogo</TableHead>
                 <TableHead
@@ -373,9 +411,9 @@ async function abrirAuditoria() {
             </TableHeader>
             <TableBody>
               <TableRow v-if="!inventario.loading && inventario.items.length === 0">
-                <TableCell colspan="9" class="text-muted-foreground py-10 text-center">
-                  No hay artículos con existencia todavía. Marca "Ver todos" para ver el catálogo
-                  completo, o agrega uno con el buscador de arriba.
+                <TableCell colspan="8" class="text-muted-foreground py-10 text-center">
+                  Todavía no has pasado ningún artículo a existencias. Agrega uno con el buscador
+                  de arriba, o márcalo desde la lista de Artículos.
                 </TableCell>
               </TableRow>
               <TableRow
@@ -383,13 +421,12 @@ async function abrirAuditoria() {
                 :key="renglon.id"
                 :class="renglon.por_pedir ? 'bg-destructive/5' : undefined"
               >
-                <TableCell>
+                <TableCell :title="renglon.nombre">
                   <div class="flex items-center gap-2">
-                    {{ renglon.nombre }}
+                    {{ renglon.modelo }}
                     <Badge v-if="renglon.por_pedir" variant="destructive">Por pedir</Badge>
                   </div>
                 </TableCell>
-                <TableCell>{{ renglon.modelo }}</TableCell>
                 <TableCell truncate :title="renglon.catalogo_nombre ?? undefined">
                   {{ renglon.catalogo_nombre ?? '—' }}
                 </TableCell>
@@ -412,23 +449,46 @@ async function abrirAuditoria() {
                     Pedir {{ renglon.cantidad_sugerida }}
                   </span>
                 </TableCell>
-                <TableCell class="flex justify-end gap-2 text-right">
-                  <Button variant="outline" size="icon-sm" @click="abrirAjuste(renglon)">
-                    <PlusIcon class="size-4" />
-                    <span class="sr-only">Ajustar existencia</span>
-                  </Button>
-                  <Button variant="outline" size="icon-sm" @click="abrirUmbrales(renglon)">
-                    <AdjustmentsHorizontalIcon class="size-4" />
-                    <span class="sr-only">Mínimo y máximo</span>
-                  </Button>
-                  <Button as-child variant="outline" size="icon-sm">
-                    <RouterLink
-                      :to="{ name: 'existencias-movimientos', params: { id: renglon.id } }"
-                    >
-                      <ClockIcon class="size-4" />
-                      <span class="sr-only">Ver movimientos</span>
-                    </RouterLink>
-                  </Button>
+                <TableCell class="text-right">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger as-child>
+                      <Button variant="outline" size="icon-sm">
+                        <EllipsisVerticalIcon class="size-4" />
+                        <span class="sr-only">Acciones de {{ renglon.nombre }}</span>
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem class="gap-2" @select="abrirAjuste(renglon)">
+                        <PlusIcon class="size-4 shrink-0" />
+                        Ajustar existencia
+                      </DropdownMenuItem>
+                      <DropdownMenuItem class="gap-2" @select="abrirUmbrales(renglon)">
+                        <AdjustmentsHorizontalIcon class="size-4 shrink-0" />
+                        Mínimo y máximo
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        class="gap-2"
+                        @select="
+                          router.push({
+                            name: 'existencias-movimientos',
+                            params: { id: renglon.id },
+                          })
+                        "
+                      >
+                        <ClockIcon class="size-4 shrink-0" />
+                        Ver movimientos
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        class="gap-2"
+                        variant="destructive"
+                        @select="abrirQuitar(renglon)"
+                      >
+                        <TrashIcon class="size-4 shrink-0" />
+                        Quitar de existencias
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </TableCell>
               </TableRow>
             </TableBody>
@@ -609,6 +669,34 @@ async function abrirAuditoria() {
             <Button variant="outline" @click="mostrarGenerar = false">Cancelar</Button>
             <Button :disabled="generando" @click="confirmarGenerar">
               {{ generando ? 'Generando...' : 'Generar' }}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <!-- Quitar de existencias -->
+      <Dialog :open="articuloAQuitar !== null" @update:open="(v) => !v && (articuloAQuitar = null)">
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Quitar de existencias</DialogTitle>
+            <DialogDescription>
+              {{ articuloAQuitar?.nombre }} ({{ articuloAQuitar?.modelo }}) dejará de aparecer en
+              Existencias. Su historial de movimientos se conserva, y si lo vuelves a marcar
+              después recupera los mismos números.
+              <strong v-if="articuloAQuitar && articuloAQuitar.existencia > 0" class="text-destructive block mt-2">
+                Todavía tiene {{ articuloAQuitar.existencia }} pieza(s) en existencia.
+              </strong>
+            </DialogDescription>
+          </DialogHeader>
+
+          <Alert v-if="errorQuitar" variant="destructive">
+            <AlertDescription>{{ errorQuitar }}</AlertDescription>
+          </Alert>
+
+          <DialogFooter>
+            <Button variant="outline" @click="articuloAQuitar = null">Cancelar</Button>
+            <Button variant="destructive" :disabled="quitando" @click="confirmarQuitar">
+              {{ quitando ? 'Quitando...' : 'Quitar de existencias' }}
             </Button>
           </DialogFooter>
         </DialogContent>

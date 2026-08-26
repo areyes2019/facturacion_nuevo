@@ -118,7 +118,7 @@ class ArticuloController extends Controller
     public function index(Request $request): AnonymousResourceCollection
     {
         $articulos = $this->ordenar($this->filtrarBusqueda($request->user()->articulos(), $request), $request)
-            ->with('catalogo.proveedor')
+            ->with(['catalogo.proveedor', 'existencia'])
             ->paginate(15)
             ->withQueryString();
 

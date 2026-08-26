@@ -8,8 +8,10 @@ use App\Models\Articulo;
 use App\Models\Catalogo;
 use App\Models\Cliente;
 use App\Models\Cotizacion;
+use App\Models\Existencia;
 use App\Models\Factura;
 use App\Models\OrdenCompra;
+use App\Models\Pedido;
 use App\Models\Proveedor;
 use App\Models\User;
 use App\Services\FacturapiService;
@@ -95,12 +97,26 @@ function timbradoExitosoParaInventario(): object
     ];
 }
 
-/** Fija la existencia de un artículo sin pasar por el servicio, para preparar un escenario. */
+/**
+ * Marca un artículo "en existencias" con una fila directa, sin pasar por el servicio, para
+ * preparar un escenario (ver 017-inventario.md, revisión del 2026-08-26: existencia vive en su
+ * propia tabla, no en `articulos`).
+ */
 function conExistencia(Articulo $articulo, int $existencia, int $faltante = 0): Articulo
 {
-    $articulo->forceFill(['existencia' => $existencia, 'faltante_pendiente' => $faltante])->save();
+    Existencia::factory()->create([
+        'articulo_id' => $articulo->id,
+        'existencia' => $existencia,
+        'faltante_pendiente' => $faltante,
+    ]);
 
-    return $articulo->refresh();
+    return $articulo;
+}
+
+/** La fila de existencias vigente del artículo, leída fresca de la base de datos. */
+function fila(Articulo $articulo): Existencia
+{
+    return Existencia::where('articulo_id', $articulo->id)->firstOrFail();
 }
 
 test('un invitado no puede acceder al inventario', function () {
@@ -113,12 +129,12 @@ test('un invitado no puede acceder al inventario', function () {
 
 test('recibir una orden pagada suma las cantidades de sus lineas al inventario', function () {
     $user = User::factory()->create();
-    $articulo = articuloParaInventario($user);
+    $articulo = conExistencia(articuloParaInventario($user), 0);
     $orden = ordenPagadaCon($user, $articulo, [['articulo_id' => $articulo->id, 'cantidad' => 7]]);
 
     $this->actingAs($user)->postJson("/api/v1/ordenes-compra/{$orden->id}/recibir")->assertOk();
 
-    expect($articulo->refresh()->existencia)->toBe(7);
+    expect(fila($articulo)->existencia)->toBe(7);
     $this->assertDatabaseHas('movimientos_inventario', [
         'articulo_id' => $articulo->id,
         'tipo' => 'entrada',
@@ -130,22 +146,33 @@ test('recibir una orden pagada suma las cantidades de sus lineas al inventario',
     ]);
 });
 
-test('recibir dos veces la misma orden suma una sola vez', function () {
+test('recibir una orden con un articulo sin fila en existencias la crea en cero antes de sumar', function () {
     $user = User::factory()->create();
     $articulo = articuloParaInventario($user);
+    expect(Existencia::where('articulo_id', $articulo->id)->exists())->toBeFalse();
+    $orden = ordenPagadaCon($user, $articulo, [['articulo_id' => $articulo->id, 'cantidad' => 4]]);
+
+    $this->actingAs($user)->postJson("/api/v1/ordenes-compra/{$orden->id}/recibir")->assertOk();
+
+    expect(fila($articulo)->existencia)->toBe(4);
+});
+
+test('recibir dos veces la misma orden suma una sola vez', function () {
+    $user = User::factory()->create();
+    $articulo = conExistencia(articuloParaInventario($user), 0);
     $orden = ordenPagadaCon($user, $articulo, [['articulo_id' => $articulo->id, 'cantidad' => 5]]);
 
     $this->actingAs($user)->postJson("/api/v1/ordenes-compra/{$orden->id}/recibir")->assertOk();
     // El segundo intento choca con la validación de estado: la orden ya no está pagada.
     $this->actingAs($user)->postJson("/api/v1/ordenes-compra/{$orden->id}/recibir")->assertUnprocessable();
 
-    expect($articulo->refresh()->existencia)->toBe(5);
+    expect(fila($articulo)->existencia)->toBe(5);
     expect($articulo->movimientosInventario()->count())->toBe(1);
 });
 
 test('las lineas sin articulo se ignoran al recibir', function () {
     $user = User::factory()->create();
-    $articulo = articuloParaInventario($user);
+    $articulo = conExistencia(articuloParaInventario($user), 0);
     $orden = ordenPagadaCon($user, $articulo, [
         ['articulo_id' => $articulo->id, 'cantidad' => 3],
         ['articulo_id' => null, 'cantidad' => 99],
@@ -153,13 +180,13 @@ test('las lineas sin articulo se ignoran al recibir', function () {
 
     $this->actingAs($user)->postJson("/api/v1/ordenes-compra/{$orden->id}/recibir")->assertOk();
 
-    expect($articulo->refresh()->existencia)->toBe(3);
+    expect(fila($articulo)->existencia)->toBe(3);
     expect($articulo->movimientosInventario()->count())->toBe(1);
 });
 
 test('dos lineas del mismo articulo suman su total y dejan un solo movimiento', function () {
     $user = User::factory()->create();
-    $articulo = articuloParaInventario($user);
+    $articulo = conExistencia(articuloParaInventario($user), 0);
     $orden = ordenPagadaCon($user, $articulo, [
         ['articulo_id' => $articulo->id, 'cantidad' => 10],
         ['articulo_id' => $articulo->id, 'cantidad' => 5],
@@ -167,7 +194,7 @@ test('dos lineas del mismo articulo suman su total y dejan un solo movimiento', 
 
     $this->actingAs($user)->postJson("/api/v1/ordenes-compra/{$orden->id}/recibir")->assertOk();
 
-    expect($articulo->refresh()->existencia)->toBe(15);
+    expect(fila($articulo)->existencia)->toBe(15);
     expect($articulo->movimientosInventario()->count())->toBe(1);
     expect($articulo->movimientosInventario()->first()->cantidad)->toBe(15);
 });
@@ -179,9 +206,8 @@ test('recibir con faltante pendiente salda primero el faltante', function () {
 
     $this->actingAs($user)->postJson("/api/v1/ordenes-compra/{$orden->id}/recibir")->assertOk();
 
-    $articulo->refresh();
-    expect($articulo->existencia)->toBe(7);
-    expect($articulo->faltante_pendiente)->toBe(0);
+    expect(fila($articulo)->existencia)->toBe(7);
+    expect(fila($articulo)->faltante_pendiente)->toBe(0);
 });
 
 test('una entrada menor al faltante lo reduce sin subir la existencia', function () {
@@ -191,9 +217,8 @@ test('una entrada menor al faltante lo reduce sin subir la existencia', function
 
     $this->actingAs($user)->postJson("/api/v1/ordenes-compra/{$orden->id}/recibir")->assertOk();
 
-    $articulo->refresh();
-    expect($articulo->existencia)->toBe(0);
-    expect($articulo->faltante_pendiente)->toBe(1);
+    expect(fila($articulo)->existencia)->toBe(0);
+    expect(fila($articulo)->faltante_pendiente)->toBe(1);
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -225,13 +250,43 @@ test('timbrar una factura sin cotizacion vinculada descuenta el inventario', fun
         'total' => 696.00,
     ])->assertCreated();
 
-    expect($articulo->refresh()->existencia)->toBe(6);
+    expect(fila($articulo)->existencia)->toBe(6);
     $this->assertDatabaseHas('movimientos_inventario', [
         'articulo_id' => $articulo->id,
         'tipo' => 'salida',
         'motivo' => 'venta_factura',
         'cantidad' => 4,
     ]);
+});
+
+test('timbrar una factura suelta con un articulo sin fila en existencias no genera movimiento', function () {
+    $user = User::factory()->create();
+    $articulo = articuloParaInventario($user);
+    $cliente = clienteParaVenta($user);
+
+    $this->mock(FacturapiService::class, function ($mock) {
+        $mock->shouldReceive('timbrarFactura')->once()->andReturn(timbradoExitosoParaInventario());
+    });
+
+    $this->actingAs($user)->postJson('/api/v1/facturas', [
+        'cliente_id' => $cliente->id,
+        'uso_cfdi' => 'G03',
+        'forma_pago' => '03',
+        'metodo_pago' => 'PUE',
+        'lineas' => [[
+            'articulo_id' => $articulo->id,
+            'cantidad' => 4,
+            'descripcion' => $articulo->nombre,
+            'modelo' => $articulo->modelo,
+            'precio_unitario' => 150.00,
+            'tasa_iva' => '16',
+        ]],
+        'total' => 696.00,
+    ])->assertCreated();
+
+    // Una Factura suelta nunca marca artículos "en existencias" por su cuenta.
+    expect(Existencia::where('articulo_id', $articulo->id)->exists())->toBeFalse();
+    expect($articulo->movimientosInventario()->count())->toBe(0);
 });
 
 test('timbrar una factura con cotizacion vinculada no mueve el inventario', function () {
@@ -275,7 +330,7 @@ test('timbrar una factura con cotizacion vinculada no mueve el inventario', func
     ])->assertCreated();
 
     // Nada se movió: la salida ocurrirá al marcar la cotización como entregada.
-    expect($articulo->refresh()->existencia)->toBe(10);
+    expect(fila($articulo)->existencia)->toBe(10);
     expect($articulo->movimientosInventario()->count())->toBe(0);
 });
 
@@ -301,12 +356,37 @@ test('marcar una cotizacion como entregada descuenta el inventario', function ()
 
     $this->actingAs($user)->postJson("/api/v1/cotizaciones/{$cotizacion->id}/entregar")->assertOk();
 
-    expect($articulo->refresh()->existencia)->toBe(7);
+    expect(fila($articulo)->existencia)->toBe(7);
     $this->assertDatabaseHas('movimientos_inventario', [
         'articulo_id' => $articulo->id,
         'motivo' => 'venta_cotizacion',
         'cantidad' => 3,
     ]);
+});
+
+test('entregar una cotizacion con un articulo sin fila en existencias lo da de alta y descuenta', function () {
+    $user = User::factory()->create();
+    $articulo = articuloParaInventario($user);
+    $cotizacion = Cotizacion::factory()->for($user)->for(clienteParaVenta($user))->create([
+        'estado' => EstadoCotizacion::Pagada->value,
+        'total' => 0,
+    ]);
+    $cotizacion->lineas()->create([
+        'articulo_id' => $articulo->id,
+        'cantidad' => 3,
+        'descripcion' => $articulo->nombre,
+        'modelo' => $articulo->modelo,
+        'precio_unitario' => 150.00,
+        'tasa_iva' => '16',
+        'importe' => 450.00,
+        'iva_importe' => 72.00,
+    ]);
+
+    $this->actingAs($user)->postJson("/api/v1/cotizaciones/{$cotizacion->id}/entregar")->assertOk();
+
+    // Se creó en 0 y en el mismo instante se le aplicó la salida encima.
+    expect(fila($articulo)->existencia)->toBe(0);
+    expect(fila($articulo)->faltante_pendiente)->toBe(3);
 });
 
 test('vender mas de lo disponible deja existencia en cero y acumula el faltante', function () {
@@ -327,12 +407,11 @@ test('vender mas de lo disponible deja existencia en cero y acumula el faltante'
         'iva_importe' => 120.00,
     ]);
 
-    // La venta no se bloquea: el inventario arranca en cero y detenerla sería inusable.
+    // La venta no se bloquea: Cotización nunca bloquea, solo Pedido lo hace.
     $this->actingAs($user)->postJson("/api/v1/cotizaciones/{$cotizacion->id}/entregar")->assertOk();
 
-    $articulo->refresh();
-    expect($articulo->existencia)->toBe(0);
-    expect($articulo->faltante_pendiente)->toBe(3);
+    expect(fila($articulo)->existencia)->toBe(0);
+    expect(fila($articulo)->faltante_pendiente)->toBe(3);
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -367,9 +446,8 @@ test('cancelar una factura sin cotizacion devuelve las piezas saldando faltante 
     ])->assertOk();
 
     // Entran 5: saldan el faltante de 3 y quedan 2 en existencia.
-    $articulo->refresh();
-    expect($articulo->existencia)->toBe(2);
-    expect($articulo->faltante_pendiente)->toBe(0);
+    expect(fila($articulo)->existencia)->toBe(2);
+    expect(fila($articulo)->faltante_pendiente)->toBe(0);
 });
 
 test('cancelar una factura con cotizacion vinculada no devuelve nada', function () {
@@ -407,7 +485,7 @@ test('cancelar una factura con cotizacion vinculada no devuelve nada', function 
     ])->assertOk();
 
     // No se devuelve lo que nunca salió por esta factura.
-    expect($articulo->refresh()->existencia)->toBe(4);
+    expect(fila($articulo)->existencia)->toBe(4);
     expect($articulo->movimientosInventario()->count())->toBe(0);
 });
 
@@ -439,11 +517,11 @@ test('una cancelacion pendiente no devuelve piezas', function () {
     ])->assertOk();
 
     // Mientras el SAT no acepte, la factura sigue vigente y la mercancía sigue fuera.
-    expect($articulo->refresh()->existencia)->toBe(1);
+    expect(fila($articulo)->existencia)->toBe(1);
 });
 
 // ---------------------------------------------------------------------------------------------
-// Ajustes manuales
+// Ajustes manuales y alta / baja de existencias
 // ---------------------------------------------------------------------------------------------
 
 test('un ajuste manual fija la cantidad final y pone el faltante en cero', function () {
@@ -469,7 +547,7 @@ test('un ajuste manual fija la cantidad final y pone el faltante en cero', funct
     ]);
 });
 
-test('meter al inventario un articulo que nunca tuvo existencia usa el mismo ajuste', function () {
+test('pasar al inventario un articulo que nunca tuvo existencia usa el mismo ajuste', function () {
     $user = User::factory()->create();
     $articulo = articuloParaInventario($user);
 
@@ -478,7 +556,7 @@ test('meter al inventario un articulo que nunca tuvo existencia usa el mismo aju
         'motivo' => 'entrada_inicial',
     ])->assertOk()->assertJsonPath('data.existencia', 6);
 
-    expect($articulo->refresh()->existencia)->toBe(6);
+    expect(fila($articulo)->existencia)->toBe(6);
 });
 
 test('un ajuste con motivo automatico se rechaza', function () {
@@ -490,7 +568,7 @@ test('un ajuste con motivo automatico se rechaza', function () {
         'motivo' => 'recepcion_orden',
     ])->assertUnprocessable()->assertJsonValidationErrors('motivo');
 
-    expect($articulo->refresh()->existencia)->toBe(0);
+    expect(Existencia::where('articulo_id', $articulo->id)->exists())->toBeFalse();
 });
 
 test('un ajuste exige motivo', function () {
@@ -501,31 +579,84 @@ test('un ajuste exige motivo', function () {
         ->assertUnprocessable()->assertJsonValidationErrors('motivo');
 });
 
+test('quitar un articulo de existencias lo oculta del listado pero conserva su historial', function () {
+    $user = User::factory()->create();
+    $articulo = conExistencia(articuloParaInventario($user), 8, 2);
+
+    $this->actingAs($user)->deleteJson("/api/v1/inventario/{$articulo->id}")->assertNoContent();
+
+    expect(Existencia::where('articulo_id', $articulo->id)->exists())->toBeFalse();
+    expect(collect($this->actingAs($user)->getJson('/api/v1/inventario')->json('data'))->pluck('id'))
+        ->not->toContain($articulo->id);
+    // El historial de movimientos (si lo hubiera) seguiría siendo consultable; aquí solo se
+    // verifica que el endpoint de movimientos no dependa de que la fila siga viva.
+    $this->actingAs($user)->getJson("/api/v1/inventario/{$articulo->id}/movimientos")->assertOk();
+});
+
+test('volver a marcar un articulo restaura su fila con los numeros que tenia', function () {
+    $user = User::factory()->create();
+    $articulo = conExistencia(articuloParaInventario($user), 8, 2);
+    $this->actingAs($user)->deleteJson("/api/v1/inventario/{$articulo->id}")->assertNoContent();
+
+    $this->actingAs($user)->postJson("/api/v1/inventario/{$articulo->id}/ajuste", [
+        'cantidad' => 5,
+        'motivo' => 'conteo_fisico',
+    ])->assertOk();
+
+    expect(Existencia::where('articulo_id', $articulo->id)->count())->toBe(1);
+    expect(fila($articulo)->existencia)->toBe(5);
+});
+
 // ---------------------------------------------------------------------------------------------
 // Reposición
 // ---------------------------------------------------------------------------------------------
 
-test('un articulo esta por pedir cuando cae a su minimo o tiene faltante', function () {
+test('un articulo esta por pedir cuando queda debajo de su minimo o tiene faltante', function () {
     $user = User::factory()->create();
 
-    $bajoMinimo = conExistencia(articuloParaInventario($user, ['modelo' => 'BAJO']), 5);
-    $bajoMinimo->forceFill(['minimo' => 5, 'maximo' => 20])->save();
+    $bajoMinimo = conExistencia(articuloParaInventario($user, ['modelo' => 'BAJO']), 4);
+    fila($bajoMinimo)->forceFill(['minimo' => 5, 'maximo' => 20])->save();
 
     $conFaltante = conExistencia(articuloParaInventario($user, ['modelo' => 'FALTA']), 0, 4);
 
     $sinMinimo = conExistencia(articuloParaInventario($user, ['modelo' => 'LIBRE']), 0);
 
-    $response = $this->actingAs($user)->getJson('/api/v1/inventario?por_pedir=1&ver_todos=1');
+    // En el mínimo exacto (no debajo) ya no se marca "por pedir": si no hay máximo capturado el
+    // techo de la sugerencia es el propio mínimo, y en existencia == mínimo la sugerida sería 0.
+    $enElMinimo = conExistencia(articuloParaInventario($user, ['modelo' => 'AL-MINIMO']), 5);
+    fila($enElMinimo)->forceFill(['minimo' => 5])->save();
+
+    $response = $this->actingAs($user)->getJson('/api/v1/inventario?por_pedir=1');
 
     $response->assertOk();
     $modelos = collect($response->json('data'))->pluck('modelo');
-    expect($modelos)->toContain('BAJO')->toContain('FALTA')->not->toContain('LIBRE');
+    expect($modelos)->toContain('BAJO')->toContain('FALTA')
+        ->not->toContain('LIBRE')->not->toContain('AL-MINIMO');
+});
+
+test('reabastecer exactamente hasta el minimo deja de generar ordenes de compra en cero', function () {
+    $user = User::factory()->create();
+    // Reproduce el caso reportado: venden 10 con 5 en existencia (existencia 0, faltante 5), se
+    // recibe una orden de 10 (salda el faltante y sube 5), y el artículo queda en existencia 5,
+    // exactamente su mínimo, sin máximo capturado.
+    $articulo = conExistencia(articuloParaInventario($user), 0, 5);
+    fila($articulo)->forceFill(['minimo' => 5])->save();
+    $orden = ordenPagadaCon($user, $articulo, [['articulo_id' => $articulo->id, 'cantidad' => 10]]);
+    $this->actingAs($user)->postJson("/api/v1/ordenes-compra/{$orden->id}/recibir")->assertOk();
+
+    expect(fila($articulo)->existencia)->toBe(5);
+    expect(fila($articulo)->faltante_pendiente)->toBe(0);
+    expect(fila($articulo)->por_pedir)->toBeFalse();
+
+    $response = $this->actingAs($user)->postJson('/api/v1/inventario/generar-ordenes-compra');
+    $response->assertCreated();
+    expect($response->json('data'))->toHaveCount(0);
 });
 
 test('la cantidad sugerida suma el faltante a lo que falta para el maximo', function () {
     $user = User::factory()->create();
     $articulo = conExistencia(articuloParaInventario($user), 3, 4);
-    $articulo->forceFill(['minimo' => 5, 'maximo' => 20])->save();
+    fila($articulo)->forceFill(['minimo' => 5, 'maximo' => 20])->save();
 
     $response = $this->actingAs($user)->getJson('/api/v1/inventario?por_pedir=1');
 
@@ -537,7 +668,7 @@ test('generar ordenes de compra crea un borrador por proveedor con las cantidade
     $user = User::factory()->create();
 
     $uno = conExistencia(articuloParaInventario($user, ['modelo' => 'A-1']), 2);
-    $uno->forceFill(['minimo' => 5, 'maximo' => 10])->save();
+    fila($uno)->forceFill(['minimo' => 5, 'maximo' => 10])->save();
 
     // Mismo proveedor que el anterior: deben caer en la misma orden.
     $dos = Articulo::factory()->for($user)->for($uno->catalogo)->create([
@@ -547,10 +678,11 @@ test('generar ordenes de compra crea un borrador por proveedor con las cantidade
         'costo_goma' => 0,
         'precio_unitario_sin_iva' => 150.00,
     ]);
-    conExistencia($dos, 0)->forceFill(['minimo' => 4, 'maximo' => 4])->save();
+    conExistencia($dos, 0);
+    fila($dos)->forceFill(['minimo' => 4, 'maximo' => 4])->save();
 
     $otro = conExistencia(articuloParaInventario($user, ['modelo' => 'B-1']), 1);
-    $otro->forceFill(['minimo' => 3, 'maximo' => 3])->save();
+    fila($otro)->forceFill(['minimo' => 3, 'maximo' => 3])->save();
 
     $response = $this->actingAs($user)->postJson('/api/v1/inventario/generar-ordenes-compra');
 
@@ -570,7 +702,7 @@ test('generar ordenes de compra crea un borrador por proveedor con las cantidade
 test('los articulos con catalogo eliminado se omiten y se reportan', function () {
     $user = User::factory()->create();
     $articulo = conExistencia(articuloParaInventario($user, ['modelo' => 'HUERFANO']), 0);
-    $articulo->forceFill(['minimo' => 5, 'maximo' => 10])->save();
+    fila($articulo)->forceFill(['minimo' => 5, 'maximo' => 10])->save();
     $articulo->catalogo->delete();
 
     $response = $this->actingAs($user)->postJson('/api/v1/inventario/generar-ordenes-compra');
@@ -590,7 +722,7 @@ test('los totales corresponden al conjunto filtrado completo y no a la pagina', 
     $user = User::factory()->create();
 
     // 20 artículos con 3 piezas cada uno: 60 unidades, 60 × 100 = 6000 invertido,
-    // 60 × 50 = 3000 de beneficio potencial. La página solo trae 15.
+    // 60 × 50 = 3000 de beneficio potencial, 9000 de total general. La página solo trae 15.
     foreach (range(1, 20) as $i) {
         conExistencia(articuloParaInventario($user, ['modelo' => "MOD-{$i}"]), 3);
     }
@@ -602,18 +734,20 @@ test('los totales corresponden al conjunto filtrado completo y no a la pagina', 
     $response->assertJsonPath('meta.totales.unidades', 60);
     $response->assertJsonPath('meta.totales.dinero_invertido', 6000);
     $response->assertJsonPath('meta.totales.beneficio_potencial', 3000);
+    $response->assertJsonPath('meta.totales.total_general', 9000);
 });
 
-test('sin ver todos la pantalla oculta los articulos en cero sin minimo', function () {
+test('un articulo nunca marcado en existencias no aparece en el listado bajo ningun filtro', function () {
     $user = User::factory()->create();
     conExistencia(articuloParaInventario($user, ['modelo' => 'CON-STOCK']), 4);
-    articuloParaInventario($user, ['modelo' => 'EN-CERO']);
+    $sinMarcar = articuloParaInventario($user, ['modelo' => 'NUNCA-MARCADO']);
 
     $modelos = collect($this->actingAs($user)->getJson('/api/v1/inventario')->json('data'))->pluck('modelo');
-    expect($modelos)->toContain('CON-STOCK')->not->toContain('EN-CERO');
+    expect($modelos)->toContain('CON-STOCK')->not->toContain('NUNCA-MARCADO');
 
-    $todos = collect($this->actingAs($user)->getJson('/api/v1/inventario?ver_todos=1')->json('data'))->pluck('modelo');
-    expect($todos)->toContain('CON-STOCK')->toContain('EN-CERO');
+    // Buscarlo explícitamente por su modelo tampoco lo trae: no tiene fila que listar.
+    $porBusqueda = collect($this->actingAs($user)->getJson('/api/v1/inventario?q=NUNCA-MARCADO')->json('data'));
+    expect($porBusqueda)->toBeEmpty();
 });
 
 test('ordenar por dinero invertido ordena todo el conjunto y no solo la pagina', function () {
@@ -628,7 +762,7 @@ test('ordenar por dinero invertido ordena todo el conjunto y no solo la pagina',
 
 test('los umbrales se guardan sin generar movimiento', function () {
     $user = User::factory()->create();
-    $articulo = articuloParaInventario($user);
+    $articulo = conExistencia(articuloParaInventario($user), 0);
 
     $this->actingAs($user)->putJson("/api/v1/inventario/{$articulo->id}/parametros", [
         'minimo' => 5,
@@ -638,9 +772,18 @@ test('los umbrales se guardan sin generar movimiento', function () {
     expect($articulo->movimientosInventario()->count())->toBe(0);
 });
 
-test('el maximo no puede ser menor que el minimo', function () {
+test('no se pueden fijar umbrales de un articulo sin fila en existencias', function () {
     $user = User::factory()->create();
     $articulo = articuloParaInventario($user);
+
+    $this->actingAs($user)->putJson("/api/v1/inventario/{$articulo->id}/parametros", [
+        'minimo' => 5,
+    ])->assertNotFound();
+});
+
+test('el maximo no puede ser menor que el minimo', function () {
+    $user = User::factory()->create();
+    $articulo = conExistencia(articuloParaInventario($user), 0);
 
     $this->actingAs($user)->putJson("/api/v1/inventario/{$articulo->id}/parametros", [
         'minimo' => 10,
@@ -680,7 +823,7 @@ test('la auditoria reporta un descuadre y no lo corrige', function () {
 
     // Descuadre introducido por fuera del servicio, que es justo lo que la auditoría existe para
     // detectar.
-    $articulo->forceFill(['existencia' => 99])->save();
+    fila($articulo)->forceFill(['existencia' => 99])->save();
 
     $response = $this->actingAs($user)->getJson('/api/v1/inventario/auditoria');
 
@@ -688,7 +831,7 @@ test('la auditoria reporta un descuadre y no lo corrige', function () {
     $response->assertJsonPath('data.0.articulo_id', $articulo->id);
     $response->assertJsonPath('data.0.existencia_guardada', 99);
     $response->assertJsonPath('data.0.existencia_calculada', 10);
-    expect($articulo->refresh()->existencia)->toBe(99);
+    expect(fila($articulo)->existencia)->toBe(99);
 });
 
 test('la auditoria no reporta nada cuando el historial cuadra', function () {
@@ -718,7 +861,73 @@ test('no se puede ver ni mover el inventario de otro usuario', function () {
         'motivo' => 'otro',
     ])->assertNotFound();
     $this->actingAs($user)->putJson("/api/v1/inventario/{$ajeno->id}/parametros", ['minimo' => 1])->assertNotFound();
+    $this->actingAs($user)->deleteJson("/api/v1/inventario/{$ajeno->id}")->assertNotFound();
 
-    expect($ajeno->refresh()->existencia)->toBe(5);
+    expect(fila($ajeno)->existencia)->toBe(5);
     expect($this->actingAs($user)->getJson('/api/v1/inventario')->json('data'))->toHaveCount(0);
+});
+
+// ---------------------------------------------------------------------------------------------
+// Bloqueo de venta sin existencia en Pedido (única excepción a "una salida nunca bloquea")
+// ---------------------------------------------------------------------------------------------
+
+test('un pedido con un articulo sin fila en existencias se rechaza y no se crea', function () {
+    $user = User::factory()->create();
+    $articulo = articuloParaPedido($user, existencia: null);
+
+    $this->actingAs($user)->postJson('/api/v1/pedidos', datosPedidoValidos($articulo))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('lineas');
+
+    expect(Pedido::where('user_id', $user->id)->count())->toBe(0);
+});
+
+test('un pedido con un articulo en existencia cero se rechaza y no se crea', function () {
+    $user = User::factory()->create();
+    $articulo = articuloParaPedido($user, existencia: 0);
+
+    $this->actingAs($user)->postJson('/api/v1/pedidos', datosPedidoValidos($articulo))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('lineas');
+
+    expect(Pedido::where('user_id', $user->id)->count())->toBe(0);
+});
+
+test('un pedido puede vender mas de lo disponible mientras la existencia no sea cero', function () {
+    $user = User::factory()->create();
+    $articulo = articuloParaPedido($user, existencia: 3);
+
+    $this->actingAs($user)->postJson('/api/v1/pedidos', datosPedidoValidos($articulo, [
+        'lineas' => [[
+            'articulo_id' => $articulo->id,
+            'cantidad' => 5,
+            'descripcion' => $articulo->nombre,
+            'modelo' => $articulo->modelo,
+            'precio_unitario' => 100.00,
+            'tasa_iva' => '16',
+        ]],
+        'total' => 580.00,
+    ]))->assertCreated();
+
+    expect(fila($articulo)->existencia)->toBe(0);
+    expect(fila($articulo)->faltante_pendiente)->toBe(2);
+});
+
+test('editar un pedido sin cambiar sus articulos no se bloquea a si mismo', function () {
+    $user = User::factory()->create();
+    // datosPedidoValidos() captura 2 piezas por defecto: existencia 3 − 2 = 1 tras el alta.
+    $articulo = articuloParaPedido($user, existencia: 3);
+
+    $pedidoId = $this->actingAs($user)->postJson('/api/v1/pedidos', datosPedidoValidos($articulo))
+        ->assertCreated()->json('data.id');
+
+    expect(fila($articulo)->existencia)->toBe(1);
+
+    // Reeditar el mismo pedido con la misma línea no debe bloquearse contra su propio consumo,
+    // aunque la existencia libre justo antes de revertir sea 1 (no alcanzaría para las 2 piezas
+    // si no se revirtiera primero).
+    $this->actingAs($user)->putJson("/api/v1/pedidos/{$pedidoId}", datosPedidoValidos($articulo))
+        ->assertOk();
+
+    expect(fila($articulo)->existencia)->toBe(1);
 });

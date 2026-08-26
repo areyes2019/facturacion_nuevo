@@ -7,26 +7,37 @@ use App\Models\Articulo;
 use App\Models\Catalogo;
 use App\Models\Cuenta;
 use App\Models\Emisor;
+use App\Models\Existencia;
 use App\Models\MovimientoInventario;
 use App\Models\Pedido;
 use App\Models\Proveedor;
 use App\Models\User;
 use Illuminate\Support\Facades\Storage;
 
-function articuloParaPedido(User $user, array $overrides = []): Articulo
+/**
+ * `$existencia` es aparte de `$overrides` (que va a `Articulo::factory()`) porque desde la
+ * revisión del 2026-08-26 de 017-inventario.md existencia vive en su propia tabla; `null` no crea
+ * fila (el artículo queda sin marcar "en existencias").
+ */
+function articuloParaPedido(User $user, array $overrides = [], ?int $existencia = 10): Articulo
 {
     $proveedor = Proveedor::factory()->for($user)->create();
     $catalogo = Catalogo::factory()->for($user)->for($proveedor)->create();
 
-    return Articulo::factory()->for($user)->for($catalogo)->create(array_merge([
+    $articulo = Articulo::factory()->for($user)->for($catalogo)->create(array_merge([
         'nombre' => 'Sello automático 40x15',
         'modelo' => 'MOD-1234',
         'clave_prod_serv' => '43211503',
         'clave_unidad' => 'H87',
         'objeto_imp' => '02',
         'precio_unitario_sin_iva' => 100.00,
-        'existencia' => 10,
     ], $overrides));
+
+    if ($existencia !== null) {
+        Existencia::factory()->create(['articulo_id' => $articulo->id, 'existencia' => $existencia]);
+    }
+
+    return $articulo;
 }
 
 function datosPedidoValidos(Articulo $articulo, array $overrides = []): array
@@ -169,7 +180,7 @@ test('crear el pedido descuenta existencias solo de las lineas con articulo', fu
         'total' => 812.00,
     ]))->assertCreated();
 
-    expect($articulo->fresh()->existencia)->toBe(8);
+    expect(Existencia::where('articulo_id', $articulo->id)->first()->existencia)->toBe(8);
     expect(MovimientoInventario::where('motivo', MotivoMovimientoInventario::VentaPedido->value)->count())->toBe(1);
 });
 
@@ -249,7 +260,7 @@ test('editar un pedido no descuenta el inventario dos veces', function () {
     ]))->assertOk();
 
     // 10 - 2 (alta) + 2 (corrección) - 3 (nueva salida) = 7.
-    expect($articulo->fresh()->existencia)->toBe(7);
+    expect(Existencia::where('articulo_id', $articulo->id)->first()->existencia)->toBe(7);
 });
 
 test('no se puede eliminar un pedido con pagos', function () {
@@ -268,7 +279,7 @@ test('eliminar un pedido sin pagos devuelve las existencias', function () {
 
     $this->actingAs($user)->deleteJson("/api/v1/pedidos/{$pedido->id}")->assertNoContent();
 
-    expect($articulo->fresh()->existencia)->toBe(10);
+    expect(Existencia::where('articulo_id', $articulo->id)->first()->existencia)->toBe(10);
     $this->assertDatabaseMissing('pedidos', ['id' => $pedido->id]);
 });
 

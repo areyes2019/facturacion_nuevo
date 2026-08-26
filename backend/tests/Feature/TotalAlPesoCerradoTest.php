@@ -5,6 +5,7 @@ use App\Models\Articulo;
 use App\Models\Catalogo;
 use App\Models\Cliente;
 use App\Models\Cuenta;
+use App\Models\Existencia;
 use App\Models\Factura;
 use App\Models\OrdenCompra;
 use App\Models\Pedido;
@@ -30,7 +31,7 @@ function articuloDeSelloParaAjuste(User $user): Articulo
     $proveedor = Proveedor::factory()->for($user)->create();
     $catalogo = Catalogo::factory()->for($user)->for($proveedor)->create();
 
-    return Articulo::factory()->for($user)->for($catalogo)->create([
+    $articulo = Articulo::factory()->for($user)->for($catalogo)->create([
         'nombre' => 'Sello autoentintable 59 x 23 mm',
         'modelo' => 'MOD-5923',
         'clave_prod_serv' => '43211503',
@@ -39,8 +40,11 @@ function articuloDeSelloParaAjuste(User $user): Articulo
         'precio_unitario_sin_iva' => 175.86,
         'precio_proveedor' => 100.00,
         'costo_con_descuento' => 100.00,
-        'existencia' => 50,
     ]);
+
+    Existencia::factory()->create(['articulo_id' => $articulo->id, 'existencia' => 50]);
+
+    return $articulo;
 }
 
 function clienteParaAjuste(User $user): Cliente

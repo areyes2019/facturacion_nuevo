@@ -11,6 +11,7 @@ use App\Http\Resources\InventarioResource;
 use App\Http\Resources\MovimientoInventarioResource;
 use App\Http\Resources\OrdenCompraResource;
 use App\Models\Articulo;
+use App\Models\Existencia;
 use App\Models\OrdenCompra;
 use App\Services\FacturaTotalesCalculator;
 use App\Services\InventarioService;
@@ -19,10 +20,12 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Pantalla de Existencias (ver 017-inventario.md).
+ * Pantalla de Existencias (ver 017-inventario.md): la bodega curada por el usuario, no el catálogo
+ * completo de Artículos. Solo lista artículos con fila en `existencias`.
  *
  * Los umbrales se escriben aquí directamente porque no mueven piezas; todo lo que sí las mueve pasa
  * por `InventarioService`, que es el único que toca `existencia` y `faltante_pendiente`.
@@ -34,24 +37,24 @@ class InventarioController extends Controller
      * que ordenar y sumar por ellos se traduce a la aritmética que los define — mismo camino que ya
      * tomaron 011 y 014.
      */
-    private const COSTO_TOTAL = '(costo_con_descuento + costo_goma)';
+    private const COSTO_TOTAL = '(articulos.costo_con_descuento + articulos.costo_goma)';
 
-    private const UTILIDAD = '(precio_unitario_sin_iva - costo_con_descuento - costo_goma)';
+    private const UTILIDAD = '(articulos.precio_unitario_sin_iva - articulos.costo_con_descuento - articulos.costo_goma)';
 
     /** Columnas ordenables del listado. */
     private const ORDENACIONES = [
-        'nombre' => 'nombre',
-        'modelo' => 'modelo',
-        'existencia' => 'existencia',
-        'faltante' => 'faltante_pendiente',
-        'invertido' => 'existencia * '.self::COSTO_TOTAL,
-        'beneficio' => 'existencia * '.self::UTILIDAD,
+        'nombre' => 'articulos.nombre',
+        'modelo' => 'articulos.modelo',
+        'existencia' => 'existencias.existencia',
+        'faltante' => 'existencias.faltante_pendiente',
+        'invertido' => 'existencias.existencia * '.self::COSTO_TOTAL,
+        'beneficio' => 'existencias.existencia * '.self::UTILIDAD,
     ];
 
     public function __construct(private readonly InventarioService $inventario) {}
 
     /**
-     * Listado paginado con los cuatro totales del conjunto **filtrado completo**.
+     * Listado paginado con los totales del conjunto **filtrado completo**.
      *
      * Los totales no se suman sobre los 15 registros de la página: si lo hicieran, el "dinero
      * invertido" cambiaría al pasar de página y sería un número bonito y falso. Son una consulta
@@ -61,12 +64,13 @@ class InventarioController extends Controller
     {
         $filtrada = $this->filtrar($request);
 
-        $articulos = $this->ordenar(clone $filtrada, $request)
-            ->with('catalogo.proveedor')
+        $existencias = $this->ordenar(clone $filtrada, $request)
+            ->select('existencias.*')
+            ->with('articulo.catalogo.proveedor')
             ->paginate(15)
             ->withQueryString();
 
-        return InventarioResource::collection($articulos)
+        return InventarioResource::collection($existencias)
             ->additional(['meta' => ['totales' => $this->totales(clone $filtrada)]]);
     }
 
@@ -77,19 +81,22 @@ class InventarioController extends Controller
     {
         abort_unless($articulo->user_id === $request->user()->id, 404);
 
-        $articulo->forceFill([
+        $existencia = $articulo->existencia;
+        abort_if($existencia === null, 404);
+
+        $existencia->forceFill([
             'minimo' => (int) $request->validated('minimo'),
             'maximo' => $request->validated('maximo'),
         ])->save();
 
-        return new InventarioResource($articulo->fresh(['catalogo.proveedor']));
+        return new InventarioResource($existencia->fresh(['articulo.catalogo.proveedor']));
     }
 
     /**
      * Ajuste manual: fija la cantidad final y pone el faltante en cero.
      *
-     * Meter un artículo al inventario por primera vez usa este mismo endpoint; no hay un alta
-     * aparte, porque declarar "tengo 10" es la misma operación se venga de 0 o de 7.
+     * Pasar un artículo a existencias por primera vez usa este mismo endpoint; no hay un alta
+     * aparte, porque declarar "tengo 10" es la misma operación se venga de "nunca marcado" o de 7.
      */
     public function ajuste(AjustarInventarioRequest $request, Articulo $articulo): InventarioResource
     {
@@ -102,11 +109,26 @@ class InventarioController extends Controller
             $request->validated('nota'),
         );
 
-        return new InventarioResource($articulo->fresh(['catalogo.proveedor']));
+        return new InventarioResource($articulo->existencia()->first()->load('articulo.catalogo.proveedor'));
     }
 
     /**
-     * Historial del artículo, más reciente primero. Solo lectura.
+     * Quita el artículo de existencias (borrado lógico de su fila). No bloquea aunque tenga
+     * existencia o faltante distintos de cero: el historial se conserva y volver a marcarlo
+     * restaura la misma fila.
+     */
+    public function destroy(Request $request, Articulo $articulo): Response
+    {
+        abort_unless($articulo->user_id === $request->user()->id, 404);
+
+        $this->inventario->quitar($articulo);
+
+        return response()->noContent();
+    }
+
+    /**
+     * Historial del artículo, más reciente primero. Solo lectura. No exige fila vigente en
+     * `existencias`: el historial sobrevive a quitar el artículo.
      */
     public function movimientos(Request $request, Articulo $articulo): AnonymousResourceCollection
     {
@@ -127,22 +149,23 @@ class InventarioController extends Controller
      */
     public function generarOrdenesCompra(Request $request): JsonResponse
     {
-        $porPedir = $this->porPedir($request->user()->articulos())
-            ->with('catalogo.proveedor')
+        $porPedir = $this->porPedir($this->baseQuery($request))
+            ->select('existencias.*')
+            ->with('articulo.catalogo.proveedor')
             ->get();
 
         // Un artículo cuyo catálogo o proveedor quedó borrado no tiene a quién pedírsele. Se omite
         // y se reporta, en lugar de crear una orden huérfana o fallar en silencio.
         [$pedibles, $omitidos] = $porPedir->partition(
-            fn (Articulo $articulo) => $articulo->catalogo !== null && $articulo->catalogo->proveedor !== null
+            fn (Existencia $existencia) => $existencia->articulo->catalogo !== null && $existencia->articulo->catalogo->proveedor !== null
         );
 
         $ordenes = DB::transaction(function () use ($request, $pedibles) {
             $folio = ((int) OrdenCompra::where('user_id', $request->user()->id)->max('folio'));
             $creadas = [];
 
-            foreach ($pedibles->groupBy(fn (Articulo $articulo) => $articulo->catalogo->proveedor_id) as $proveedorId => $articulos) {
-                $creadas[] = $this->crearOrden($request, (int) $proveedorId, $articulos, ++$folio);
+            foreach ($pedibles->groupBy(fn (Existencia $existencia) => $existencia->articulo->catalogo->proveedor_id) as $proveedorId => $existenciasGrupo) {
+                $creadas[] = $this->crearOrden($request, (int) $proveedorId, $existenciasGrupo, ++$folio);
             }
 
             return $creadas;
@@ -150,10 +173,10 @@ class InventarioController extends Controller
 
         return response()->json([
             'data' => OrdenCompraResource::collection(collect($ordenes)->map->load(['proveedor', 'lineas'])),
-            'omitidos' => $omitidos->map(fn (Articulo $articulo) => [
-                'id' => $articulo->id,
-                'nombre' => $articulo->nombre,
-                'modelo' => $articulo->modelo,
+            'omitidos' => $omitidos->map(fn (Existencia $existencia) => [
+                'id' => $existencia->articulo->id,
+                'nombre' => $existencia->articulo->nombre,
+                'modelo' => $existencia->articulo->modelo,
                 'motivo' => 'El catálogo o el proveedor del artículo está eliminado.',
             ])->values(),
         ], 201);
@@ -183,18 +206,18 @@ class InventarioController extends Controller
     }
 
     /**
-     * @param  Collection<int, Articulo>  $articulos
+     * @param  Collection<int, Existencia>  $existencias
      */
-    private function crearOrden(Request $request, int $proveedorId, $articulos, int $folio): OrdenCompra
+    private function crearOrden(Request $request, int $proveedorId, $existencias, int $folio): OrdenCompra
     {
-        $lineas = $articulos->map(fn (Articulo $articulo) => [
-            'articulo_id' => $articulo->id,
-            'cantidad' => $articulo->cantidad_sugerida,
-            'descripcion' => $articulo->nombre,
-            'modelo' => $articulo->modelo,
+        $lineas = $existencias->map(fn (Existencia $existencia) => [
+            'articulo_id' => $existencia->articulo->id,
+            'cantidad' => $existencia->cantidad_sugerida,
+            'descripcion' => $existencia->articulo->nombre,
+            'modelo' => $existencia->articulo->modelo,
             // Mismo criterio que cualquier orden de 012: la línea de compra se precarga con el
             // COSTO del artículo, no con su precio de venta.
-            'precio_unitario' => (float) $articulo->costo_con_descuento,
+            'precio_unitario' => (float) $existencia->articulo->costo_con_descuento,
             'descuento_tipo' => null,
             'descuento_valor' => null,
             // El artículo no guarda una tasa: la línea nace con la tasa general, igual que cuando
@@ -228,45 +251,63 @@ class InventarioController extends Controller
         return $orden;
     }
 
+    /**
+     * Existencias del usuario autenticado, con su artículo (no borrado) ya unido para poder
+     * filtrar, ordenar y sumar sobre columnas de las dos tablas.
+     *
+     * @return Builder<Existencia>
+     */
+    private function baseQuery(Request $request): Builder
+    {
+        return Existencia::query()
+            ->join('articulos', 'articulos.id', '=', 'existencias.articulo_id')
+            ->where('articulos.user_id', $request->user()->id)
+            ->whereNull('articulos.deleted_at');
+    }
+
+    /**
+     * @return Builder<Existencia>
+     */
     private function filtrar(Request $request): Builder
     {
-        return $request->user()->articulos()
+        return $this->baseQuery($request)
             ->when($request->string('q')->trim()->isNotEmpty(), function ($query) use ($request) {
                 $busqueda = '%'.$request->string('q')->trim().'%';
-                $query->where(fn ($q) => $q->where('nombre', 'like', $busqueda)->orWhere('modelo', 'like', $busqueda));
+                $query->where(fn ($q) => $q->where('articulos.nombre', 'like', $busqueda)->orWhere('articulos.modelo', 'like', $busqueda));
             })
-            ->when($request->integer('catalogo') > 0, fn ($query) => $query->where('catalogo_id', $request->integer('catalogo')))
+            ->when($request->integer('catalogo') > 0, fn ($query) => $query->where('articulos.catalogo_id', $request->integer('catalogo')))
             ->when($request->integer('proveedor') > 0, function ($query) use ($request) {
-                $query->whereHas('catalogo', fn ($q) => $q->where('proveedor_id', $request->integer('proveedor')));
+                $query->whereExists(function ($sub) use ($request) {
+                    $sub->selectRaw('1')
+                        ->from('catalogos')
+                        ->whereColumn('catalogos.id', 'articulos.catalogo_id')
+                        ->where('catalogos.proveedor_id', $request->integer('proveedor'));
+                });
             })
-            ->when($request->boolean('por_pedir'), fn ($query) => $this->porPedir($query))
-            // Sin "ver todos", la pantalla oculta el catálogo entero en ceros y deja solo lo que el
-            // usuario realmente maneja: lo que tiene, lo que debe, o aquello para lo que definió un
-            // mínimo.
-            ->when(! $request->boolean('ver_todos'), function ($query) {
-                $query->where(fn ($q) => $q->where('existencia', '>', 0)
-                    ->orWhere('faltante_pendiente', '>', 0)
-                    ->orWhere('minimo', '>', 0));
-            });
+            ->when($request->boolean('por_pedir'), fn ($query) => $this->porPedir($query));
     }
 
     /**
      * Un mínimo en 0 significa "no me avises"; un faltante pendiente siempre pide reposición.
      *
-     * @param  Builder<Articulo>  $query
-     * @return Builder<Articulo>
+     * Estrictamente menor que, no "menor o igual" — mismo motivo que `Existencia::porPedir()`: sin
+     * máximo capturado el techo de la sugerencia es el mínimo, y en `existencia == mínimo` la
+     * cantidad sugerida sería 0.
+     *
+     * @param  Builder<Existencia>  $query
+     * @return Builder<Existencia>
      */
     private function porPedir(Builder $query): Builder
     {
         return $query->where(function ($q) {
-            $q->where(fn ($sub) => $sub->where('minimo', '>', 0)->whereColumn('existencia', '<=', 'minimo'))
-                ->orWhere('faltante_pendiente', '>', 0);
+            $q->where(fn ($sub) => $sub->where('existencias.minimo', '>', 0)->whereColumn('existencias.existencia', '<', 'existencias.minimo'))
+                ->orWhere('existencias.faltante_pendiente', '>', 0);
         });
     }
 
     /**
-     * @param  Builder<Articulo>  $query
-     * @return Builder<Articulo>
+     * @param  Builder<Existencia>  $query
+     * @return Builder<Existencia>
      */
     private function ordenar(Builder $query, Request $request): Builder
     {
@@ -274,31 +315,32 @@ class InventarioController extends Controller
         $direccion = $request->string('dir')->lower()->toString() === 'desc' ? 'desc' : 'asc';
 
         if (! array_key_exists($columna, self::ORDENACIONES)) {
-            return $query->orderBy('nombre');
+            return $query->orderBy('articulos.nombre');
         }
 
         return $query->orderByRaw(self::ORDENACIONES[$columna].' '.$direccion);
     }
 
     /**
-     * @param  Builder<Articulo>  $query
-     * @return array{unidades: int, dinero_invertido: float, beneficio_potencial: float, articulos_por_pedir: int}
+     * @param  Builder<Existencia>  $query
+     * @return array{unidades: int, dinero_invertido: float, beneficio_potencial: float, total_general: float, articulos_por_pedir: int}
      */
     private function totales(Builder $query): array
     {
-        // Los alias llevan prefijo `suma_` a propósito: `Articulo` tiene accesores llamados
-        // `dinero_invertido` y `beneficio_potencial`, y un alias con ese nombre queda eclipsado por
-        // el accesor —que recalcularía sobre atributos no seleccionados y devolvería 0.
         $agregados = (clone $query)->selectRaw(
-            'COALESCE(SUM(existencia), 0) as suma_unidades, '.
-            'COALESCE(SUM(existencia * '.self::COSTO_TOTAL.'), 0) as suma_invertido, '.
-            'COALESCE(SUM(existencia * '.self::UTILIDAD.'), 0) as suma_beneficio'
+            'COALESCE(SUM(existencias.existencia), 0) as suma_unidades, '.
+            'COALESCE(SUM(existencias.existencia * '.self::COSTO_TOTAL.'), 0) as suma_invertido, '.
+            'COALESCE(SUM(existencias.existencia * '.self::UTILIDAD.'), 0) as suma_beneficio'
         )->first();
+
+        $invertido = round((float) ($agregados->suma_invertido ?? 0), 2);
+        $beneficio = round((float) ($agregados->suma_beneficio ?? 0), 2);
 
         return [
             'unidades' => (int) ($agregados->suma_unidades ?? 0),
-            'dinero_invertido' => round((float) ($agregados->suma_invertido ?? 0), 2),
-            'beneficio_potencial' => round((float) ($agregados->suma_beneficio ?? 0), 2),
+            'dinero_invertido' => $invertido,
+            'beneficio_potencial' => $beneficio,
+            'total_general' => round($invertido + $beneficio, 2),
             'articulos_por_pedir' => $this->porPedir(clone $query)->count(),
         ];
     }

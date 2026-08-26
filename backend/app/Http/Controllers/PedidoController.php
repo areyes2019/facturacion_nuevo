@@ -62,13 +62,17 @@ class PedidoController extends Controller
 
     /**
      * Levanta la venta y **descuenta existencias en el acto**: la mercancía sale del mostrador en
-     * la mano del cliente, no cuando se marca nada (ver 017-inventario.md, "una salida nunca
-     * bloquea la operación").
+     * la mano del cliente, no cuando se marca nada.
+     *
+     * Pedido es la única excepción a "una salida nunca bloquea la venta" (ver 017-inventario.md,
+     * "Bloqueo de venta sin existencia en Pedido"): un artículo sin existencia (o nunca marcado "en
+     * existencias") no se deja vender aquí, aunque sí en Factura y Cotización.
      */
     public function store(StorePedidoRequest $request): PedidoResource
     {
         $datos = $request->validated();
         $calculo = $this->calcularYValidarTotal($datos);
+        $this->inventario->verificarDisponibilidadPedido($datos['lineas']);
 
         $pedido = DB::transaction(function () use ($request, $datos, $calculo) {
             $siguienteFolio = ((int) Pedido::where('user_id', $request->user()->id)->max('folio')) + 1;
@@ -120,12 +124,16 @@ class PedidoController extends Controller
 
         DB::transaction(function () use ($pedido, $datos, $calculo) {
             // Se devuelve lo que descontó el alta antes de aplicar las líneas nuevas: sin esto, un
-            // pedido editado tres veces habría descontado tres veces la misma mercancía.
+            // pedido editado tres veces habría descontado tres veces la misma mercancía. Se revierte
+            // ANTES de validar disponibilidad para que reeditar el mismo pedido sin cambiar sus
+            // artículos nunca se bloquee a sí mismo por "consumir" su propia existencia.
             $this->inventario->entradaPorDocumento(
                 $pedido->lineas()->get(),
                 MotivoMovimientoInventario::CorreccionPedido,
                 $pedido,
             );
+
+            $this->inventario->verificarDisponibilidadPedido($datos['lineas']);
 
             $pedido->update([
                 'cliente_nombre' => $datos['cliente_nombre'],

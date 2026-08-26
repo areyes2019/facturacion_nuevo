@@ -5,6 +5,7 @@ use App\Models\Articulo;
 use App\Models\Catalogo;
 use App\Models\Cliente;
 use App\Models\Cuenta;
+use App\Models\Existencia;
 use App\Models\Factura;
 use App\Models\Pedido;
 use App\Models\Proveedor;
@@ -30,8 +31,9 @@ function pedidoParaAutofactura(User $user, array $overridesLinea = []): Pedido
         'clave_unidad' => 'H87',
         'objeto_imp' => '02',
         'precio_unitario_sin_iva' => 100.00,
-        'existencia' => 10,
     ]);
+
+    Existencia::factory()->create(['articulo_id' => $articulo->id, 'existencia' => 10]);
 
     $cuenta = Cuenta::factory()->for($user)->create([
         'nombre' => 'Caja General',
@@ -183,11 +185,11 @@ test('la factura de autofactura no descuenta inventario por segunda vez', functi
     $articulo = Articulo::where('user_id', $user->id)->firstOrFail();
 
     // El pedido ya descontó 2 de 10 al levantarse en el mostrador.
-    expect($articulo->fresh()->existencia)->toBe(8);
+    expect(Existencia::where('articulo_id', $articulo->id)->first()->existencia)->toBe(8);
 
     $this->postJson("/api/v1/autofactura/{$pedido->autofactura_token}", datosFiscalesValidos())->assertOk();
 
-    expect($articulo->fresh()->existencia)->toBe(8);
+    expect(Existencia::where('articulo_id', $articulo->id)->first()->existencia)->toBe(8);
 });
 
 test('una linea libre se timbra con las claves genericas del SAT', function () {
