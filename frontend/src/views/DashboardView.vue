@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { ArrowDownTrayIcon } from '@heroicons/vue/24/outline'
+import { RouterLink } from 'vue-router'
+import { ArrowDownTrayIcon, DocumentDuplicateIcon, TicketIcon } from '@heroicons/vue/24/outline'
 import { enModoMostrador } from '../lib/modoMostrador'
 import { instalar, puedeInstalar } from '../lib/instalacion'
 import AppLayout from '../layouts/AppLayout.vue'
 import CuatroAccesos from '../components/mostrador/CuatroAccesos.vue'
+import ListaPreciosDashboard from '../components/ListaPreciosDashboard.vue'
 import { Button } from '../components/ui/button'
 import { Card, CardContent } from '../components/ui/card'
 
@@ -20,11 +22,22 @@ const mostrador = enModoMostrador()
     <CuatroAccesos v-if="mostrador" />
 
     <div v-else class="space-y-4">
-      <Card>
-        <CardContent class="py-16 text-center">
-          <p class="text-foreground text-lg">pagina de inicio</p>
-        </CardContent>
-      </Card>
+      <div class="flex flex-wrap gap-2">
+        <Button as-child>
+          <RouterLink :to="{ name: 'pedidos-crear' }">
+            <TicketIcon class="size-4" />
+            Nueva Venta
+          </RouterLink>
+        </Button>
+        <Button as-child>
+          <RouterLink :to="{ name: 'cotizaciones-crear' }">
+            <DocumentDuplicateIcon class="size-4" />
+            Nueva Cotización
+          </RouterLink>
+        </Button>
+      </div>
+
+      <ListaPreciosDashboard />
 
       <!-- Instalar depende hoy de encontrar "Instalar" en el menú del navegador, que casi nadie
            encuentra. El botón desaparece cuando ya está instalada o cuando el navegador no la

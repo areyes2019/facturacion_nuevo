@@ -16,7 +16,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
  * (directo y distribuidor, ver 033-precio-distribuidor.md) y **nunca** el precio del proveedor, el
  * costo ni la utilidad.
  */
-const props = defineProps<{ articulo: Articulo | null }>()
+const props = withDefaults(defineProps<{ articulo: Articulo | null; mostrarEditar?: boolean }>(), {
+  mostrarEditar: true,
+})
 const emit = defineEmits<{ 'update:open': [boolean] }>()
 
 const compartiendo = ref(false)
@@ -147,7 +149,7 @@ async function compartir(precio: string) {
           <p v-if="aviso" class="text-muted-foreground text-sm">{{ aviso }}</p>
 
           <div class="mt-auto flex flex-wrap justify-end gap-2">
-            <Button as-child variant="outline">
+            <Button v-if="mostrarEditar" as-child variant="outline">
               <RouterLink :to="{ name: 'articulos-editar', params: { id: articulo.id } }">
                 <PencilIcon class="size-4" />
                 Editar
