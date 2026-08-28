@@ -1,0 +1,14 @@
+{
+	"folders": [
+		{
+			"path": ".."
+		},
+		{
+			"path": "../../delivery"
+		},
+		{
+			"path": "../../inDriver"
+		}
+	],
+	"settings": {}
+}
