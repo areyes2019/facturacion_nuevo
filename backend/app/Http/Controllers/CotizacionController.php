@@ -122,7 +122,7 @@ class CotizacionController extends Controller
     {
         abort_unless($cotizacion->user_id === $request->user()->id, 404);
 
-        return new CotizacionResource($cotizacion->load(['cliente', 'lineas.articulo', 'pagos.cuenta', 'factura', 'ordenTrabajo', 'envio']));
+        return new CotizacionResource($cotizacion->load(['cliente', 'lineas.articulo', 'pagos.cuenta', 'facturas', 'ordenTrabajo', 'envio']));
     }
 
     /**
@@ -176,7 +176,7 @@ class CotizacionController extends Controller
     {
         abort_unless($cotizacion->user_id === $request->user()->id, 404);
         abort_unless($cotizacion->estado->esEditable(), 422, 'Solo se puede eliminar una cotización en borrador o enviada.');
-        abort_if($cotizacion->factura_id !== null, 422, 'No se puede eliminar una cotización que ya generó una factura.');
+        abort_if($cotizacion->facturas()->exists(), 422, 'No se puede eliminar una cotización que ya generó alguna factura.');
         abort_if($cotizacion->tienePagos(), 422, 'Elimina primero los pagos de la cotización: cada uno tiene un movimiento en Tesorería.');
 
         $cotizacion->delete();

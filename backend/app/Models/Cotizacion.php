@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Contracts\DocumentoEnviable;
 use App\Enums\EstadoCotizacion;
+use App\Enums\EstadoFactura;
 use App\Enums\TipoDescuento;
 use App\Mail\CotizacionEnviadaMail;
 use App\Models\Concerns\CalculaUtilidadVenta;
@@ -35,7 +36,6 @@ use Illuminate\Support\Facades\Log;
     'ajuste_al_peso',
     'total',
     'entregado_en',
-    'factura_id',
 ])]
 class Cotizacion extends Model implements DocumentoEnviable
 {
@@ -76,9 +76,13 @@ class Cotizacion extends Model implements DocumentoEnviable
         return $this->hasMany(CotizacionPago::class);
     }
 
-    public function factura(): BelongsTo
+    /**
+     * Varias facturas pueden repartirse el total de una misma cotización (ver
+     * 043-facturas-parciales-cotizacion.md). El vínculo vive en `facturas.cotizacion_id`.
+     */
+    public function facturas(): HasMany
     {
-        return $this->belongsTo(Factura::class);
+        return $this->hasMany(Factura::class);
     }
 
     /** Orden de Trabajo de Producción, si esta cotización requiere fabricación (ver 038). */
@@ -110,6 +114,25 @@ class Cotizacion extends Model implements DocumentoEnviable
     public function saldoPendiente(): float
     {
         return round(max(0, (float) $this->total - $this->totalPagado()), 2);
+    }
+
+    /**
+     * Suma de las facturas (CFDI) generadas contra esta cotización, sin contar las canceladas.
+     * Es un número fiscal, independiente de `totalPagado()`: no se mueve por los pagos
+     * registrados en Tesorería ni al revés (ver 043-facturas-parciales-cotizacion.md).
+     *
+     * Cuenta toda factura no cancelada, no solo las timbradas: el vínculo se escribe desde que la
+     * factura se crea —antes de intentar timbrar—, así que una factura recién creada ya reserva su
+     * monto contra el saldo, aunque el timbrado todavía esté pendiente o haya fallado.
+     */
+    public function totalFacturado(): float
+    {
+        return (float) $this->facturas()->where('estado', '!=', EstadoFactura::Cancelada->value)->sum('total');
+    }
+
+    public function saldoPendienteFacturar(): float
+    {
+        return round(max(0, (float) $this->total - $this->totalFacturado()), 2);
     }
 
     /**
@@ -156,7 +179,7 @@ class Cotizacion extends Model implements DocumentoEnviable
     public function puedeEliminarse(): bool
     {
         return $this->estado->esEditable()
-            && $this->factura_id === null
+            && ! $this->facturas()->exists()
             && ! $this->tienePagos();
     }
 
@@ -178,7 +201,7 @@ class Cotizacion extends Model implements DocumentoEnviable
     protected function vencidas(Builder $query): void
     {
         $query->whereIn('estado', [EstadoCotizacion::Borrador->value, EstadoCotizacion::Enviada->value])
-            ->whereNull('factura_id')
+            ->whereDoesntHave('facturas')
             ->whereDoesntHave('pagos')
             ->where('updated_at', '<=', now()->subDays(self::DIAS_SIN_MOVIMIENTO));
     }

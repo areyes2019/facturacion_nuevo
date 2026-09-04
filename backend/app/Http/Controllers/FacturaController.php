@@ -75,6 +75,7 @@ class FacturaController extends Controller
         $datos = $request->validated();
 
         $calculo = $this->calcularYValidarTotal($datos);
+        $this->validarSaldoPendienteFacturar($request, $datos, $calculo);
 
         $factura = DB::transaction(function () use ($request, $datos, $calculo) {
             $siguienteFolio = ((int) Factura::where('user_id', $request->user()->id)->max('folio')) + 1;
@@ -102,11 +103,11 @@ class FacturaController extends Controller
             // El vínculo con la cotización se escribe ANTES de timbrar, no después: el timbrado
             // consulta `mueveInventario()` para decidir si descuenta existencias, y con el vínculo
             // aún sin guardar vería una factura de mostrador y descontaría mercancía que la
-            // cotización va a descontar otra vez al entregarse (ver 017-inventario.md).
+            // cotización va a descontar otra vez al entregarse (ver 017-inventario.md). También es
+            // el momento en que esta factura empieza a contar contra el saldo pendiente por
+            // facturar de la cotización (ver 043-facturas-parciales-cotizacion.md).
             if (! empty($datos['cotizacion_id'])) {
-                Cotizacion::where('id', $datos['cotizacion_id'])
-                    ->where('user_id', $request->user()->id)
-                    ->update(['factura_id' => $factura->id]);
+                $factura->update(['cotizacion_id' => $datos['cotizacion_id']]);
             }
 
             return $factura;
@@ -365,6 +366,41 @@ class FacturaController extends Controller
         }
 
         return $calculo;
+    }
+
+    /**
+     * El monto de una factura ligada a una cotización nunca puede exceder el saldo pendiente por
+     * facturar de esa cotización —la única validación real detrás de las dos reglas del usuario
+     * (ver 043-facturas-parciales-cotizacion.md, "Por qué las dos reglas del usuario son la misma
+     * regla"). Aplica igual a la primera factura de una cotización que a una adicional, y a un
+     * monto parcial que a uno que la cierra por completo: es la misma regla en todos los casos.
+     *
+     * @param  array{cotizacion_id?: ?int}  $datos
+     * @param  array{total: float}  $calculo
+     */
+    private function validarSaldoPendienteFacturar(Request $request, array $datos, array $calculo): void
+    {
+        if (empty($datos['cotizacion_id'])) {
+            return;
+        }
+
+        $cotizacion = Cotizacion::where('id', $datos['cotizacion_id'])
+            ->where('user_id', $request->user()->id)
+            ->firstOrFail();
+
+        $saldo = $cotizacion->saldoPendienteFacturar();
+
+        if ($saldo <= 0) {
+            throw ValidationException::withMessages([
+                'cotizacion_id' => 'Esta cotización ya no tiene saldo pendiente por facturar.',
+            ]);
+        }
+
+        if ($calculo['total'] - $saldo > 0.01) {
+            throw ValidationException::withMessages([
+                'total' => 'El total de la factura no puede exceder el saldo pendiente por facturar de la cotización ($'.number_format($saldo, 2).').',
+            ]);
+        }
     }
 
     /**

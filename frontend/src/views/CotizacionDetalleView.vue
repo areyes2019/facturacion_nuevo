@@ -155,22 +155,35 @@ const tieneAnticipo = computed(
   () => cotizacion.value?.pagos.some((pago) => pago.tipo === 'anticipo') ?? false,
 )
 
-// Botón "Facturar": comportamiento según el estado de la factura asociada (ver
-// 008-cotizaciones.md, "Conversión a factura").
-const facturarEstado = computed<'sin-factura' | 'pendiente' | 'bloqueado'>(() => {
-  if (!cotizacion.value?.factura_id) return 'sin-factura'
-  if (cotizacion.value.factura_estado === 'pendiente') return 'pendiente'
-  return 'bloqueado'
+// Botón "Facturar": ahora una cotización puede tener varias facturas, cada una por un monto
+// parcial (ver 043-facturas-parciales-cotizacion.md). El estado se calcula a partir de la lista de
+// facturas y del saldo pendiente por facturar, no de un solo `factura_id`.
+const facturaPendiente = computed(
+  () => cotizacion.value?.facturas.find((f) => f.estado === 'pendiente') ?? null,
+)
+const facturarEstado = computed<'sin-factura' | 'disponible' | 'pendiente' | 'agotado'>(() => {
+  if (facturaPendiente.value) return 'pendiente'
+  if ((cotizacion.value?.saldo_pendiente_facturar ?? 0) <= 0) return 'agotado'
+  return (cotizacion.value?.facturas.length ?? 0) === 0 ? 'sin-factura' : 'disponible'
 })
 
 function onFacturar() {
   if (!cotizacion.value) return
 
-  if (facturarEstado.value === 'sin-factura') {
+  if (facturarEstado.value === 'pendiente') {
+    router.push({ name: 'facturas-editar', params: { id: facturaPendiente.value!.id } })
+  } else if (facturarEstado.value === 'sin-factura' || facturarEstado.value === 'disponible') {
     router.push({ name: 'facturas-crear', query: { cotizacion_id: String(cotizacion.value.id) } })
-  } else if (facturarEstado.value === 'pendiente') {
-    router.push({ name: 'facturas-editar', params: { id: cotizacion.value.factura_id! } })
   }
+}
+
+function estadoFacturaVariant(estado: string) {
+  return {
+    timbrada: 'success',
+    pendiente: 'warning',
+    cancelada: 'destructive',
+    borrador: 'secondary',
+  }[estado] as 'success' | 'warning' | 'destructive' | 'secondary'
 }
 
 /**
@@ -573,14 +586,16 @@ async function compartirQr() {
             <TruckIcon class="size-4" />
             Enviar a domicilio
           </Button>
-          <Button variant="outline" :disabled="facturarEstado === 'bloqueado'" @click="onFacturar">
+          <Button variant="outline" :disabled="facturarEstado === 'agotado'" @click="onFacturar">
             <DocumentTextIcon class="size-4" />
             {{
               facturarEstado === 'sin-factura'
                 ? 'Facturar'
-                : facturarEstado === 'pendiente'
-                  ? 'Reintentar factura'
-                  : 'Facturada'
+                : facturarEstado === 'disponible'
+                  ? 'Facturar saldo restante'
+                  : facturarEstado === 'pendiente'
+                    ? 'Reintentar factura'
+                    : 'Facturada'
             }}
           </Button>
           <Button
@@ -660,6 +675,51 @@ async function compartirQr() {
                       @click="pagoAEliminar = pago"
                     >
                       Eliminar
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+
+        <!-- Una cotización puede tener varias facturas, cada una por un monto parcial (ver
+             043-facturas-parciales-cotizacion.md). -->
+        <Card v-if="cotizacion.facturas.length > 0">
+          <CardHeader>
+            <CardTitle class="text-base">Facturas</CardTitle>
+          </CardHeader>
+          <CardContent class="space-y-2 text-sm">
+            <div class="flex justify-between">
+              <span>Total facturado</span><span>${{ cotizacion.total_facturado.toFixed(2) }}</span>
+            </div>
+            <div class="flex justify-between">
+              <span>Saldo pendiente por facturar</span
+              ><span>${{ cotizacion.saldo_pendiente_facturar.toFixed(2) }}</span>
+            </div>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Folio</TableHead>
+                  <TableHead>Estado</TableHead>
+                  <TableHead class="text-right">Total</TableHead>
+                  <TableHead class="text-right">Acciones</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                <TableRow v-for="factura in cotizacion.facturas" :key="factura.id">
+                  <TableCell>{{ factura.folio }}</TableCell>
+                  <TableCell>
+                    <Badge :variant="estadoFacturaVariant(factura.estado)">{{
+                      factura.estado
+                    }}</Badge>
+                  </TableCell>
+                  <TableCell class="text-right">${{ factura.total.toFixed(2) }}</TableCell>
+                  <TableCell class="text-right">
+                    <Button as-child variant="outline" size="sm">
+                      <RouterLink :to="{ name: 'facturas-detalle', params: { id: factura.id } }">
+                        Ver
+                      </RouterLink>
                     </Button>
                   </TableCell>
                 </TableRow>

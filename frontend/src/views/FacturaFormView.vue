@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useFacturasStore, type FacturaPayload, type TipoDescuento } from '../stores/facturas'
-import { useCotizacionesStore } from '../stores/cotizaciones'
+import { useCotizacionesStore, type Cotizacion } from '../stores/cotizaciones'
 import { calcularTotales } from '../lib/totalesDocumento'
 import { extractErrorMessage, extractFieldErrors } from '../lib/errors'
 import { Button } from '../components/ui/button'
@@ -47,6 +47,20 @@ const descuentoCotizacionOrigen = ref(0)
  * factura creada desde cero.
  */
 const esClienteDistribuidorActual = ref(false)
+
+/**
+ * Facturas por monto parcial (ver 043-facturas-parciales-cotizacion.md): la cotización de origen,
+ * completa, para leer su saldo pendiente por facturar y saber si ya tiene alguna factura.
+ */
+const cotizacionOrigen = ref<Cotizacion | null>(null)
+/** Las líneas de la cotización, precargadas aparte para poder restaurarlas al volver a "el total". */
+const lineasCotizacionOrigen = ref<LineaEditable[]>([])
+/**
+ * "El total" solo se ofrece cuando la cotización todavía no tiene ninguna factura: en cuanto ya
+ * tiene una, ya no cabe en el saldo pendiente por facturar.
+ */
+const cotizacionSinFacturas = computed(() => (cotizacionOrigen.value?.facturas.length ?? 0) === 0)
+const modoFactura = ref<'total' | 'parcial'>('total')
 
 const form = reactive({
   cliente_id: null as number | null,
@@ -107,6 +121,7 @@ onMounted(async () => {
     cargando.value = true
     try {
       const cotizacion = await cotizacionesStore.fetchOne(cotizacionId.value)
+      cotizacionOrigen.value = cotizacion
       form.cliente_id = cotizacion.cliente_id
       clienteFijoNombre.value = cotizacion.cliente_razon_social
       descuentoCotizacionOrigen.value = cotizacion.descuento_cliente_porcentaje
@@ -117,7 +132,7 @@ onMounted(async () => {
       // documento y no hace falta plegarlo para que los totales cuadren (ver 015).
       form.descuento_global_tipo = cotizacion.descuento_global_tipo
       form.descuento_global_valor = cotizacion.descuento_global_valor
-      lineas.value = cotizacion.lineas.map((l) => ({
+      lineasCotizacionOrigen.value = cotizacion.lineas.map((l) => ({
         articulo_id: l.articulo_id,
         cantidad: l.cantidad,
         descripcion: l.descripcion,
@@ -129,6 +144,17 @@ onMounted(async () => {
         descuento_valor: null,
         tasa_iva: l.tasa_iva,
       }))
+
+      // Facturas por monto parcial (ver 043): si la cotización ya tiene alguna factura, "el
+      // total" ya no cabe en el saldo pendiente por facturar — arranca directo sin líneas
+      // precargadas, para que el usuario arme el concepto que le falta cobrar.
+      if (cotizacionSinFacturas.value) {
+        modoFactura.value = 'total'
+        lineas.value = lineasCotizacionOrigen.value
+      } else {
+        modoFactura.value = 'parcial'
+        lineas.value = []
+      }
     } catch (err) {
       errorGeneral.value = extractErrorMessage(err)
     } finally {
@@ -136,6 +162,12 @@ onMounted(async () => {
     }
   }
 })
+
+/** Cambia entre precargar las líneas completas de la cotización o arrancar en blanco. */
+function onCambiarModoFactura(nuevo: 'total' | 'parcial') {
+  modoFactura.value = nuevo
+  lineas.value = nuevo === 'total' ? lineasCotizacionOrigen.value : []
+}
 
 /**
  * Solo se dispara cuando el combobox está visible, es decir, en una factura creada desde cero o en
@@ -208,6 +240,43 @@ async function onSubmit() {
           El inventario se descontará al marcar la cotización como
           <strong>producto entregado</strong>, no al timbrar esta factura: la mercancía sale cuando
           sale de tu bodega.
+        </AlertDescription>
+      </Alert>
+
+      <!-- Facturas por monto parcial (ver 043-facturas-parciales-cotizacion.md): solo se ofrece
+           elegir cuando la cotización todavía no tiene ninguna factura. En cuanto ya tiene una,
+           "el total" ya no cabe en el saldo pendiente por facturar. -->
+      <div v-if="cotizacionId && !esEdicion && cotizacionSinFacturas" class="space-y-1.5">
+        <Label>¿Qué vas a facturar?</Label>
+        <div class="flex gap-2">
+          <Button
+            type="button"
+            size="sm"
+            :variant="modoFactura === 'total' ? 'default' : 'outline'"
+            @click="onCambiarModoFactura('total')"
+          >
+            El total de la cotización
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            :variant="modoFactura === 'parcial' ? 'default' : 'outline'"
+            @click="onCambiarModoFactura('parcial')"
+          >
+            Un monto parcial
+          </Button>
+        </div>
+      </div>
+
+      <Alert
+        v-if="cotizacionId && !esEdicion && (modoFactura === 'parcial' || !cotizacionSinFacturas)"
+      >
+        <AlertDescription>
+          Saldo pendiente por facturar: ${{
+            cotizacionOrigen?.saldo_pendiente_facturar.toFixed(2)
+          }}
+          de ${{ cotizacionOrigen?.total.toFixed(2) }}. Agrega la línea o líneas que quieras
+          facturar ahora; el sistema rechaza el total si excede ese saldo.
         </AlertDescription>
       </Alert>
 

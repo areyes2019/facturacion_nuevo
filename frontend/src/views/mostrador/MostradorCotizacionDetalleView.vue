@@ -88,32 +88,38 @@ void cargar()
 // --- Facturar ---
 
 /**
- * El botón se comporta como el del escritorio (ver 008): sin factura, entra a los datos fiscales;
- * con una pendiente, abre esa para reintentar el timbrado sin crear otra; con una timbrada o
- * cancelada, queda apagado. No hay refacturación automática de una cancelada: la vía sigue siendo
- * duplicar la cotización desde la computadora.
+ * El botón se comporta como el del escritorio (ver 008 y 043-facturas-parciales-cotizacion.md):
+ * sin saldo pendiente por facturar, queda apagado; con una factura pendiente (timbrado fallido),
+ * abre esa para reintentar sin crear otra; en cualquier otro caso, entra a los datos fiscales para
+ * facturar (el total, si la cotización todavía no tiene ninguna factura, o el resto del saldo).
+ * Esta pantalla no ofrece elegir un monto parcial —eso queda para el escritorio—, así que aquí
+ * "facturar" siempre precarga el total pendiente.
  */
-const facturaCerrada = computed(
-  () =>
-    cotizacion.value?.factura_estado === 'timbrada' ||
-    cotizacion.value?.factura_estado === 'cancelada',
+const facturaPendiente = computed(
+  () => cotizacion.value?.facturas.find((f) => f.estado === 'pendiente') ?? null,
 )
 
-const facturaPorTimbrar = computed(
-  () => cotizacion.value?.factura_id !== null && !facturaCerrada.value,
+const facturaAgotada = computed(
+  () => !facturaPendiente.value && (cotizacion.value?.saldo_pendiente_facturar ?? 0) <= 0,
 )
 
 const leyendaFactura = computed(() =>
-  cotizacion.value?.factura_estado === 'timbrada' ? 'Ya facturada' : 'Su factura fue cancelada',
+  (cotizacion.value?.facturas.length ?? 0) > 1 ? 'Ya facturada' : 'Facturada',
 )
+
+/** La factura más reciente de la cotización, para el enlace "Ver su factura". */
+const ultimaFactura = computed(() => {
+  const facturas = cotizacion.value?.facturas ?? []
+  return facturas.length > 0 ? facturas[facturas.length - 1] : null
+})
 
 function facturar() {
   if (cotizacion.value === null) return
 
-  if (facturaPorTimbrar.value && cotizacion.value.factura_id !== null) {
+  if (facturaPendiente.value) {
     void router.push({
       name: 'mostrador-factura-ver',
-      params: { id: cotizacion.value.factura_id },
+      params: { id: facturaPendiente.value.id },
     })
 
     return
@@ -383,19 +389,19 @@ function fecha(iso: string): string {
         </Alert>
 
         <!-- Facturar: el motivo por el que esta pantalla existe. -->
-        <template v-if="facturaCerrada">
+        <template v-if="facturaAgotada">
           <Button class="h-14 w-full text-base" disabled>
             <DocumentTextIcon class="size-5" />
             {{ leyendaFactura }}
           </Button>
           <Button
-            v-if="cotizacion.factura_id"
+            v-if="ultimaFactura"
             variant="outline"
             class="h-12 w-full"
             @click="
               router.push({
                 name: 'mostrador-factura-ver',
-                params: { id: cotizacion.factura_id },
+                params: { id: ultimaFactura.id },
               })
             "
           >
@@ -405,7 +411,7 @@ function fecha(iso: string): string {
 
         <Button v-else class="h-14 w-full text-base" @click="facturar">
           <DocumentTextIcon class="size-5" />
-          {{ facturaPorTimbrar ? 'Reintentar su factura' : 'Facturar' }}
+          {{ facturaPendiente ? 'Reintentar su factura' : 'Facturar' }}
         </Button>
 
         <Button

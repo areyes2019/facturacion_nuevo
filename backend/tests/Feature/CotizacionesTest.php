@@ -423,7 +423,6 @@ test('duplicar una cotizacion crea una copia en borrador sin pagos ni factura', 
     $response->assertJsonPath('data.estado', 'borrador');
     $response->assertJsonPath('data.folio', 2);
     $response->assertJsonPath('data.total', 232);
-    $response->assertJsonPath('data.factura_id', null);
     expect($response->json('data.lineas'))->toHaveCount(1);
 });
 
@@ -457,13 +456,18 @@ test('facturar desde una cotizacion vincula la factura resultante', function () 
 
     $response->assertCreated();
     $facturaId = $response->json('data.id');
-    $this->assertDatabaseHas('cotizaciones', ['id' => $cotizacion['id'], 'factura_id' => $facturaId]);
+    $this->assertDatabaseHas('facturas', ['id' => $facturaId, 'cotizacion_id' => $cotizacion['id']]);
 });
 
-test('no se puede reutilizar una cotizacion que ya tiene factura asociada', function () {
+test('no se puede facturar una cotizacion que ya agoto su saldo pendiente por facturar', function () {
     $user = User::factory()->create();
     [$cliente, $articulo] = crearClienteYArticuloParaCotizacion($user);
-    $cotizacion = Cotizacion::factory()->for($user)->for($cliente)->create(['factura_id' => Factura::factory()->for($user)->for($cliente)->create()->id]);
+    $cotizacion = Cotizacion::factory()->for($user)->for($cliente)->create(['total' => 232.00]);
+    Factura::factory()->for($user)->for($cliente)->create([
+        'cotizacion_id' => $cotizacion->id,
+        'estado' => 'timbrada',
+        'total' => 232.00,
+    ]);
 
     $payload = array_merge(datosCotizacionValidos($cliente, $articulo), [
         'uso_cfdi' => 'G03',
@@ -476,6 +480,97 @@ test('no se puede reutilizar una cotizacion que ya tiene factura asociada', func
 
     $response->assertUnprocessable();
     $response->assertJsonValidationErrors('cotizacion_id');
+});
+
+test('se puede generar una segunda factura parcial mientras quede saldo pendiente por facturar', function () {
+    $user = User::factory()->create();
+    [$cliente, $articulo] = crearClienteYArticuloParaCotizacion($user);
+    $cotizacion = Cotizacion::factory()->for($user)->for($cliente)->create(['total' => 432.00]);
+    Factura::factory()->for($user)->for($cliente)->create([
+        'cotizacion_id' => $cotizacion->id,
+        'estado' => 'timbrada',
+        'total' => 200.00,
+    ]);
+
+    $this->mock(FacturapiService::class, function ($mock) {
+        $mock->shouldReceive('timbrarFactura')->once()->andThrow(new FacturapiException('error de prueba'));
+    });
+
+    $response = $this->actingAs($user)->postJson('/api/v1/facturas', [
+        'cliente_id' => $cliente->id,
+        'cotizacion_id' => $cotizacion->id,
+        'uso_cfdi' => 'G03',
+        'forma_pago' => '03',
+        'metodo_pago' => 'PUE',
+        'lineas' => [[
+            'articulo_id' => $articulo->id,
+            'cantidad' => 1,
+            'descripcion' => 'Anticipo',
+            'modelo' => $articulo->modelo,
+            'precio_unitario' => 200.00,
+            'tasa_iva' => '16',
+        ]],
+        'total' => 232.00,
+    ]);
+
+    $response->assertCreated();
+    expect($cotizacion->fresh()->facturas)->toHaveCount(2);
+});
+
+test('el monto de una factura parcial no puede exceder el saldo pendiente por facturar', function () {
+    $user = User::factory()->create();
+    [$cliente, $articulo] = crearClienteYArticuloParaCotizacion($user);
+    $cotizacion = Cotizacion::factory()->for($user)->for($cliente)->create(['total' => 400.00]);
+    Factura::factory()->for($user)->for($cliente)->create([
+        'cotizacion_id' => $cotizacion->id,
+        'estado' => 'timbrada',
+        'total' => 300.00,
+    ]);
+
+    $response = $this->actingAs($user)->postJson('/api/v1/facturas', [
+        'cliente_id' => $cliente->id,
+        'cotizacion_id' => $cotizacion->id,
+        'uso_cfdi' => 'G03',
+        'forma_pago' => '03',
+        'metodo_pago' => 'PUE',
+        'lineas' => [[
+            'articulo_id' => $articulo->id,
+            'cantidad' => 1,
+            'descripcion' => 'Anticipo',
+            'modelo' => $articulo->modelo,
+            'precio_unitario' => 200.00,
+            'tasa_iva' => '16',
+        ]],
+        'total' => 232.00,
+    ]);
+
+    $response->assertUnprocessable();
+    $response->assertJsonValidationErrors('total');
+});
+
+test('cancelar una factura parcial libera su monto del saldo pendiente por facturar', function () {
+    $user = User::factory()->create();
+    [$cliente] = crearClienteYArticuloParaCotizacion($user);
+    $cotizacion = Cotizacion::factory()->for($user)->for($cliente)->create(['total' => 400.00]);
+    $factura = Factura::factory()->for($user)->for($cliente)->create([
+        'cotizacion_id' => $cotizacion->id,
+        'estado' => 'timbrada',
+        'total' => 200.00,
+        'facturapi_invoice_id' => 'inv_test_parcial',
+    ]);
+
+    expect($cotizacion->fresh()->saldoPendienteFacturar())->toBe(200.0);
+
+    $this->mock(FacturapiService::class, function ($mock) {
+        $mock->shouldReceive('cancelarFactura')->once()
+            ->andReturn((object) ['cancellation_status' => 'accepted']);
+    });
+
+    $this->actingAs($user)->postJson("/api/v1/facturas/{$factura->id}/cancelar", [
+        'motivo_cancelacion' => '02',
+    ])->assertOk();
+
+    expect($cotizacion->fresh()->saldoPendienteFacturar())->toBe(400.0);
 });
 
 test('el listado de cotizaciones filtra por cliente, rfc, folio y estado', function () {
@@ -584,8 +679,8 @@ test('no se puede eliminar una cotizacion que ya genero una factura', function (
     [$cliente] = crearClienteYArticuloParaCotizacion($user);
     $cotizacion = Cotizacion::factory()->for($user)->for($cliente)->create([
         'estado' => EstadoCotizacion::Enviada->value,
-        'factura_id' => Factura::factory()->for($user)->for($cliente)->create()->id,
     ]);
+    Factura::factory()->for($user)->for($cliente)->create(['cotizacion_id' => $cotizacion->id]);
 
     $this->actingAs($user)->deleteJson("/api/v1/cotizaciones/{$cotizacion->id}")->assertStatus(422);
 
@@ -607,10 +702,8 @@ test('purgar vencidas borra las cotizaciones sin movimiento en 30 dias y respeta
     $borradorVencida = $vieja(['estado' => EstadoCotizacion::Borrador->value]);
     $enviadaVencida = $vieja(['estado' => EstadoCotizacion::Enviada->value]);
     $pagadaVencida = $vieja(['estado' => EstadoCotizacion::Pagada->value]);
-    $facturadaVencida = $vieja([
-        'estado' => EstadoCotizacion::Enviada->value,
-        'factura_id' => Factura::factory()->for($user)->for($cliente)->create()->id,
-    ]);
+    $facturadaVencida = $vieja(['estado' => EstadoCotizacion::Enviada->value]);
+    Factura::factory()->for($user)->for($cliente)->create(['cotizacion_id' => $facturadaVencida->id]);
     $reciente = Cotizacion::factory()->for($user)->for($cliente)->create(['estado' => EstadoCotizacion::Enviada->value]);
 
     $conAnticipo = Cotizacion::factory()->for($user)->for($cliente)->create(['estado' => EstadoCotizacion::Enviada->value, 'total' => 232.00]);

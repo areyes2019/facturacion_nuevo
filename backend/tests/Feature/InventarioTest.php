@@ -296,6 +296,7 @@ test('timbrar una factura con cotizacion vinculada no mueve el inventario', func
 
     $cotizacion = Cotizacion::factory()->for($user)->for($cliente)->create([
         'estado' => EstadoCotizacion::Pagada->value,
+        'total' => 696.00,
     ]);
     $cotizacion->lineas()->create([
         'articulo_id' => $articulo->id,
@@ -470,10 +471,10 @@ test('cancelar una factura con cotizacion vinculada no devuelve nada', function 
         'iva_importe' => 120.00,
     ]);
 
-    Cotizacion::factory()->for($user)->for($cliente)->create([
+    $cotizacion = Cotizacion::factory()->for($user)->for($cliente)->create([
         'estado' => EstadoCotizacion::ProductoEntregado->value,
-        'factura_id' => $factura->id,
     ]);
+    $factura->update(['cotizacion_id' => $cotizacion->id]);
 
     $this->mock(FacturapiService::class, function ($mock) {
         $mock->shouldReceive('cancelarFactura')->once()

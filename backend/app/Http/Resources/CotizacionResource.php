@@ -42,8 +42,11 @@ class CotizacionResource extends JsonResource
             'total_pagado' => (float) $this->totalPagado(),
             'saldo_pendiente' => $this->saldoPendiente(),
             'entregado_en' => $this->entregado_en,
-            'factura_id' => $this->factura_id,
-            'factura_estado' => $this->whenLoaded('factura', fn () => $this->factura?->estado->value),
+            // Fiscal, independiente de los dos campos de arriba (ver
+            // 043-facturas-parciales-cotizacion.md, "Esto NO cambia el estado de la cotización").
+            'total_facturado' => $this->totalFacturado(),
+            'saldo_pendiente_facturar' => $this->saldoPendienteFacturar(),
+            'facturas' => FacturaResumenResource::collection($this->whenLoaded('facturas')),
             // La regla de borrado y la de caducidad son la misma, evaluada en el servidor: el
             // frontend pinta el botón y el aviso sin reimplementarla (ver 008-cotizaciones.md).
             'puede_eliminarse' => $this->puedeEliminarse(),

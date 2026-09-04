@@ -223,8 +223,8 @@ async function timbrar() {
         descuento_global_valor: descuentoGlobalValor.value,
         lineas: lineas.value,
         total: totales.value.total,
-        // Es lo que le graba a la cotización su `factura_id`: el mismo camino del escritorio, no
-        // uno paralelo (ver 008, "Conversión a factura").
+        // Es lo que vincula la factura a la cotización: el mismo camino del escritorio, no uno
+        // paralelo (ver 008 y 043-facturas-parciales-cotizacion.md).
         cotizacion_id: cotizacionId.value,
       }
 

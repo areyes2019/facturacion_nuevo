@@ -17,6 +17,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 
 #[Fillable([
     'cliente_id',
+    'cotizacion_id',
     'folio',
     'estado',
     'uso_cfdi',
@@ -80,12 +81,14 @@ class Factura extends Model
     }
 
     /**
-     * Cotización de la que se originó esta factura, si aplica (ver 008-cotizaciones.md). El
-     * vínculo vive en `cotizaciones.factura_id`, no en una columna de `facturas`.
+     * Cotización de la que se originó esta factura, si aplica. El vínculo vive en
+     * `facturas.cotizacion_id`: una cotización puede tener varias facturas —cada una por un monto
+     * parcial o por el total—, pero cada factura viene, cuando mucho, de una sola cotización (ver
+     * 043-facturas-parciales-cotizacion.md).
      */
-    public function cotizacion(): HasOne
+    public function cotizacion(): BelongsTo
     {
-        return $this->hasOne(Cotizacion::class);
+        return $this->belongsTo(Cotizacion::class);
     }
 
     /**

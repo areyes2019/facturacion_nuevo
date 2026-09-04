@@ -6,7 +6,7 @@ import {
   type ResultadoCompartir,
 } from '../lib/compartir'
 import { extractErrorMessage } from '../lib/errors'
-import type { TipoDescuento, TasaIva } from './facturas'
+import type { TipoDescuento, TasaIva, EstadoFactura } from './facturas'
 import type { Envio, EnvioPayload } from './ordenesTrabajo'
 
 export type EstadoCotizacion = 'borrador' | 'enviada' | 'pagada' | 'producto_entregado'
@@ -41,6 +41,21 @@ export interface CotizacionPago {
   created_at: string
 }
 
+/**
+ * Versión chica de `Factura`, tal como la expone `FacturaResumenResource`: lo mínimo para listar
+ * las facturas de una cotización sin traer líneas ni complemento de pago (ver
+ * 043-facturas-parciales-cotizacion.md).
+ */
+export interface CotizacionFactura {
+  id: number
+  folio: number
+  estado: EstadoFactura
+  total: number
+  uuid_fiscal: string | null
+  fecha_timbrado: string | null
+  error_timbrado: string | null
+}
+
 export interface Cotizacion {
   id: number
   folio: number
@@ -66,8 +81,13 @@ export interface Cotizacion {
   total: number
   total_pagado: number
   saldo_pendiente: number
-  factura_id: number | null
-  factura_estado: string | null
+  /**
+   * Fiscal, independiente de `total_pagado`/`saldo_pendiente`: no se mueve por los pagos
+   * registrados en Tesorería ni al revés (ver 043-facturas-parciales-cotizacion.md).
+   */
+  total_facturado: number
+  saldo_pendiente_facturar: number
+  facturas: CotizacionFactura[]
   /** Regla de borrado evaluada en el servidor: borrador/enviada, sin pagos y sin factura. */
   puede_eliminarse: boolean
   /**

@@ -11,7 +11,10 @@ use Illuminate\Validation\Rule;
 
 /**
  * `cotizacion_id` es opcional: cuando se factura desde una cotización (ver
- * 008-cotizaciones.md), vincula la factura resultante de vuelta a la cotización de origen.
+ * 008-cotizaciones.md), vincula la factura resultante de vuelta a la cotización de origen. Una
+ * cotización puede recibir varias facturas (ver 043-facturas-parciales-cotizacion.md); el tope
+ * real —que el monto no exceda el saldo pendiente por facturar— se valida en el controlador,
+ * porque necesita el total ya calculado de las líneas.
  */
 class StoreFacturaRequest extends FormRequest
 {
@@ -63,8 +66,7 @@ class StoreFacturaRequest extends FormRequest
                 'nullable',
                 'integer',
                 Rule::exists('cotizaciones', 'id')
-                    ->where('user_id', $this->user()->id)
-                    ->whereNull('factura_id'),
+                    ->where('user_id', $this->user()->id),
             ],
         ];
     }
