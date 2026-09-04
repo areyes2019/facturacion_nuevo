@@ -142,6 +142,13 @@ tiene que pasar antes de tirar, y facilita revisar el backfill sola en la revisi
 `StoreFacturaRequest` pierde la condición `whereNull('factura_id')` sobre `cotizacion_id` (esa
 columna ya no existe): la regla se reduce a que la cotización exista y sea del usuario.
 
+`lineas.*.articulo_id` pasa de `required` a `nullable`, con la misma regla que ya usa
+`StorePedidoRequest` (027) para su **línea libre**: un renglón sin artículo del catálogo,
+identificado solo por su `descripcion`. Una factura por monto parcial es exactamente eso —"Anticipo
+cotización 0025"—, y `FacturapiService` ya sabe timbrar una línea sin artículo, con las claves SAT
+genéricas de respaldo (`product_key`/`unit_key`) que usa desde 012 y 027. No hace falta inventar
+nada nuevo del lado fiscal, solo dejar de exigir un artículo donde nunca hizo falta.
+
 La regla de saldo —la única que de verdad importa— se valida en el controlador, junto a
 `calcularYValidarTotal()` y con el mismo estilo (`ValidationException` antes de abrir la
 transacción):
@@ -237,28 +244,40 @@ líneas** de la cotización (comportamiento que se conserva tal cual para factur
 agrega la posibilidad de facturar un monto parcial:
 
 - **Si la cotización todavía no tiene ninguna factura** (`facturas` vacío al cargarla): se muestra
-  un interruptor, "Facturar el total de la cotización" (activado por defecto, comportamiento
-  actual e idéntico) frente a "Facturar un monto parcial". Al desactivarlo, se vacían las líneas
-  precargadas —el formulario arranca igual que una factura desde cero— y aparece un aviso con el
-  total de la cotización como referencia.
+  un interruptor, "El total de la cotización" (activado por defecto, comportamiento actual e
+  idéntico: precarga todas las líneas) frente a "Un monto parcial".
 - **Si la cotización ya tiene alguna factura** (parcial o completa) con saldo aún pendiente: no se
-  ofrece la opción "el total" —ya no cabría en el saldo—; el formulario arranca directamente sin
-  líneas precargadas, con un aviso: *"Saldo pendiente por facturar: $200.00 de $400.00"*.
+  ofrece la opción "el total" —ya no cabría en el saldo—; el formulario arranca directo en modo
+  "monto parcial".
 
-En ambos casos de líneas vacías, el usuario arma la factura con el mismo componente de líneas que
-ya existe (elegir artículo del catálogo, cantidad, precio, IVA, descuento) —normalmente una sola
-línea con el concepto que quiera cobrar (p. ej. "Anticipo"), pero el sistema no fuerza ese patrón:
-como cualquier factura, puede llevar varias líneas. **No se ofrece un campo de "concepto libre"
-sin artículo**: toda línea de factura requiere un artículo del catálogo
-(`factura_lineas.articulo_id`, ya obligatorio hoy en la validación), así que "un concepto único"
-significa, en la práctica, que el usuario elige o crea en su catálogo un artículo que represente
-ese cobro (p. ej. "Anticipo"), igual que para cualquier otra línea de factura. Esto es una
-simplificación técnica descubierta al escribir esta especificación —no hace falta inventar un tipo
-de línea nuevo ni un artículo "de sistema" para anticipos.
+**"Un monto parcial" no es una tabla de artículos.** El usuario captura dos campos, nada más:
 
-El tope real lo pone el backend (`saldo_pendiente_facturar`); el aviso del frontend es solo
-orientativo, no bloquea que el usuario reparta el saldo en montos distintos a los que se le
-sugieren.
+- **Monto** (con IVA incluido, a la tasa general de 16%): lo que va a facturar, p. ej. $500.00 de
+  una cotización de $1,000.00. No elige productos ni arma líneas para llegar a esa cifra.
+- **Descripción**: precargada como *"Anticipo cotización {folio}"*, editable.
+
+Con esos dos datos el formulario arma, en el momento, una sola línea **libre** —sin artículo del
+catálogo, igual que ya admite `StorePedidoRequest` (027)— con `cantidad: 1` y el precio unitario
+sin IVA que, a la tasa general, cierra en el monto capturado
+(`redondeo2(monto / 1.16)`). Esa línea alimenta el mismo cálculo de totales que usa el resto del
+formulario (`calcularTotales(..., redondearAlPeso: true)`), así que el peso cerrado que ya existe
+desde [030](030-total-al-peso-cerrado.md) hace que un monto en pesos exactos ($500.00) cierre
+exacto también después de sacarle el IVA y volver a sumarlo.
+
+**El descuento global de la cotización, si tenía uno, se apaga mientras dura el modo "parcial"** y
+se recupera al volver a "el total": el monto que escribe el usuario ya es el total exacto a
+facturar, aplicarle además el descuento global de la cotización lo movería sin que nadie lo pidiera.
+
+El tope real lo pone el backend (`saldo_pendiente_facturar`, ver la validación de arriba); en
+pantalla se muestra el saldo como referencia y se deshabilita el botón de guardar si el monto
+capturado ya lo excede, pero quien de verdad rechaza el exceso es el servidor.
+
+**Descartado durante la redacción de esta historia:** un primer intento reutilizó el componente de
+líneas existente (`DocumentoLineas.vue`) dejándolo vacío para que el usuario eligiera artículos del
+catálogo hasta sumar el monto deseado. El usuario lo corrigió explícitamente: eso obliga a armar el
+monto a partir de productos reales —"3 sellos" en vez de un número—, cuando lo que quiere es
+escribir *"factura $500.00"* directo. La línea libre (sin artículo) es lo que permite esa captura de
+dos campos sin inventar un artículo "de sistema" para anticipos.
 
 ## Fuera de alcance
 
@@ -312,6 +331,16 @@ Implementada el 2026-09-04.
   el resto de las historias): falta abrir una cotización con más de una factura y confirmar en
   pantalla la sección "Facturas", el interruptor "el total"/"un monto parcial" y los mensajes de
   saldo pendiente.
+- **Corrección tras el primer despliegue (mismo día):** el modo "monto parcial" reutilizaba
+  `DocumentoLineas.vue` vacío, dejando que el usuario eligiera artículos del catálogo hasta sumar
+  el monto deseado. El usuario lo corrigió: quería escribir el monto directo, sin armar la cifra a
+  partir de productos. Se reemplazó por un mini-formulario (Monto + Descripción) que arma una sola
+  línea **libre** (`articulo_id: null`), lo que exigió relajar `StoreFacturaRequest` (mismo cambio
+  que ya tenía `StorePedidoRequest` desde 027) y agregar una prueba (`una factura parcial se puede
+  generar como linea libre...`) para dejarlo cubierto. De paso se corrigió que el descuento global
+  de la cotización, si tenía uno, se quedaba pegado en modo "parcial" y habría distorsionado el
+  monto capturado; ahora se apaga mientras dura ese modo. Suite Pest (692 tests), build de
+  frontend, Vitest y Pint/Prettier vueltos a correr limpios después de esta corrección.
 
 ## Criterios de aceptación
 
@@ -339,13 +368,19 @@ Implementada el 2026-09-04.
     restante", "Reintentar factura" o "Facturada" (deshabilitado) según la tabla de estados
     definida arriba.
 12. Al facturar desde una cotización sin facturas previas, el formulario ofrece elegir entre "el
-    total" (líneas precargadas, como hoy) y "un monto parcial" (líneas vacías).
-13. Al facturar desde una cotización que ya tiene alguna factura, el formulario arranca sin líneas
-    precargadas y muestra el saldo pendiente por facturar como referencia.
-14. Cada factura generada desde una cotización —parcial o completa— es indistinguible ante
+    total" (líneas precargadas, como hoy) y "un monto parcial" (los campos Monto y Descripción).
+13. Al facturar desde una cotización que ya tiene alguna factura, el formulario arranca directo en
+    modo "monto parcial", con la descripción precargada como "Anticipo cotización {folio}" y el
+    saldo pendiente por facturar como referencia.
+14. En modo "monto parcial", capturar $500.00 genera una factura por exactamente $500.00 (con IVA
+    al 16% incluido), como una sola línea sin artículo del catálogo, con la descripción capturada.
+15. En modo "monto parcial", un monto que exceda el saldo pendiente deshabilita el botón de guardar
+    y muestra un aviso; si de todos modos se envía (p. ej. el saldo cambió en otra pestaña), el
+    backend lo rechaza igual que a cualquier otra factura.
+16. Cada factura generada desde una cotización —parcial o completa— es indistinguible ante
     Facturapi de cualquier otra factura normal: mismo tipo de comprobante (`I`), mismo método de
     pago (PUE), sin nodo de CFDI relacionados ni de complemento de anticipo.
-15. `Factura::mueveInventario()` sigue devolviendo `false` para toda factura con `cotizacion_id`,
+17. `Factura::mueveInventario()` sigue devolviendo `false` para toda factura con `cotizacion_id`,
     sin importar cuántas otras facturas tenga esa misma cotización.
 
 ## Supuestos asumidos (registro completo)
@@ -364,10 +399,14 @@ Implementada el 2026-09-04.
    saldo pendiente por facturar.
 6. El monto de una factura parcial no puede exceder el saldo pendiente por facturar de la
    cotización.
-7. **(Simplificado durante la redacción, ver "Frontend — precarga desde cotización")** La factura
-   parcial no usa un "concepto único" de tipo especial: usa el mismo componente de líneas de
-   siempre, normalmente con una sola línea sobre un artículo del catálogo del usuario (p. ej.
-   "Anticipo"). No hay descomposición proporcional de las líneas de la cotización.
+7. **(Corregido por el usuario tras la primera implementación, ver "Frontend — precarga desde
+   cotización")** La factura parcial no es una tabla de artículos: el usuario captura el **monto**
+   directo (con IVA incluido) y una **descripción** ("Anticipo cotización 0025"), sin elegir
+   productos del catálogo para llegar a esa cifra. El sistema arma una sola línea **libre** (sin
+   artículo), igual que ya admite `StorePedidoRequest` (027). Un primer intento reutilizaba el
+   componente de líneas dejándolo vacío para elegir artículos hasta sumar el monto —"3 sellos" en
+   vez de un número—, y el usuario lo corrigió explícitamente. No hay descomposición proporcional
+   de las líneas de la cotización, con o sin esta corrección.
 8. No se contempla relación fiscal ante el SAT (CFDI relacionados, complemento de anticipo) entre
    las facturas parciales de una misma cotización.
 9. **(Revertido tras aclarar con el usuario, ver "Esto NO cambia el estado de la cotización")**
@@ -402,5 +441,14 @@ Implementada el 2026-09-04.
     una cotización sin cargar líneas ni complemento de pago que ahí no hacen falta.
 20. **(Adición técnica)** El formulario de crear factura desde cotización ofrece un interruptor
     "el total" / "un monto parcial" solo cuando la cotización aún no tiene ninguna factura; en
-    cuanto ya tiene alguna, arranca directo sin líneas precargadas, porque "el total" ya no cabría
-    en el saldo.
+    cuanto ya tiene alguna, arranca directo en modo "monto parcial", porque "el total" ya no
+    cabría en el saldo.
+21. **(Adición técnica)** `StoreFacturaRequest` relaja `lineas.*.articulo_id` de `required` a
+    `nullable`, con la misma regla que ya usa `StorePedidoRequest` (027) para su línea libre. No es
+    exclusivo del modo "monto parcial": cualquier factura, venga o no de una cotización, puede
+    llevar una línea sin artículo si el usuario la arma a mano.
+22. **(Adición técnica)** La tasa de IVA del modo "monto parcial" queda **fija en 16%**, sin
+    selector: es la tasa general y evita un tercer campo. El precio unitario sin IVA se calcula
+    como `redondeo2(monto / 1.16)`, y el peso cerrado que ya aplica el formulario
+    ([030](030-total-al-peso-cerrado.md)) hace que un monto en pesos exactos cierre exacto también
+    después de sacarle el IVA y volver a sumarlo.

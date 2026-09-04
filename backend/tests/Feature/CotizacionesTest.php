@@ -517,6 +517,38 @@ test('se puede generar una segunda factura parcial mientras quede saldo pendient
     expect($cotizacion->fresh()->facturas)->toHaveCount(2);
 });
 
+test('una factura parcial se puede generar como linea libre, sin elegir articulos del catalogo', function () {
+    $user = User::factory()->create();
+    [$cliente] = crearClienteYArticuloParaCotizacion($user);
+    $cotizacion = Cotizacion::factory()->for($user)->for($cliente)->create(['total' => 1000.00, 'folio' => 25]);
+
+    $this->mock(FacturapiService::class, function ($mock) {
+        $mock->shouldReceive('timbrarFactura')->once()->andThrow(new FacturapiException('error de prueba'));
+    });
+
+    $response = $this->actingAs($user)->postJson('/api/v1/facturas', [
+        'cliente_id' => $cliente->id,
+        'cotizacion_id' => $cotizacion->id,
+        'uso_cfdi' => 'G03',
+        'forma_pago' => '03',
+        'metodo_pago' => 'PUE',
+        'lineas' => [[
+            'articulo_id' => null,
+            'cantidad' => 1,
+            'descripcion' => 'Anticipo cotización 25',
+            'modelo' => 'Anticipo cotización 25',
+            'precio_unitario' => 431.03,
+            'tasa_iva' => '16',
+        ]],
+        'total' => 500.00,
+    ]);
+
+    $response->assertCreated();
+    $factura = Factura::findOrFail($response->json('data.id'));
+    expect($factura->lineas()->firstOrFail()->articulo_id)->toBeNull();
+    expect((float) $factura->total)->toBe(500.00);
+});
+
 test('el monto de una factura parcial no puede exceder el saldo pendiente por facturar', function () {
     $user = User::factory()->create();
     [$cliente, $articulo] = crearClienteYArticuloParaCotizacion($user);

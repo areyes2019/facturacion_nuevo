@@ -15,6 +15,11 @@ use Illuminate\Validation\Rule;
  * cotización puede recibir varias facturas (ver 043-facturas-parciales-cotizacion.md); el tope
  * real —que el monto no exceda el saldo pendiente por facturar— se valida en el controlador,
  * porque necesita el total ya calculado de las líneas.
+ *
+ * `lineas.*.articulo_id` es `nullable`: una factura por un monto parcial (043) es una **línea
+ * libre**, igual que la que ya admite `StorePedidoRequest` (027) — "Anticipo cotización 0025", sin
+ * artículo del catálogo detrás. `FacturapiService` ya sabe timbrar una línea sin artículo, con las
+ * claves SAT genéricas de respaldo.
  */
 class StoreFacturaRequest extends FormRequest
 {
@@ -43,7 +48,7 @@ class StoreFacturaRequest extends FormRequest
             ],
             'lineas' => ['required', 'array', 'min:1'],
             'lineas.*.articulo_id' => [
-                'required',
+                'nullable',
                 'integer',
                 Rule::exists('articulos', 'id')
                     ->where('user_id', $this->user()->id)
