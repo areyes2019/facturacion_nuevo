@@ -93,12 +93,20 @@ Implementada el 2026-07-30.
   `ResetPassword::createUrlUsing()` en `AppServiceProvider` para apuntar a
   `{FRONTEND_URL}/reset-password?token=...&email=...` en vez del path por defecto de Breeze
   (`/password-reset/{token}?email=...`).
-- **Recordarme**: implementado como middleware propio
+- **Recordarme**: ~~implementado como middleware propio
   (`app/Http/Middleware/ExtendSessionLifetimeWhenRemembered.php`), prependeado al grupo `api`
   *antes* de `EnsureFrontendRequestsAreStateful`, que sobreescribe `session.lifetime` a 30 días
   antes de que Sanctum arranque la sesión. Se quitó el segundo argumento de `Auth::attempt()` en
   `LoginRequest` para no usar además la cookie `remember_token` clásica (redundante con el enfoque
-  elegido).
+  elegido).~~
+  **Revertido el 2026-09-23 por
+  [044-sesion-caida-y-pantallas-trabadas.md](044-sesion-caida-y-pantallas-trabadas.md): el enfoque
+  era incorrecto.** Alargar la cookie no alarga la sesión — con `SESSION_DRIVER=database` el
+  servidor decide la expiración leyendo `config('session.lifetime')` en *cada* petición, y el
+  middleware solo actuaba sobre la del login, así que la sesión moría igual a los 120 minutos y el
+  usuario recibía un `401` teniendo "recordarme" marcado. El middleware se eliminó y "recordarme"
+  usa ahora la cookie recaller nativa de Laravel, con duración de 30 días. El supuesto 19 de más
+  abajo queda sin efecto.
 - **Código Breeze fuera de alcance eliminado**: `RegisteredUserController`,
   `EmailVerificationNotificationController`, `VerifyEmailController`,
   `App\Http\Middleware\EnsureEmailIsVerified`, y sus tests (`RegistrationTest`,
@@ -162,10 +170,13 @@ Implementada el 2026-07-30.
     panel, además del endpoint backend.
 17. Diseño/UI sin librería de estilos todavía; formularios con HTML mínimo.
 18. Estado de sesión en frontend manejado en un store de Pinia (`stores/auth.ts`).
-19. **(Aclarado antes de implementar)** Mecanismo de "recordarme": se sobreescribe
-    dinámicamente `session.lifetime` a 30 días antes de crear la sesión cuando el checkbox está
-    marcado, en vez de usar la cookie `remember_token` clásica de Laravel — así la cookie de
-    sesión misma dura 30 días, tal como describe la historia de usuario.
+19. **(Equivocado; revertido el 2026-09-23 por
+    [044-sesion-caida-y-pantallas-trabadas.md](044-sesion-caida-y-pantallas-trabadas.md))**
+    Mecanismo de "recordarme": se sobreescribe dinámicamente `session.lifetime` a 30 días antes de
+    crear la sesión cuando el checkbox está marcado, en vez de usar la cookie `remember_token`
+    clásica de Laravel — así la cookie de sesión misma dura 30 días, tal como describe la historia
+    de usuario. **La cookie sí duraba 30 días, pero la sesión del servidor no**: hoy "recordarme"
+    usa la cookie recaller nativa de Laravel.
 20. **(Aclarado antes de implementar)** El código que Breeze `--api` genera para registro
     público y verificación de email (fuera de alcance de esta spec) se elimina del repo en vez
     de dejarse presente sin rutear.

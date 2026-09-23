@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import {
@@ -21,6 +21,13 @@ const auth = useAuthStore()
 const email = ref('')
 const password = ref('')
 const remember = ref(false)
+
+/**
+ * Se llegó aquí porque la sesión se cayó a media faena, no porque el usuario pidiera salir
+ * (ver 044-sesion-caida-y-pantallas-trabadas.md). Sin decirlo, la redirección automática se siente
+ * como que el sistema se salió solo.
+ */
+const sesionExpirada = computed(() => route.query.expirada === '1')
 
 async function onSubmit() {
   try {
@@ -51,6 +58,9 @@ async function onSubmit() {
       </CardHeader>
       <form @submit.prevent="onSubmit">
         <CardContent class="flex flex-col gap-4">
+          <Alert v-if="sesionExpirada">
+            <AlertDescription>Tu sesión expiró. Entra de nuevo para continuar.</AlertDescription>
+          </Alert>
           <div class="flex flex-col gap-1.5">
             <label for="email" class="text-sm font-medium">Correo</label>
             <Input id="email" v-model="email" type="email" required autocomplete="email" />

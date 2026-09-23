@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { defineStore } from 'pinia'
 import http, { ensureCsrfCookie } from '../lib/http'
+import { esErrorSinConexion } from '../lib/errors'
 import { olvidarListas } from '../lib/memoriaLista'
 
 export interface AuthUser {
@@ -51,11 +52,29 @@ export const useAuthStore = defineStore('auth', {
       try {
         const { data } = await http.get<AuthUser>('/user')
         this.user = data
-      } catch {
+        this.initialized = true
+      } catch (err) {
+        // Que la pregunta no llegue a ningún lado no es lo mismo que no tener sesión: en un
+        // mostrador con wifi intermitente, tratarlo igual sacaría al usuario al login teniendo la
+        // sesión viva (ver 044-sesion-caida-y-pantallas-trabadas.md). Se conserva lo que había y
+        // se deja sin inicializar para que el guard lo reintente en la siguiente navegación.
+        if (esErrorSinConexion(err)) return
+
         this.user = null
-      } finally {
         this.initialized = true
       }
+    },
+
+    /**
+     * El servidor dijo que ya no hay sesión. Lo llama el interceptor de `http`, que es quien se
+     * entera primero, a media pantalla y mucho antes de que el guard vuelva a preguntar.
+     */
+    marcarSesionCaida() {
+      this.user = null
+      // Se vuelve a consultar `/user` en la siguiente navegación en vez de dar por sentado el
+      // estado que acaba de quedar inválido.
+      this.initialized = false
+      olvidarListas()
     },
 
     async login(payload: LoginPayload) {

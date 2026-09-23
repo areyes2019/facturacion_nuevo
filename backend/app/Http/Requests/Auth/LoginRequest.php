@@ -42,11 +42,13 @@ class LoginRequest extends FormRequest
     {
         $this->ensureIsNotRateLimited();
 
-        // No usamos el segundo argumento de Auth::attempt (cookie "remember_token"
-        // clásica): la duración extendida de "recordarme" se resuelve extendiendo
-        // el lifetime de la propia cookie de sesión (ver
-        // App\Http\Middleware\ExtendSessionLifetimeWhenRemembered).
-        if (! Auth::attempt($this->only('email', 'password'))) {
+        // "Recordarme" se resuelve con la cookie recaller nativa de Laravel: es la
+        // única que sobrevive a la expiración de la sesión del servidor, que con
+        // SESSION_DRIVER=database caduca a los SESSION_LIFETIME minutos de
+        // inactividad pase lo que pase con la cookie de sesión (ver
+        // specs/044-sesion-caida-y-pantallas-trabadas.md). La duración la fija
+        // AuthenticatedSessionController antes de llamar aquí.
+        if (! Auth::attempt($this->only('email', 'password'), $this->boolean('remember'))) {
             RateLimiter::hit($this->throttleKey());
 
             throw ValidationException::withMessages([

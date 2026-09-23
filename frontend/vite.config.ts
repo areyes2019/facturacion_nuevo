@@ -65,6 +65,12 @@ export default defineConfig({
       },
     }),
   ],
+  // Identificador de esta compilación. `main.ts` lo usa para saber si recargar puede cambiar algo:
+  // sin él, una pestaña con un index.html viejo recarga una y otra vez hacia la misma versión rota
+  // (ver 044-sesion-caida-y-pantallas-trabadas.md).
+  define: {
+    __BUILD_ID__: JSON.stringify(Date.now().toString(36)),
+  },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
