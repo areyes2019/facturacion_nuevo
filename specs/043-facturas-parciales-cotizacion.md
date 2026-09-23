@@ -190,6 +190,14 @@ cree el usuario que está haciendo.
 - `destroy()`: `abort_if($cotizacion->factura_id !== null, ...)` pasa a
   `abort_if($cotizacion->facturas()->exists(), 422, 'No se puede eliminar una cotización que ya generó alguna factura.')`.
 - `show()` (y cualquier otro `load()` que hoy pida `'factura'`) pide `'facturas'` en su lugar.
+- **Toda respuesta que el detalle de la cotización usa para reemplazar la que tiene en pantalla
+  carga las mismas relaciones que `show()`**, `facturas` incluida: registrar pago, marcar como
+  entregado, deshacer la entrega, crear el envío a domicilio y marcar el envío como entregado
+  (`CotizacionEnvioController`). La lista vive en una sola constante,
+  `Cotizacion::RELACIONES_DETALLE`, que todas esas acciones y `show()` comparten, para que una
+  relación nueva no se agregue en una y se olvide en las demás. Sin `facturas` en la respuesta, la
+  pantalla —que da por hecho que la lista existe para calcular el botón "Facturar"— se quedaría en
+  blanco justo después de la acción.
 
 ### `CotizacionResource`
 
@@ -341,6 +349,12 @@ Implementada el 2026-09-04.
   de la cotización, si tenía uno, se quedaba pegado en modo "parcial" y habría distorsionado el
   monto capturado; ahora se apaga mientras dura ese modo. Suite Pest (692 tests), build de
   frontend, Vitest y Pint/Prettier vueltos a correr limpios después de esta corrección.
+- **Corrección del 2026-09-23:** en producción, marcar una cotización como entregada dejaba la
+  pantalla en blanco (`Cannot read properties of undefined (reading 'find')`). Solo `show()` pedía
+  `facturas`; las acciones que devuelven la cotización actualizada al detalle (pago, entrega,
+  deshacer entrega, envío) no, y el cálculo del botón "Facturar" tronaba. Se unificaron en
+  `Cotizacion::RELACIONES_DETALLE` (ver `CotizacionController` arriba) y se agregó una prueba que
+  verifica que esas respuestas traen `facturas`.
 
 ## Criterios de aceptación
 
@@ -382,6 +396,9 @@ Implementada el 2026-09-04.
     pago (PUE), sin nodo de CFDI relacionados ni de complemento de anticipo.
 17. `Factura::mueveInventario()` sigue devolviendo `false` para toda factura con `cotizacion_id`,
     sin importar cuántas otras facturas tenga esa misma cotización.
+18. Registrar un pago, marcar la cotización como entregada, deshacer la entrega, crear el envío y
+    marcar el envío como entregado devuelven la cotización con su lista `facturas`; el detalle sigue
+    mostrándose (con la sección "Facturas" y el botón de facturar correctos) después de cada una.
 
 ## Supuestos asumidos (registro completo)
 

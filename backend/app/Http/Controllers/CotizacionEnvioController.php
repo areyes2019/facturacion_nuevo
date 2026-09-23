@@ -69,7 +69,7 @@ class CotizacionEnvioController extends Controller
             }
         });
 
-        return new CotizacionResource($cotizacion->fresh(['cliente', 'lineas', 'pagos', 'envio']));
+        return new CotizacionResource($cotizacion->fresh(Cotizacion::RELACIONES_DETALLE));
     }
 
     /**
@@ -86,6 +86,6 @@ class CotizacionEnvioController extends Controller
 
         $envio->update(['entregado_en' => now()]);
 
-        return new CotizacionResource($cotizacion->fresh(['cliente', 'lineas', 'pagos', 'envio']));
+        return new CotizacionResource($cotizacion->fresh(Cotizacion::RELACIONES_DETALLE));
     }
 }

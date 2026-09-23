@@ -122,7 +122,7 @@ class CotizacionController extends Controller
     {
         abort_unless($cotizacion->user_id === $request->user()->id, 404);
 
-        return new CotizacionResource($cotizacion->load(['cliente', 'lineas.articulo', 'pagos.cuenta', 'facturas', 'ordenTrabajo', 'envio']));
+        return new CotizacionResource($cotizacion->load(Cotizacion::RELACIONES_DETALLE));
     }
 
     /**
@@ -267,7 +267,7 @@ class CotizacionController extends Controller
             }
         });
 
-        return new CotizacionResource($cotizacion->fresh(['cliente', 'lineas.articulo', 'pagos.cuenta']));
+        return new CotizacionResource($cotizacion->fresh(Cotizacion::RELACIONES_DETALLE));
     }
 
     /**
@@ -405,7 +405,7 @@ class CotizacionController extends Controller
 
         return response()->json([
             ...$resultado,
-            'cotizacion' => new CotizacionResource($cotizacion->fresh(['cliente', 'lineas.articulo', 'pagos.cuenta'])),
+            'cotizacion' => new CotizacionResource($cotizacion->fresh(Cotizacion::RELACIONES_DETALLE)),
         ]);
     }
 
@@ -435,7 +435,7 @@ class CotizacionController extends Controller
 
         return response()->json([
             'deshecho' => true,
-            'cotizacion' => new CotizacionResource($cotizacion->fresh(['cliente', 'lineas.articulo', 'pagos.cuenta'])),
+            'cotizacion' => new CotizacionResource($cotizacion->fresh(Cotizacion::RELACIONES_DETALLE)),
         ]);
     }
 

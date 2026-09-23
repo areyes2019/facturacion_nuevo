@@ -375,6 +375,33 @@ test('deshacer una entrega de cotizacion que no cobro nada la regresa a pagada',
     expect(Cotizacion::find($cotizacion->id)->entregado_en)->toBeNull();
 });
 
+test('pagar, entregar y deshacer la entrega devuelven la cotizacion con sus facturas', function () {
+    $user = User::factory()->create();
+    [$cliente] = crearClienteYArticuloParaCotizacion($user);
+    $cotizacion = Cotizacion::factory()->for($user)->for($cliente)->create(['estado' => EstadoCotizacion::Enviada->value, 'total' => 232.00]);
+    $cuenta = Cuenta::factory()->for($user)->create();
+    $factura = Factura::factory()->for($user)->for($cliente)->create([
+        'cotizacion_id' => $cotizacion->id,
+        'estado' => 'timbrada',
+        'total' => 100.00,
+    ]);
+
+    $this->actingAs($user)->postJson("/api/v1/cotizaciones/{$cotizacion->id}/pagos", [
+        'tipo' => 'pago_total',
+        'fecha_pago' => now()->toDateString(),
+        'monto' => 232.00,
+        'cuenta_id' => $cuenta->id,
+    ])->assertOk()->assertJsonPath('data.facturas.0.id', $factura->id);
+
+    $this->actingAs($user)->postJson("/api/v1/cotizaciones/{$cotizacion->id}/entregar")
+        ->assertOk()
+        ->assertJsonPath('cotizacion.facturas.0.id', $factura->id);
+
+    $this->actingAs($user)->postJson("/api/v1/cotizaciones/{$cotizacion->id}/deshacer-entrega")
+        ->assertOk()
+        ->assertJsonPath('cotizacion.facturas.0.id', $factura->id);
+});
+
 test('no se puede deshacer una entrega de cotizacion que registro un cobro', function () {
     $user = User::factory()->create();
     [$cliente] = crearClienteYArticuloParaCotizacion($user);

@@ -56,6 +56,13 @@ class Cotizacion extends Model implements DocumentoEnviable
     /** Ventana para deshacer una entrega, mismo valor y mismo criterio que Pedido::MINUTOS_PARA_DESHACER_ENTREGA (027, 038). */
     public const MINUTOS_PARA_DESHACER_ENTREGA = 5;
 
+    /**
+     * Relaciones que pinta el detalle de la cotización. Las comparten `show()` y toda acción cuya
+     * respuesta reemplaza la cotización en pantalla; si falta alguna (p. ej. `facturas`), el
+     * detalle se queda en blanco tras la acción (ver 043-facturas-parciales-cotizacion.md).
+     */
+    public const RELACIONES_DETALLE = ['cliente', 'lineas.articulo', 'pagos.cuenta', 'facturas', 'ordenTrabajo', 'envio'];
+
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
