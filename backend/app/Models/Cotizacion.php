@@ -177,6 +177,19 @@ class Cotizacion extends Model implements DocumentoEnviable
     }
 
     /**
+     * Una Orden de Trabajo no se elimina y lee todo de su documento origen, así que mientras exista
+     * el documento no puede borrarse (ver 038, supuesto 20). Usa el `withExists` del listado si viene.
+     */
+    public function tieneOrdenTrabajo(): bool
+    {
+        if ($this->orden_trabajo_exists !== null) {
+            return (bool) $this->orden_trabajo_exists;
+        }
+
+        return $this->ordenTrabajo()->exists();
+    }
+
+    /**
      * Una cotización se puede tirar mientras sea borrador/enviada y no arrastre nada que solo otro
      * flujo sabe deshacer: los pagos tienen movimientos de Tesorería que revierte el endpoint de
      * pagos, y una cotización ya facturada quedó atada a un documento fiscal con vida propia (ver
@@ -187,7 +200,8 @@ class Cotizacion extends Model implements DocumentoEnviable
     {
         return $this->estado->esEditable()
             && ! $this->facturas()->exists()
-            && ! $this->tienePagos();
+            && ! $this->tienePagos()
+            && ! $this->tieneOrdenTrabajo();
     }
 
     /** Fecha en que el comando de purga la borraría, o null si no caduca. */
@@ -210,6 +224,7 @@ class Cotizacion extends Model implements DocumentoEnviable
         $query->whereIn('estado', [EstadoCotizacion::Borrador->value, EstadoCotizacion::Enviada->value])
             ->whereDoesntHave('facturas')
             ->whereDoesntHave('pagos')
+            ->whereDoesntHave('ordenTrabajo')
             ->where('updated_at', '<=', now()->subDays(self::DIAS_SIN_MOVIMIENTO));
     }
 

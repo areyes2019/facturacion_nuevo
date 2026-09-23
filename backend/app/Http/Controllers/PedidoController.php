@@ -47,6 +47,7 @@ class PedidoController extends Controller
     {
         $pedidos = $request->user()->pedidos()
             ->withCount('pagos')
+            ->withExists('ordenTrabajo')
             ->withSum('pagos', 'monto')
             ->when($request->string('cliente')->trim()->isNotEmpty(), fn ($query) => $query->where('cliente_nombre', 'like', '%'.$request->string('cliente')->trim().'%'))
             ->when($request->string('telefono')->trim()->isNotEmpty(), fn ($query) => $query->where('cliente_telefono', 'like', '%'.$request->string('telefono')->trim().'%'))
@@ -170,6 +171,7 @@ class PedidoController extends Controller
         abort_unless($pedido->user_id === $request->user()->id, 404);
         abort_if($pedido->factura_id !== null, 422, 'No se puede eliminar un pedido que ya generó una factura.');
         abort_if($pedido->tienePagos(), 422, 'Elimina primero los pagos del pedido: cada uno tiene un movimiento en Tesorería.');
+        abort_if($pedido->tieneOrdenTrabajo(), 422, 'No se puede eliminar un pedido que ya tiene orden de trabajo en Producción.');
         abort_unless($pedido->estado === EstadoPedido::Pendiente, 422, 'Solo se puede eliminar un pedido sin pagos ni entrega.');
 
         DB::transaction(function () use ($pedido) {

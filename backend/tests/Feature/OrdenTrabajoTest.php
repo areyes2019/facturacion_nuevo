@@ -255,3 +255,53 @@ test('marcar entregada desde a domicilio solo funciona en ese estado', function 
     $this->actingAs($user)->postJson("/api/v1/ordenes-trabajo/{$orden->id}/entregar")
         ->assertStatus(422);
 });
+
+test('un pedido con orden de trabajo no puede eliminarse aunque ya no tenga pagos', function () {
+    $user = User::factory()->create();
+    $pedido = pedidoConPago($user);
+    crearOrdenDesdePedido($user, $pedido);
+
+    $pago = $pedido->pagos()->firstOrFail();
+    $this->actingAs($user)->deleteJson("/api/v1/pedidos/{$pedido->id}/pagos/{$pago->id}")->assertSuccessful();
+
+    $this->actingAs($user)->getJson('/api/v1/pedidos')
+        ->assertJsonPath('data.0.puede_eliminarse', false);
+
+    $this->actingAs($user)->deleteJson("/api/v1/pedidos/{$pedido->id}")->assertUnprocessable();
+
+    expect(Pedido::find($pedido->id))->not->toBeNull();
+    $this->actingAs($user)->getJson('/api/v1/ordenes-trabajo')->assertOk()->assertJsonCount(1, 'data');
+});
+
+test('una cotizacion con orden de trabajo no puede eliminarse ni caducar aunque ya no tenga pagos', function () {
+    $user = User::factory()->create();
+    $cliente = Cliente::factory()->for($user)->create();
+    $cotizacion = Cotizacion::factory()->for($user)->for($cliente)->create(['total' => 232.00]);
+    $cuenta = Cuenta::factory()->for($user)->create();
+
+    $this->actingAs($user)->postJson("/api/v1/cotizaciones/{$cotizacion->id}/pagos", [
+        'tipo' => 'anticipo',
+        'fecha_pago' => now()->toDateString(),
+        'monto' => 100.00,
+        'cuenta_id' => $cuenta->id,
+    ])->assertOk();
+
+    $this->actingAs($user)->postJson('/api/v1/ordenes-trabajo', [
+        'documentable_type' => 'cotizacion',
+        'documentable_id' => $cotizacion->id,
+    ])->assertCreated();
+
+    $pago = $cotizacion->pagos()->firstOrFail();
+    $this->actingAs($user)->deleteJson("/api/v1/cotizaciones/{$cotizacion->id}/pagos/{$pago->id}")->assertSuccessful();
+
+    $this->actingAs($user)->getJson('/api/v1/cotizaciones')
+        ->assertJsonPath('data.0.puede_eliminarse', false);
+
+    $this->actingAs($user)->deleteJson("/api/v1/cotizaciones/{$cotizacion->id}")->assertUnprocessable();
+
+    Cotizacion::whereKey($cotizacion->id)->update(['updated_at' => now()->subDays(Cotizacion::DIAS_SIN_MOVIMIENTO + 1)]);
+    $this->artisan('cotizaciones:purgar-vencidas')->assertExitCode(0);
+
+    expect(Cotizacion::find($cotizacion->id))->not->toBeNull();
+    $this->actingAs($user)->getJson('/api/v1/ordenes-trabajo')->assertOk()->assertJsonCount(1, 'data');
+});

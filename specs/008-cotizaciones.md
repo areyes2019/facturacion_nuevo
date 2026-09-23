@@ -213,8 +213,9 @@ del repositorio.
 - `GET /api/v1/cotizaciones/{id}` — detalle (incluye líneas y pagos).
 - `PUT /api/v1/cotizaciones/{id}` — edición; permitida solo si el estado es `borrador` o
   `enviada` (`422` si `pagada`/`producto_entregado`); si estaba `enviada`, la deja en `borrador`.
-- `DELETE /api/v1/cotizaciones/{id}` — borrado físico; solo si `borrador` o `enviada` y sin pagos
-  registrados (`422` en cualquier otro caso, con el motivo en el mensaje). `CotizacionResource`
+- `DELETE /api/v1/cotizaciones/{id}` — borrado físico; solo si `borrador` o `enviada`, sin pagos
+  registrados, sin facturas y sin Orden de Trabajo de Producción (038) (`422` en cualquier otro
+  caso, con el motivo en el mensaje). `CotizacionResource`
   expone **`puede_eliminarse`** (booleano) con esa misma regla evaluada en el servidor, para que el
   frontend decida si pinta el botón sin reimplementar la condición en TypeScript.
 - `POST /api/v1/cotizaciones/{id}/enviar` — body `{ canal: correo, destinatarios }`; manda el correo
@@ -489,7 +490,8 @@ tests nuevos en `TesoreriaTest.php` (668 tests del backend, todos en verde); Pin
    `borrador`. No es editable ni eliminable en `pagada`/`producto_entregado`.
 9. Una cotización `borrador` o `enviada` sin pagos registrados puede eliminarse (borrado físico,
    se lleva sus líneas), tanto desde el listado como desde el detalle. Si tiene algún pago
-   registrado, el borrado se rechaza con error de validación y el botón no se muestra.
+   registrado o una Orden de Trabajo (038), el borrado se rechaza con error de validación y el botón
+   no se muestra; la purga automática tampoco la toca.
 10. Una cotización puede facturarse desde cualquiera de sus 4 estados. Al hacerlo sin factura
     asociada, se navega al formulario de crear factura precargado (cliente fijo, líneas editables).
 11. Si la factura asociada queda `pendiente` (timbrado fallido), el botón "Facturar" de la

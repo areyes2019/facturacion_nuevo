@@ -116,7 +116,8 @@ propio que reusa los mismos servicios.
 - Sin soft delete: el `DELETE` es físico (se lleva sus líneas). Se permite solo en estado
   `pendiente` y **sin ningún pago registrado** — mismo criterio que 008: los pagos tienen un
   movimiento de Tesorería colgado y hay que borrarlos con el endpoint de pagos, que es quien sabe
-  revertir el movimiento y recalcular el saldo de la cuenta.
+  revertir el movimiento y recalcular el saldo de la cuenta. Tampoco se permite si el pedido tiene
+  Orden de Trabajo de Producción (038, criterio 18).
 
 Campos derivados que expone el recurso (no columnas): `pagado` (suma de `pedido_pagos.monto`) y
 `saldo` (`total - pagado`).

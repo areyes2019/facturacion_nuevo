@@ -392,6 +392,9 @@ los casos:
 16. Pint y ESLint/Prettier corren sin errores sobre el código nuevo.
 17. El escáner de etiquetas del modo mostrador (029) reconoce tanto una etiqueta de `Pedido` como
     una de `Cotizacion`, y navega a la pantalla de entrega que corresponde a cada una.
+18. Un `Pedido` o `Cotizacion` con Orden de Trabajo no puede eliminarse (`422`, aunque ya no le
+    queden pagos), su `puede_eliminarse` vale `false` y la purga automática de cotizaciones vencidas
+    (008) no lo toca.
 
 ## Supuestos asumidos (registro completo)
 
@@ -434,3 +437,8 @@ los casos:
     entregar la primera versión de esta spec, al notar que el escáner interno rechazaba una
     etiqueta de Cotización aunque el escaneo con la cámara normal del celular sí funcionaba (la URL
     del QR es absoluta y no depende de este escáner).
+20. Como una Orden de Trabajo no se elimina (supuesto 18) y no guarda copia de su documento origen,
+    tener una Orden de Trabajo bloquea el borrado del `Pedido`/`Cotizacion` de origen, igual que un
+    pago o una factura. Sin esta regla, borrar los pagos regresaba el documento a un estado
+    eliminable y al borrarlo la orden quedaba huérfana, rompiendo el listado de Producción (`500`).
+    La regla vive en `puedeEliminarse()` de cada modelo y en el scope `vencidas` de `Cotizacion`.

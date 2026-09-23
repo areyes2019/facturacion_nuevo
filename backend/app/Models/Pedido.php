@@ -155,6 +155,19 @@ class Pedido extends Model
     }
 
     /**
+     * Una Orden de Trabajo no se elimina y lee todo de su documento origen, así que mientras exista
+     * el documento no puede borrarse (ver 038, supuesto 20). Usa el `withExists` del listado si viene.
+     */
+    public function tieneOrdenTrabajo(): bool
+    {
+        if ($this->orden_trabajo_exists !== null) {
+            return (bool) $this->orden_trabajo_exists;
+        }
+
+        return $this->ordenTrabajo()->exists();
+    }
+
+    /**
      * Un pedido se puede tirar mientras nadie haya pagado nada. Con pagos de por medio hay
      * movimientos de Tesorería colgando, y quien sabe revertirlos —y recalcular el saldo de la
      * cuenta— es el endpoint de pagos, no el `DELETE` del documento (mismo criterio que 008).
@@ -163,7 +176,8 @@ class Pedido extends Model
     {
         return $this->estado === EstadoPedido::Pendiente
             && $this->factura_id === null
-            && ! $this->tienePagos();
+            && ! $this->tienePagos()
+            && ! $this->tieneOrdenTrabajo();
     }
 
     /**

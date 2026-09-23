@@ -52,9 +52,10 @@ class CotizacionController extends Controller
     {
         $cotizaciones = $request->user()->cotizaciones()
             ->with('cliente')
-            // `puede_eliminarse` del Resource necesita saber si tiene pagos: contarlos en la misma
-            // consulta evita una por fila del listado.
+            // `puede_eliminarse` del Resource necesita saber si tiene pagos y orden de trabajo:
+            // resolverlo en la misma consulta evita una por fila del listado.
             ->withCount('pagos')
+            ->withExists('ordenTrabajo')
             // Buscador único del mostrador: folio, razón social y RFC a la vez, como el de facturas
             // (ver 031-mostrador-consulta.md). Convive con los tres filtros de abajo, que son los
             // que la tabla por columnas del escritorio necesita separados.
@@ -178,6 +179,7 @@ class CotizacionController extends Controller
         abort_unless($cotizacion->estado->esEditable(), 422, 'Solo se puede eliminar una cotización en borrador o enviada.');
         abort_if($cotizacion->facturas()->exists(), 422, 'No se puede eliminar una cotización que ya generó alguna factura.');
         abort_if($cotizacion->tienePagos(), 422, 'Elimina primero los pagos de la cotización: cada uno tiene un movimiento en Tesorería.');
+        abort_if($cotizacion->tieneOrdenTrabajo(), 422, 'No se puede eliminar una cotización que ya tiene orden de trabajo en Producción.');
 
         $cotizacion->delete();
 
