@@ -240,6 +240,63 @@ el que se obtiene.
 
 ---
 
+## Causa 4: un error al dibujar una pantalla la deja completamente en blanco
+
+### El defecto
+
+Con las causas 1 a 3 ya en producción, el síntoma volvió a reportarse con la misma consola. Se
+reprodujo en Chrome contra un build idéntico al desplegado (mismos hashes de assets), con service
+worker activo, y **ninguno de esos mensajes indica una falla**:
+
+- El `401` de `GET api/v1/user` es la pregunta "¿hay sesión?" que hace el guard en toda visita sin
+  sesión —la pantalla de login incluida, antes de escribir la contraseña— y lo que sigue es el
+  login, como pide el criterio 15. Con "recordarme" la sesión revive; sin él, se llega al login con
+  el aviso. En ningún caso de sesión quedó la pantalla en blanco.
+- Los avisos de `rolldown-runtime` salen en **cada** carga controlada por el service worker (ver
+  "Lo que tampoco es un problema", abajo).
+
+Lo que sí deja la pantalla completamente en blanco es otra cosa, y ya ocurrió en producción el
+2026-09-23 ([043](043-facturas-parciales-cotizacion.md): `Cannot read properties of undefined
+(reading 'find')` al entregar una cotización): **un error de JavaScript al dibujar una vista**.
+Cada vista envuelve su propio `AppLayout`, así que cuando su render truena Vue no dibuja nada de
+ella —ni el menú—, y como no hay `app.config.errorHandler` el error solo va a la consola. El usuario
+ve una página en blanco sin ninguna explicación. `router.onError()` (causa 3) no lo cubre: solo
+atiende los módulos que no cargaron.
+
+### La corrección
+
+**`src/main.ts` — `app.config.errorHandler`.** Ante un error de un componente, si después de él
+**no quedó nada dibujado** en `#app`, se muestra la misma pantalla a pantalla completa de la causa 3,
+con su botón "Recargar", y el texto "Ocurrió un error al mostrar esta pantalla. Recarga la página.".
+El error se sigue escribiendo en la consola: definir el manejador le quita a Vue ese registro y sin
+él no habría con qué diagnosticar.
+
+- Si el error deja algo en pantalla —truena una celda de una tabla o un diálogo, y el menú y el
+  resto de la vista siguen ahí—, **no** se muestra: se comprobó en el navegador que ese caso deja la
+  página usable, y taparla entera sería peor que el error. Por eso la condición es "no quedó nada",
+  y no el tipo de error que Vue reporta.
+- Un error de `axios` nunca la muestra: los 401 ya los resuelve el interceptor llevando al login, y
+  los demás los informa cada pantalla.
+- `mostrarPantallaQueNoCarga()` recibe el texto como parámetro para servir a los dos casos.
+
+### Lo que tampoco es un problema: los avisos de `rolldown-runtime`
+
+```
+A preload for '.../assets/rolldown-runtime-XXXX.js' is found, but is not used because it is a
+cross-world service worker resource mismatch.
+The resource .../assets/rolldown-runtime-XXXX.js was preloaded using link preload but not used
+within a few seconds from the window's load event.
+```
+
+`rolldown-runtime` es el pequeño módulo de arranque que Vite (con Rolldown) separa en su propio
+chunk, y el `<link rel="modulepreload">` lo inyecta Vite en `index.html` para todos los módulos que
+el punto de entrada importa. Cuando la página está controlada por el service worker, Chrome no
+aprovecha esa precarga para la importación real y descarga el archivo otra vez —del precache, sin
+tocar la red—; los dos avisos dicen eso mismo. Aparecen en todas las cargas, sanas o no, y el
+módulo sí se ejecuta. **No se toca nada por ellos** en esta spec.
+
+---
+
 ## Backend (Laravel)
 
 - `app/Http/Requests/Auth/LoginRequest.php`: `Auth::attempt($this->only('email', 'password'), $this->boolean('remember'))`.
@@ -265,6 +322,9 @@ el que se obtiene.
   `useRegisterSW` directo. El aviso y su texto no cambian.
 - `src/main.ts`: `vite:preloadError` usa `aplicarActualizacion()` y la bandera atada al build id;
   `router.onError()` para el mensaje de pantalla que no carga.
+- `src/main.ts`: `app.config.errorHandler` muestra la pantalla de "Recargar" cuando un error de
+  componente deja `#app` vacío (nunca ante un error de `axios`) y sigue escribiendo el error en la
+  consola; `mostrarPantallaQueNoCarga()` recibe el texto como parámetro.
 - `vite.config.ts`: `define` con el identificador de compilación. La configuración de `VitePWA`
   —`registerType: 'prompt'`, `workbox`, `manifest`— **no se toca**.
 
@@ -329,6 +389,20 @@ Implementada el 2026-09-23.
   aviso al caer la sesión), el 7 (reintento de CSRF al guardar), el 10 (bache de red que no saca al
   usuario) y los criterios 11 a 14, que además exigen un despliegue real de por medio. Los
   criterios 1 a 5 sí quedan cubiertos por las pruebas nuevas.
+- **Causa 4, agregada el 2026-09-25** tras volver a reportarse el síntoma con la misma consola.
+  Antes de tocar nada se reprodujo en Chrome (Playwright) contra `vite preview` de un build con los
+  mismos hashes que producción, service worker activo y el backend local: con la sesión borrada de
+  la tabla `sessions`, sin "recordarme" navegar dentro del SPA llevó a
+  `/login?redirect=/dashboard&expirada=1` y recargar `/dashboard` o `/cotizaciones` a
+  `/login?redirect=…`; con "recordarme" las tres siguieron dentro. Eso deja comprobados en navegador
+  real los criterios 1, 3, 4, 6 y 9. Los mensajes de `rolldown-runtime` salieron en todas las
+  cargas controladas por el service worker, también en las sanas.
+- **Criterio 16, comprobado en ese mismo navegador**: sirviendo el detalle de una cotización sin
+  `facturas` (el caso del 2026-09-23), el build anterior dejó `#app` con cero caracteres visibles;
+  con el manejador sale el mensaje con "Recargar" y el `TypeError` sigue en la consola. Un dato
+  malformado que truena solo una celda de `/cotizaciones` o del dashboard dejó el menú y la vista
+  en pie y **no** mostró el mensaje, como se quería. `vue-tsc -b`, ESLint, Prettier y Vitest (96)
+  limpios.
 
 ## Criterios de aceptación
 
@@ -366,6 +440,9 @@ Implementada el 2026-09-23.
     comporta igual que antes de esta spec.
 15. `GET api/v1/user` sigue respondiendo 401 —y no un redirect— cuando de verdad no hay sesión: es
     una API pura y `redirectGuestsTo(null)` no cambia.
+16. Si una pantalla truena al dibujarse —un dato que llega distinto de lo esperado—, se ve el
+    mensaje "Ocurrió un error al mostrar esta pantalla. Recarga la página." con su botón, nunca una
+    página en blanco, y el error sigue apareciendo en la consola del navegador.
 
 ## Supuestos asumidos (registro completo)
 
@@ -399,3 +476,10 @@ Implementada el 2026-09-23.
     despliegue real; en la implementación se cubrirán con pruebas que manipulen `last_activity` y
     el reloj en vez de esperar, y las comprobaciones que solo se pueden hacer en un navegador real
     quedarán anotadas como pendientes en "Estado de implementación", como en las demás historias.
+14. El `401` de `GET api/v1/user` en una visita sin sesión es la respuesta correcta a "¿hay
+    sesión?" y no se esconde ni se evita: el criterio 15 lo exige así.
+15. La red de seguridad contra la pantalla en blanco actúa solo cuando `#app` quedó sin nada
+    visible después del error. Los errores que dejan parte de la pantalla en pie se siguen
+    registrando en la consola sin taparla.
+16. Los avisos de `rolldown-runtime` en consola son esperados con service worker y no se toca nada
+    por ellos.

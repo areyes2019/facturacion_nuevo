@@ -1,4 +1,5 @@
-import { createApp } from 'vue'
+import axios from 'axios'
+import { createApp, nextTick } from 'vue'
 import { createPinia } from 'pinia'
 import './style.css'
 import App from './App.vue'
@@ -39,11 +40,11 @@ function esFalloDeChunk(error: unknown): boolean {
 }
 
 /**
- * Última red: la navegación falló y ya no se va a reintentar. Se dibuja sin Vue y con estilos en
- * línea a propósito —la hoja de estilos puede ser justo lo que no cargó—, porque lo único peor que
- * esta pantalla es la pantalla en blanco sin explicación que había antes.
+ * Última red: la pantalla no se va a poder dibujar. Se dibuja sin Vue y con estilos en línea a
+ * propósito —la hoja de estilos puede ser justo lo que no cargó, o Vue lo que tronó—, porque lo
+ * único peor que esta pantalla es la pantalla en blanco sin explicación que había antes.
  */
-function mostrarPantallaQueNoCarga(): void {
+function mostrarPantallaQueNoCarga(mensaje: string): void {
   if (document.getElementById('pantalla-sin-cargar')) return
 
   const aviso = document.createElement('div')
@@ -57,7 +58,7 @@ function mostrarPantallaQueNoCarga(): void {
   )
 
   const texto = document.createElement('p')
-  texto.textContent = 'No se pudo cargar esta pantalla. Recarga la página.'
+  texto.textContent = mensaje
   texto.setAttribute('style', 'margin:0;font-size:16px')
 
   const boton = document.createElement('button')
@@ -75,13 +76,31 @@ function mostrarPantallaQueNoCarga(): void {
 }
 
 router.onError((error) => {
-  if (esFalloDeChunk(error)) mostrarPantallaQueNoCarga()
+  if (esFalloDeChunk(error))
+    mostrarPantallaQueNoCarga('No se pudo cargar esta pantalla. Recarga la página.')
 })
 
 const app = createApp(App)
 
 app.use(createPinia())
 app.use(router)
+
+// Un error al dibujar una vista la dejaba en blanco, con el error solo en la consola (ver
+// 044-sesion-caida-y-pantallas-trabadas.md, causa 4). La pantalla de "Recargar" sale solo si de
+// verdad no quedó nada: un error dentro de una celda o de un diálogo deja el resto usable, y taparlo
+// sería peor. Los de axios no entran: un 401 lo resuelve el interceptor y los demás cada pantalla.
+app.config.errorHandler = (error) => {
+  // Definir el manejador le quita a Vue el registro en consola; sin él no habría qué diagnosticar.
+  console.error(error)
+
+  if (axios.isAxiosError(error)) return
+
+  void nextTick(() => {
+    if (!document.getElementById('app')?.innerText.trim()) {
+      mostrarPantallaQueNoCarga('Ocurrió un error al mostrar esta pantalla. Recarga la página.')
+    }
+  })
+}
 
 // El interceptor de `http` avisa que el servidor ya no reconoce la sesión; qué hacer con eso se
 // decide aquí, que es donde existen el router y el store (ver 044-sesion-caida-y-pantallas-trabadas.md).
